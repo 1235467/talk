@@ -90,7 +90,7 @@ export function ChatPage() {
       return
     }
     let cancelled = false
-    buildPrivateStatusLine(contact).then((text) => {
+    void buildPrivateStatusLine(contact).then((text) => {
       if (!cancelled) setStatusLine(text)
     })
     return () => {
@@ -192,7 +192,7 @@ export function ChatPage() {
   // while the user is still looking at it (keeps it cleared in real time).
   useEffect(() => {
     if (!conversationId || messages.length === 0) return
-    db.conversations.update(conversationId, { lastReadAt: Date.now() })
+    void db.conversations.update(conversationId, { lastReadAt: Date.now() })
   }, [conversationId, messages.length])
 
   // useLayoutEffect (not useEffect) so the jump-to-bottom happens before the
@@ -412,7 +412,7 @@ export function ChatPage() {
   const handleLinkClick = useCallback((message: Message) => {
     const routes: Record<string, string> = { work: '/work', shop: '/shop', warehouse: '/warehouse' }
     const path = message.link?.app ? routes[message.link.app] : undefined
-    if (path) navigate(path)
+    if (path) void navigate(path)
     else setToast('暂不支持这个小程序')
   }, [navigate])
   async function repayLoan(){if(!contact||!conversationId)return;const loan=await db.loans.filter(l=>l.status==='active'&&l.borrowerId===USER_WALLET_ID&&l.lenderId===contact.id).first();if(!loan){setToast('没有需要归还的借款');return}try{const tx=await transferFunds({from:USER_WALLET_ID,to:contact.id,amount:loan.outstanding,kind:'repayment',note:'归还借款',idempotencyKey:`repay:${loan.id}`});await db.loans.update(loan.id,{status:'repaid',outstanding:0,resolvedAt:Date.now()});await db.messages.add({id:uuid(),conversationId,role:'user',type:'repayment',content:'归还借款',finance:{transactionId:tx.id,loanId:loan.id,amount:loan.outstanding,status:'repaid'},createdAt:Date.now()});void triggerAiTurn(conversationId,contact,settings,stickers)}catch(e){setToast(e instanceof Error?e.message:String(e))}}
@@ -710,7 +710,7 @@ export function ChatPage() {
                 onKeyDown={(e) => {
                   if (!assistBusy && e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
-                    handleSend()
+                    void handleSend()
                   }
                 }}
                 disabled={assistBusy}

@@ -63,9 +63,9 @@ export function WarehousePage() {
       setToast('这件物品已经用完了')
       return
     }
-    if (conv && contact) triggerAiTurn(conv.id, contact, settings, stickers)
+    if (conv && contact) void triggerAiTurn(conv.id, contact, settings, stickers)
     setGifting(null)
-    navigate(conv ? `/chat/${conv.id}` : '/contacts')
+    void navigate(conv ? `/chat/${conv.id}` : '/contacts')
   }
 
   async function handleRepurchase(item: InventoryItem) {

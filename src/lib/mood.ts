@@ -4,6 +4,6 @@ export const MOOD_EMOJIS = ['😀', '😊', '🥰', '😌', '😶', '😴', '�
 export type MoodEmoji = (typeof MOOD_EMOJIS)[number]
 
 export function normalizeMood(value: unknown, fallback: MoodEmoji = '😌'): MoodEmoji {
-  const text = String(value || '')
+  const text = typeof value === 'string' ? value : ''
   return (MOOD_EMOJIS.find((emoji) => text.includes(emoji)) ?? fallback) as MoodEmoji
 }

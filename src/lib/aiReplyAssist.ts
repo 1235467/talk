@@ -7,7 +7,7 @@ import { retrieveWorldbookContext } from './worldbook'
 import { featureActive, getPromptTemplate } from './promptModules'
 
 function trimText(value: unknown, limit = 900) {
-  const text = String(value || '').trim()
+  const text = typeof value === 'string' ? value.trim() : ''
   return text.length > limit ? `${text.slice(0, limit)}…` : text
 }
 

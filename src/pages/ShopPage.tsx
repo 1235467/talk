@@ -81,7 +81,7 @@ export function ShopPage() {
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault()
-              generate(query.trim() || null)
+              void generate(query.trim() || null)
             }
           }}
           placeholder="搜索想买的东西"

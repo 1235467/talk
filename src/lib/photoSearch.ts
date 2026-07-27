@@ -51,10 +51,11 @@ export async function searchPexelsPhoto(
       console.warn(`[photo] Pexels返回结果但没有可用图片链接 query="${query}"`)
       return null
     }
-    console.log(`[photo] Pexels搜索成功 query="${query}" photographer=${record.photographer ?? '未知'}`)
+    const photographer = typeof record.photographer === 'string' ? record.photographer : undefined
+    console.log(`[photo] Pexels搜索成功 query="${query}" photographer=${photographer ?? '未知'}`)
     return {
       url: String(src),
-      photographer: typeof record.photographer === 'string' ? record.photographer : undefined,
+      photographer,
       photographerUrl: typeof record.photographer_url === 'string' ? record.photographer_url : undefined,
     }
   } catch (error) {

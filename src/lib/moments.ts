@@ -600,7 +600,7 @@ export async function generateMomentReply(
     const stickerNames = stickers.map((s) => s.name)
     const replyWorldbookEntries =
       featureActive(settings, 'worldview')
-        ? await retrieveWorldbookContext(`${poster.name}\n${poster.systemPrompt}\n${moment.content}\n${threadLines}`)
+        ? await retrieveWorldbookContext(`${poster.name}\n${poster.systemPrompt}\n${moment.content}\n${threadLines.join('\n')}`)
         : ''
     const replyWorldbookPrompt = replyWorldbookEntries
       ? (getPromptTemplate(settings, 'worldview', 'momentsRuntime', { worldbookEntries: replyWorldbookEntries }) ?? '')

@@ -100,8 +100,9 @@ function parseNuwaStructuredResult(raw: string): NuwaStructuredResult | null {
   try {
     const text = (...keys: string[]) => {
       const item = keys.map((key) => value[key]).find((candidate) => candidate !== undefined && candidate !== null)
-      if (Array.isArray(item)) return item.map((entry) => String(entry).trim()).filter(Boolean).join('、')
-      return typeof item === 'string' ? item.trim() : item == null ? '' : String(item).trim()
+      const scalar = (entry: unknown) => typeof entry === 'string' || typeof entry === 'number' ? String(entry).trim() : ''
+      if (Array.isArray(item)) return item.map(scalar).filter(Boolean).join('、')
+      return scalar(item)
     }
     return {
       realName: text('realName', '真名'),
@@ -712,7 +713,7 @@ issues 要用简短中文列出具体错误。` },
         sharedHistory: effectiveSharedHistory || undefined,
         createdAt: now,
       })
-      navigate('/contacts')
+      void navigate('/contacts')
       console.info(`[persona-perf] 创建完成=${Math.round(performance.now() - generationStartedAt)}ms`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

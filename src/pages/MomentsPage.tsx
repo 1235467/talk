@@ -309,7 +309,7 @@ export function MomentsPage() {
                           value={commentDraft}
                           onChange={(e) => setCommentDraft(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') submitComment(m.id, poster?.id)
+                            if (e.key === 'Enter') void submitComment(m.id, poster?.id)
                           }}
                           placeholder={replyTarget ? `回复${replyTarget.authorLabel}：` : '说点什么…'}
                           autoFocus

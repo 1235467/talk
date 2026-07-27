@@ -30,7 +30,7 @@ export function ContactsPage() {
     try {
       const result = await createStrawmanContact(sourceId)
       setCreatingStrawman(false)
-      navigate(`/contact/${result.id}`)
+      void navigate(`/contact/${result.id}`)
     } catch (err) {
       setStrawmanError(err instanceof Error ? err.message : String(err))
     } finally {

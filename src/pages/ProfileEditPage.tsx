@@ -26,7 +26,7 @@ export function ProfileEditPage() {
       userBirthday: birthday,
       userBio: bio.trim(),
     })
-    navigate(-1)
+    void navigate(-1)
   }
 
   return (

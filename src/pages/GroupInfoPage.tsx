@@ -212,7 +212,7 @@ export function GroupInfoPage() {
       await db.conversations.delete(conv.id)
     }
     await db.groups.delete(group.id)
-    navigate('/', { replace: true })
+    void navigate('/', { replace: true })
   }
 
   if (group === undefined) return null

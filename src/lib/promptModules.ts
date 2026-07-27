@@ -302,7 +302,10 @@ export function featureActive(
 export function renderPromptTemplate(templateText: string, variables: Record<string, unknown>): string {
   return templateText.replace(/{{\s*([A-Za-z][A-Za-z0-9_]*)\s*}}/g, (_, key: string) => {
     const value = variables[key]
-    return value === undefined || value === null ? '' : String(value)
+    if (value === undefined || value === null) return ''
+    if (typeof value === 'string') return value
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value)
+    return JSON.stringify(value)
   }).trim()
 }
 

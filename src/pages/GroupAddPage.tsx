@@ -44,7 +44,7 @@ export function GroupAddPage() {
       })
       const conversationId = uuid()
       await db.conversations.add({ id: conversationId, groupId, pinned: false, createdAt: now, updatedAt: now })
-      navigate(`/chat/${conversationId}`, { replace: true })
+      void navigate(`/chat/${conversationId}`, { replace: true })
     } finally {
       setCreating(false)
     }

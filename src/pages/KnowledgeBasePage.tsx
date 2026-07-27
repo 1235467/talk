@@ -46,7 +46,7 @@ export function KnowledgeBasePage() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault()
-                  handleSearchKnowledge()
+                  void handleSearchKnowledge()
                 }
               }}
               placeholder="想让AI了解点什么？比如一个梗/番剧/游戏名字"

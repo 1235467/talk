@@ -678,7 +678,7 @@ function revealGroupBubbles(
 
           if (i === bubbles.length - 1) {
         useChatEngineStore.getState().patch(conversationId, { aiTyping: false, typingLabel: undefined })
-        maybeUpdateGroupMemory(group.id, conversationId, members, settings)
+        void maybeUpdateGroupMemory(group.id, conversationId, members, settings)
 
         // A group conversation is shared context: unlike a private chat, it
         // can naturally colour a member's later 1:1 chat and a follow-up

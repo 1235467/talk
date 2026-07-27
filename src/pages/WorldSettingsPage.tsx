@@ -45,7 +45,7 @@ export function WorldSettingsPage() {
       await db.worldbookEntries.bulkAdd(parsed.entries)
     })
     setParsed(null)
-    navigate(`/world-settings/${collection.id}`)
+    void navigate(`/world-settings/${collection.id}`)
   }
 
   async function createCollection() {
@@ -54,7 +54,7 @@ export function WorldSettingsPage() {
     const now = Date.now()
     const id = uuid()
     await db.worldbookCollections.add({ id, name, enabled: true, sourceType: 'manual', createdAt: now, updatedAt: now })
-    navigate(`/world-settings/${id}`)
+    void navigate(`/world-settings/${id}`)
   }
 
   return <div className="relative flex h-[var(--app-height)] flex-col overflow-hidden bg-[#f4f4f6]">

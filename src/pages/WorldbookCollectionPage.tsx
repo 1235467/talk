@@ -88,7 +88,7 @@ export function WorldbookCollectionPage() {
       await db.worldbookEntries.where('collectionId').equals(collectionId).delete()
       await db.worldbookCollections.delete(collectionId)
     })
-    navigate('/world-settings')
+    void navigate('/world-settings')
   }
 
   async function renameCollection() {

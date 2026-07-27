@@ -279,7 +279,7 @@ export class TalkDB extends Dexie {
       const table = tx.table('inventory')
       const items = await table.toArray() as Array<Record<string, any>>
       const groups = new Map<string, Array<Record<string, any>>>()
-      const normalize = (value: unknown) => String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+      const normalize = (value: unknown) => (typeof value === 'string' || typeof value === 'number' ? String(value) : '').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
       for (const item of items) {
         const key = typeof item.productKey === 'string' && item.productKey
           ? item.productKey

@@ -82,11 +82,11 @@ function useAndroidBackButton() {
       if (canGoBack) {
         window.history.back()
       } else {
-        CapacitorApp.exitApp()
+        void CapacitorApp.exitApp()
       }
     })
     return () => {
-      listenerPromise.then((l) => l.remove())
+      void listenerPromise.then((l) => l.remove())
     }
   }, [])
 }

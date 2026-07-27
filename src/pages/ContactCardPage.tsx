@@ -158,7 +158,7 @@ export function ContactCardPage() {
       conv = { id: uuid(), contactId: contactId!, pinned: false, createdAt: now, updatedAt: now }
       await db.conversations.add(conv)
     }
-    navigate(`/chat/${conv.id}`)
+    void navigate(`/chat/${conv.id}`)
   }
 
   async function handleDelete() {
@@ -169,7 +169,7 @@ export function ContactCardPage() {
     await cascadeDeleteContactSocialData(contactId!)
     await removeContactFromAllGroups(contactId!)
     await db.contacts.delete(contactId!)
-    navigate('/contacts', { replace: true })
+    void navigate('/contacts', { replace: true })
   }
 
   function openRelationEditor() {

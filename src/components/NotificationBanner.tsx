@@ -23,7 +23,7 @@ export function NotificationBanner() {
       role="button"
       tabIndex={0}
       onClick={() => {
-        navigate(`/chat/${notification.conversationId}`)
+        void navigate(`/chat/${notification.conversationId}`)
         dismissNotification()
       }}
       className="absolute left-2 right-2 top-2 z-50 flex animate-[notice-in_180ms_ease-out] items-center gap-2.5 rounded-2xl bg-white p-3 text-left shadow-lg ring-1 ring-black/5"

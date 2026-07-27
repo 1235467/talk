@@ -141,7 +141,11 @@ function normalizeEntry(value: unknown, collectionId: string, index: number, now
     enabled,
     foundationalWorldview: false,
     priority: Math.max(0, Math.min(100, number(priorityValue, 50))),
-    sourceEntryId: String(row.id ?? row.uid ?? index),
+    sourceEntryId: typeof row.id === 'string' || typeof row.id === 'number'
+      ? String(row.id)
+      : typeof row.uid === 'string' || typeof row.uid === 'number'
+        ? String(row.uid)
+        : String(index),
     sourceOrder: index,
     rawData: row,
     createdAt: now,

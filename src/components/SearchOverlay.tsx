@@ -101,7 +101,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
                   key={contact.id}
                   onClick={() => {
                     onClose()
-                    navigate(`/contact/${contact.id}`)
+                    void navigate(`/contact/${contact.id}`)
                   }}
                   className="flex w-full items-center gap-3 px-4 py-2 text-left active:bg-gray-50"
                 >
@@ -128,7 +128,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
                   key={group.id}
                   onClick={() => {
                     onClose()
-                    navigate(conv ? `/chat/${conv.id}` : `/group/${group.id}`)
+                    void navigate(conv ? `/chat/${conv.id}` : `/group/${group.id}`)
                   }}
                   className="flex w-full items-center gap-3 px-4 py-2 text-left active:bg-gray-50"
                 >
@@ -155,7 +155,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
                   key={message.id}
                   onClick={() => {
                     onClose()
-                    navigate(`/chat/${message.conversationId}?highlight=${message.id}`)
+                    void navigate(`/chat/${message.conversationId}?highlight=${message.id}`)
                   }}
                   className="flex w-full items-center gap-2 px-4 py-2 text-left active:bg-gray-50"
                 >

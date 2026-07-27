@@ -418,7 +418,8 @@ async function generateAtlas(
       headers: { Authorization: `Bearer ${config.apiKey.trim()}` },
     })
     ensureOk(poll, 'Atlas 任务查询')
-    const status = String(getPath(poll.data, 'data.status') ?? getPath(poll.data, 'status') ?? '').toLowerCase()
+    const rawStatus = getPath(poll.data, 'data.status') ?? getPath(poll.data, 'status')
+    const status = typeof rawStatus === 'string' ? rawStatus.toLowerCase() : ''
     const result = generatedImageFromPayload(getPath(poll.data, 'data.outputs') ?? getPath(poll.data, 'outputs'), 'atlas', query)
     if (result) return result
     if (['failed', 'error', 'cancelled', 'canceled'].includes(status)) {

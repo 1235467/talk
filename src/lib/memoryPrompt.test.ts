@@ -41,7 +41,7 @@ describe('shared memory/relationship/intent model prompt', () => {
   it('omits feature-gated fields when the feature switch is off', () => {
     const promptModules = createDefaultPromptModules()
     const prompt = buildMemoryUpdatePrompt({
-      settings: { promptModules, enabledModules: [] } as AppSettings,
+      settings: { promptModules, enabledModules: [] } as unknown as AppSettings,
       existingFacts: '旧事实',
       existingStyle: '旧风格',
       existingPlansText: '',

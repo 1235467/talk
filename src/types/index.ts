@@ -575,7 +575,7 @@ export type AdminAiTraceStage = 'first_chat' | 'first_quality' | 'second_chat' |
 export interface AdminAiTrace { id: string; purpose: AiUsagePurpose; model: string; messages: { role: string; content: string }[]; output?: string; error?: string; inputTokens: number; outputTokens: number; createdAt: number; turnId?: string; stage?: AdminAiTraceStage; conversationId?: string }
 export interface SaveSlot { id: string; slot: number; name: string; createdAt: number; updatedAt: number; snapshot: unknown }
 
-export type WalletOwnerId = 'user' | string
+export type WalletOwnerId = string
 export type WalletTransactionKind = 'migration' | 'salary' | 'purchase' | 'transfer' | 'red_packet' | 'loan' | 'repayment' | 'admin_adjustment'
 export interface WalletAccount { ownerId: WalletOwnerId; balance: number; updatedAt: number }
 export interface WalletTransaction {

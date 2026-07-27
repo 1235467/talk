@@ -31,7 +31,7 @@ export function WebPrivacyNotice() {
         <p className="mt-2 text-xs leading-5 text-gray-500">清理浏览器数据会删除本地内容，重要数据请先在设置中导出备份。</p>
         <button
           type="button"
-          onClick={() => { dismiss(); navigate('/settings') }}
+          onClick={() => { dismiss(); void navigate('/settings') }}
           className="mt-4 w-full rounded-xl bg-green-600 px-4 py-3 text-sm font-medium text-white"
         >
           前往设置 API Key
