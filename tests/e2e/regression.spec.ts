@@ -370,7 +370,7 @@ test('contact card edits and blocks a global prompt module', async ({ page }) =>
 
   await expect(page.getByText('全局提示词模块', { exact: true })).toHaveCount(0)
   await page.goto('/#/modules')
-  await page.getByRole('button', { name: '开启全局提示词模块' }).click()
+  await page.getByRole('switch', { name: '开启全局提示词模块' }).click()
   await page.goto('/#/contact/contact-a')
   await expect(page.getByText('全局提示词模块', { exact: true })).toBeVisible()
 

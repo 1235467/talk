@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { TopBar } from '../components/TopBar'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { ALL_MODULES, PARENT_MODULES, STANDALONE_MODULES, DEFAULT_ENABLED_MODULES } from '../features'
 
@@ -92,19 +93,11 @@ export function ModulesPage() {
                               <p className="mt-0.5 text-[11px] text-gray-400">{mod.description}</p>
                             </div>
                           </div>
-                          <button
-                            onClick={() => toggle(mod.id)}
-                            aria-label={`${on ? '关闭' : '开启'}${mod.name}`}
-                            className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
-                              on ? 'bg-[#07c160]' : 'bg-gray-200'
-                            }`}
-                          >
-                            <span
-                              className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-                                on ? 'translate-x-6' : 'translate-x-1'
-                              }`}
-                            />
-                          </button>
+                          <ToggleSwitch
+                            checked={on}
+                            onChange={() => toggle(mod.id)}
+                            ariaLabel={`${on ? '关闭' : '开启'}${mod.name}`}
+                          />
                         </div>
                       )
                     })}
@@ -129,19 +122,11 @@ export function ModulesPage() {
                     <p className="mt-0.5 text-xs text-gray-400">{mod.description}</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => toggle(mod.id)}
-                  aria-label={`${on ? '关闭' : '开启'}${mod.name}`}
-                  className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
-                    on ? 'bg-[#07c160]' : 'bg-gray-200'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-                      on ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
+                <ToggleSwitch
+                  checked={on}
+                  onChange={() => toggle(mod.id)}
+                  ariaLabel={`${on ? '关闭' : '开启'}${mod.name}`}
+                />
               </div>
             )
           })}

@@ -18,6 +18,7 @@ import { USER_WALLET_ID, setUserBalance } from '../lib/finance'
 import { formatCurrency } from '../lib/wallet'
 import { CHAT_PAGE_SIZE_OPTIONS, normalizeChatPageSize } from '../lib/chatPagination'
 import { ModelPicker } from '../components/ModelPicker'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 
 export function SettingsPage() {
   const navigate = useNavigate()
@@ -226,33 +227,26 @@ export function SettingsPage() {
             <p className="text-sm text-gray-800">暗色模式</p>
             <p className="mt-0.5 text-[11px] text-gray-400">适合晚上聊天，聊天页和设置页会一起变暗</p>
           </div>
-          <button
-            onClick={() => setSettings({ themeMode: (themeMode ?? 'light') === 'dark' ? 'light' : 'dark' })}
-            aria-label="切换暗色模式"
-            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-              (themeMode ?? 'light') === 'dark' ? 'bg-gray-900' : 'bg-gray-200'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                (themeMode ?? 'light') === 'dark' ? 'translate-x-5' : 'translate-x-0'
-              }`}
-            />
-          </button>
+          <ToggleSwitch
+            checked={(themeMode ?? 'light') === 'dark'}
+            onChange={(checked) => setSettings({ themeMode: checked ? 'dark' : 'light' })}
+            ariaLabel="切换暗色模式"
+            size="sm"
+            activeTone="dark"
+          />
         </div>
         <div className="mb-3 flex items-center justify-between border-t border-gray-100 pt-3">
           <div>
             <p className="text-sm text-gray-800">界面动效</p>
             <p className="mt-0.5 text-[11px] text-gray-400">切换、提示与消息出现的轻量动画</p>
           </div>
-          <button
-            type="button"
-            onClick={() => setSettings({ animationsEnabled: !(animationsEnabled ?? true) })}
-            aria-label="切换界面动效"
-            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${(animationsEnabled ?? true) ? 'bg-gray-900' : 'bg-gray-200'}`}
-          >
-            <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${(animationsEnabled ?? true) ? 'translate-x-5' : 'translate-x-0'}`} />
-          </button>
+          <ToggleSwitch
+            checked={animationsEnabled ?? true}
+            onChange={(checked) => setSettings({ animationsEnabled: checked })}
+            ariaLabel="切换界面动效"
+            size="sm"
+            activeTone="dark"
+          />
         </div>
 
         <label className="mb-1 block text-xs text-gray-500">聊天背景色</label>
@@ -590,18 +584,11 @@ export function SettingsPage() {
             <h2 className="text-sm font-medium text-gray-900">管理员模式</h2>
             <p className="text-[11px] text-gray-400">开启后可使用天眼查看运行进程、真实提示词、AI 回合、记忆/事件链，并执行安全调试操作</p>
           </div>
-          <button
-            onClick={() => setSettings({ adminModeEnabled: !adminModeEnabled })}
-            className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
-              adminModeEnabled ? 'bg-[#07c160]' : 'bg-gray-200'
-            }`}
-          >
-            <span
-              className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-                adminModeEnabled ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
+          <ToggleSwitch
+            checked={adminModeEnabled}
+            onChange={(checked) => setSettings({ adminModeEnabled: checked })}
+            ariaLabel="切换管理员模式"
+          />
         </div>
       </section>
 
