@@ -1,5 +1,5 @@
 import { db } from '../db/db'
-import { extractJsonObject, parseKnowledgeQueriesField } from './aiProtocol'
+import { parseJsonLoose, parseKnowledgeQueriesField } from './aiProtocol'
 import { activeUpcomingPlansText } from './memory'
 import { customPersonalityTraitsLine, formatPersonaProfile, formatSpeechSamplesForScene, personalityTraitLine } from './prompt'
 import { describeCurrentSchedule } from './schedule'
@@ -433,23 +433,7 @@ export function parseGroupAiResponse(raw: string, speakerCount: number): ParsedG
 }
 
 function tryParseGroupJson(trimmedRaw: string, speakerCount: number): ParsedGroupTurn | null {
-  let text = trimmedRaw
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (fenceMatch) text = fenceMatch[1].trim()
-  if (!text) return null
-
-  let parsed: GroupAiResponse | undefined
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    const extracted = extractJsonObject(text)
-    if (!extracted) return null
-    try {
-      parsed = JSON.parse(extracted)
-    } catch {
-      return null
-    }
-  }
+  const parsed = parseJsonLoose<GroupAiResponse>(trimmedRaw)
   if (!parsed || !Array.isArray(parsed.messages)) return null
 
   const bubbles: GroupAiBubble[] = []

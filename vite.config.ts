@@ -18,4 +18,19 @@ export default defineConfig({
     host: true,
     port: 5173,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split large, rarely-changing vendor deps into their own cacheable chunks
+        // so the main app chunk stays small and page-level code-splitting can shine.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('dexie')) return 'vendor-db'
+          if (id.includes('react-router') || id.includes('react-dom') || /[\\/]node_modules[\\/]react[\\/]/.test(id) || id.includes('scheduler')) {
+            return 'vendor-react'
+          }
+        },
+      },
+    },
+  },
 })

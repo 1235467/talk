@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import Dexie from 'dexie'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -16,7 +16,7 @@ import { displayName } from '../lib/contact'
 import { applyMessageFeedback } from '../lib/messageFeedback'
 import { buildPrivateStatusLine } from '../lib/contactStatus'
 import { downloadDataUrl, generateChatCaptureImage, shareDataUrl } from '../lib/chatCapture'
-import type { Contact, Message } from '../types'
+import type { Contact, Message, Sticker } from '../types'
 import { v4 as uuid } from 'uuid'
 import { claimRedPacket, transferFunds, USER_WALLET_ID } from '../lib/finance'
 import { draftReply } from '../lib/aiReplyAssist'
@@ -25,6 +25,7 @@ import { isStickerProviderReady, stickerProviderName } from '../lib/mediaProvide
 import { normalizeChatPageSize } from '../lib/chatPagination'
 
 const EMPTY_MESSAGES: Message[] = []
+const EMPTY_STICKERS: Sticker[] = []
 const LONG_PRESS_HINT_KEY = 'talk-chat-long-press-hint-seen-v1'
 
 export function ChatPage() {
@@ -75,8 +76,8 @@ export function ChatPage() {
   const messages = messagePage?.items ?? EMPTY_MESSAGES
   const latestMessageId = messages.at(-1)?.id
   const hasOlderMessages = messages.length < (messagePage?.total ?? 0)
-  const stickers = useLiveQuery(() => db.stickers.toArray(), []) ?? []
-  const stickerByName = new Map(stickers.map((s) => [s.name, s.dataUrl]))
+  const stickers = useLiveQuery(() => db.stickers.toArray(), []) ?? EMPTY_STICKERS
+  const stickerByName = useMemo(() => new Map(stickers.map((s) => [s.name, s.dataUrl])), [stickers])
   const [statusLine, setStatusLine] = useState('')
   useEffect(() => {
     // Group chats don't get a status line.
@@ -397,10 +398,23 @@ export function ChatPage() {
     if (!isGroupConv && contact) void triggerAiTurn(conversationId, contact, settings, stickers)
     else if (isGroupConv && group) void triggerGroupAiTurn(conversationId, group, groupMembers, settings, stickers)
   }
-  async function handleFinanceCard(message: Message){
+  const handleFinanceCard = useCallback(async (message: Message) => {
     if(message.type==='redPacket'&&message.role==='assistant'&&message.finance?.transactionId&&message.finance.status==='pending'){try{await claimRedPacket(message.finance.transactionId,USER_WALLET_ID);await db.messages.update(message.id,{finance:{...message.finance,status:'claimed'}});setToast('红包已领取')}catch(e){setToast(e instanceof Error?e.message:String(e))}}
     if(message.type==='loanRequest'&&message.role==='assistant'&&message.finance?.loanId&&message.finance.status==='pending'&&contact){const accept=confirm(`${displayName(contact)}想借 ${message.finance.amount}，是否同意？`);if(accept){try{await transferFunds({from:USER_WALLET_ID,to:contact.id,amount:message.finance.amount,kind:'loan',note:message.finance.note,idempotencyKey:`loan:${message.finance.loanId}`});await db.loans.update(message.finance.loanId,{status:'active',resolvedAt:Date.now()});await db.messages.update(message.id,{finance:{...message.finance,status:'accepted'}})}catch(e){setToast(e instanceof Error?e.message:String(e))}}else{await db.loans.update(message.finance.loanId,{status:'rejected',resolvedAt:Date.now()});await db.messages.update(message.id,{finance:{...message.finance,status:'rejected'}})}}
-  }
+  }, [contact])
+  // Stable per-message handlers so the memoized MessageBubble list skips re-rendering while the user types in the composer.
+  const registerBubble = useCallback((id: string, el: HTMLDivElement | null) => {
+    if (el) bubbleRefs.current.set(id, el)
+    else bubbleRefs.current.delete(id)
+  }, [])
+  const handleBubbleLongPress = useCallback((id: string) => setMenuMessageId(id), [])
+  const handleBubbleReply = useCallback((id: string) => setReplyToId(id), [])
+  const handleLinkClick = useCallback((message: Message) => {
+    const routes: Record<string, string> = { work: '/work', shop: '/shop', warehouse: '/warehouse' }
+    const path = message.link?.app ? routes[message.link.app] : undefined
+    if (path) navigate(path)
+    else setToast('暂不支持这个小程序')
+  }, [navigate])
   async function repayLoan(){if(!contact||!conversationId)return;const loan=await db.loans.filter(l=>l.status==='active'&&l.borrowerId===USER_WALLET_ID&&l.lenderId===contact.id).first();if(!loan){setToast('没有需要归还的借款');return}try{const tx=await transferFunds({from:USER_WALLET_ID,to:contact.id,amount:loan.outstanding,kind:'repayment',note:'归还借款',idempotencyKey:`repay:${loan.id}`});await db.loans.update(loan.id,{status:'repaid',outstanding:0,resolvedAt:Date.now()});await db.messages.add({id:uuid(),conversationId,role:'user',type:'repayment',content:'归还借款',finance:{transactionId:tx.id,loanId:loan.id,amount:loan.outstanding,status:'repaid'},createdAt:Date.now()});void triggerAiTurn(conversationId,contact,settings,stickers)}catch(e){setToast(e instanceof Error?e.message:String(e))}}
 
   function beginMessageSelection(initialId?: string) {
@@ -416,9 +430,9 @@ export function ChatPage() {
     setCaptureBusy(false)
   }
 
-  function toggleSelectedMessage(id: string) {
+  const toggleSelectedMessage = useCallback((id: string) => {
     setSelectedMessageIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]))
-  }
+  }, [])
 
   async function generateSelectedCapture() {
     if (selectedMessages.length === 0) {
@@ -594,24 +608,22 @@ export function ChatPage() {
             <div className="animate-[message-in_180ms_ease-out]">
               {showConversationTime && <p className="my-4 text-center text-[11px] text-gray-400">{new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>}
               <MessageBubble
-              ref={(el) => {
-                if (el) bubbleRefs.current.set(m.id, el)
-              }}
+              registerRef={registerBubble}
               message={m}
               contactName={bubbleName}
               contactAvatar={bubbleAvatar}
               contactAvatarColor={bubbleAvatarColor}
               userAvatar={settings.userAvatar}
               stickerUrl={m.type === 'sticker' ? (m.sticker?.url ?? stickerByName.get(m.content)) : undefined}
-              mentionNames={(m.mentions ?? []).map((id) => memberById.get(id)).filter((c): c is Contact => !!c).map(displayName)}
+              memberById={isGroupConv ? memberById : undefined}
               replyPreview={m.replyToMessageId ? previewForReply(messageById.get(m.replyToMessageId) ?? m) : undefined}
               highlighted={flashId === m.id}
               selecting={selectingMessages}
               selected={selectedMessageIds.includes(m.id)}
-              onSelect={() => toggleSelectedMessage(m.id)}
-              onReply={!selectingMessages && isGroupConv ? () => setReplyToId(m.id) : undefined}
-              onLongPress={() => setMenuMessageId(m.id)}
-              onLinkClick={selectingMessages ? undefined : () => { const routes:Record<string,string>={work:'/work',shop:'/shop',warehouse:'/warehouse'}; const path=m.link?.app?routes[m.link.app]:undefined; if(path)navigate(path);else setToast('暂不支持这个小程序') }}
+              onSelect={toggleSelectedMessage}
+              onReply={!selectingMessages && isGroupConv ? handleBubbleReply : undefined}
+              onLongPress={handleBubbleLongPress}
+              onLinkClick={selectingMessages ? undefined : handleLinkClick}
               onFinanceClick={selectingMessages ? undefined : handleFinanceCard}
               showName={isGroupConv && m.role === 'assistant'}
               />

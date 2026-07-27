@@ -6,24 +6,32 @@ import { Avatar } from './Avatar'
 import { excerptAround, highlightSegments, truncateName } from '../lib/search'
 import { formatListTime } from '../lib/time'
 import { displayName } from '../lib/contact'
+import type { Message } from '../types'
 
 interface SearchOverlayProps {
   onClose: () => void
 }
 
 const EMPTY_ARRAY: never[] = []
+const EMPTY_MESSAGES: Message[] = []
 
 export function SearchOverlay({ onClose }: SearchOverlayProps) {
   const [query, setQuery] = useState('')
   const navigate = useNavigate()
 
+  const q = query.trim()
+  const lowerQ = q.toLowerCase()
+
   const contacts = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_ARRAY
   const groups = useLiveQuery(() => db.groups.toArray(), []) ?? EMPTY_ARRAY
   const conversations = useLiveQuery(() => db.conversations.toArray(), []) ?? EMPTY_ARRAY
-  const messages = useLiveQuery(() => db.messages.toArray(), []) ?? EMPTY_ARRAY
-
-  const q = query.trim()
-  const lowerQ = q.toLowerCase()
+  // Only scan the (potentially large) messages table while actively searching, and let Dexie do the
+  // content filter so we never pull the whole table into memory just because the overlay is open.
+  const messages =
+    useLiveQuery(
+      () => (lowerQ ? db.messages.filter((m) => m.content.toLowerCase().includes(lowerQ)).toArray() : Promise.resolve(EMPTY_MESSAGES)),
+      [lowerQ],
+    ) ?? EMPTY_MESSAGES
 
   const matchedContacts = useMemo(() => {
     if (!q) return []
@@ -48,8 +56,8 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
     const convById = new Map(conversations.map((c) => [c.id, c]))
     const contactById = new Map(contacts.map((c) => [c.id, c]))
     const groupById = new Map(groups.map((g) => [g.id, g]))
+    // `messages` is already content-filtered by the Dexie query above.
     return messages
-      .filter((m) => m.content.toLowerCase().includes(lowerQ))
       .map((m) => {
         const conv = convById.get(m.conversationId)
         const contact = conv?.contactId ? contactById.get(conv.contactId) : undefined
@@ -58,7 +66,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
       })
       .sort((a, b) => b.message.createdAt - a.message.createdAt)
       .slice(0, 50)
-  }, [q, lowerQ, messages, conversations, contacts, groups])
+  }, [q, messages, conversations, contacts, groups])
 
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-white">

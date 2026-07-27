@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
 import { UnreadBadge } from './UnreadBadge'
-import { unreadCountFor } from '../lib/unread'
+import { useTotalUnread } from '../lib/unread'
 import { momentsUnreadCount } from '../lib/momentsUnread'
 import { useSettingsStore } from '../store/useSettingsStore'
 
@@ -17,24 +17,11 @@ const TABS = [
 const EMPTY_ARRAY: never[] = []
 
 export function BottomNav() {
-  const conversations = useLiveQuery(() => db.conversations.toArray(), []) ?? EMPTY_ARRAY
-  const messages = useLiveQuery(() => db.messages.toArray(), []) ?? EMPTY_ARRAY
   const moments = useLiveQuery(() => db.moments.toArray(), []) ?? EMPTY_ARRAY
   const socialEvents = useLiveQuery(() => db.socialEvents.toArray(), []) ?? EMPTY_ARRAY
   const momentsLastReadAt = useSettingsStore((s) => s.momentsLastReadAt)
 
-  const totalUnread = useMemo(() => {
-    const messagesByConv = new Map<string, typeof messages>()
-    for (const m of messages) {
-      const arr = messagesByConv.get(m.conversationId) ?? []
-      arr.push(m)
-      messagesByConv.set(m.conversationId, arr)
-    }
-    return conversations.reduce(
-      (sum, c) => sum + unreadCountFor(c.lastReadAt, messagesByConv.get(c.id) ?? []),
-      0,
-    )
-  }, [conversations, messages])
+  const totalUnread = useTotalUnread()
   const momentsUnread = useMemo(
     () => momentsUnreadCount({ lastReadAt: momentsLastReadAt, moments, socialEvents }),
     [momentsLastReadAt, moments, socialEvents],

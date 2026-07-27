@@ -57,6 +57,7 @@ export function ProactiveSettingsPage() {
     proactiveCooldownMs,
     proactiveMomentsMax,
     proactiveTickIntervalMs,
+    moodExpiryMs,
     setSettings,
   } = settings
 
@@ -131,6 +132,19 @@ export function ProactiveSettingsPage() {
             step={1}
             unit="分钟"
             onChange={(v) => setSettings({ proactiveTickIntervalMs: v * 60 * 1000 })}
+          />
+        </div>
+
+        <div className="mx-4 mt-3 overflow-hidden rounded-xl bg-white">
+          <SliderRow
+            label="心情持续时间"
+            desc="AI表达的心情（如开心、吃醋、生气）持续多久后自动消失"
+            value={Math.round(moodExpiryMs / (60 * 1000))}
+            min={5}
+            max={120}
+            step={5}
+            unit="分钟"
+            onChange={(v) => setSettings({ moodExpiryMs: v * 60 * 1000 })}
           />
         </div>
 

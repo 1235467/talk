@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
+import { parseJsonLoose } from './aiProtocol'
 import { chatCompletion } from './deepseek'
 import { momentReactionProbability, uniqueRelationPairs } from './contactRelations'
 import { describeCurrentSchedule, isPhoneAvailable } from './schedule'
@@ -163,27 +164,21 @@ interface ParsedMoment {
 }
 
 function parseMomentsResponse(raw: string, expected: number[]): ParsedMoment[] | null {
-  let text = raw.trim()
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (fenceMatch) text = fenceMatch[1].trim()
-  if (!text) return null
-  try {
-    const parsed = JSON.parse(text)
-    if (!Array.isArray(parsed?.moments) || parsed.moments.length !== expected.length) return null
-    const result: ParsedMoment[] = []
-    for (let i = 0; i < parsed.moments.length; i++) {
-      const m = parsed.moments[i]
-      if (!m || typeof m.content !== 'string' || !m.content.trim()) return null
-      const comments: string[] = Array.isArray(m.comments)
-        ? m.comments.filter((c: unknown): c is string => typeof c === 'string' && c.trim().length > 0)
-        : []
-      const imageKeyword = typeof m.imageKeyword === 'string' ? m.imageKeyword.trim() : ''
-      result.push({ content: m.content.trim(), comments, imageKeyword })
-    }
-    return result
-  } catch {
-    return null
+  const parsed = parseJsonLoose<{ moments?: unknown[] }>(raw)
+  if (!parsed || !Array.isArray(parsed.moments) || parsed.moments.length !== expected.length) return null
+  const result: ParsedMoment[] = []
+  for (let i = 0; i < parsed.moments.length; i++) {
+    const value = parsed.moments[i]
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+    const m = value as Record<string, unknown>
+    if (typeof m.content !== 'string' || !m.content.trim()) return null
+    const comments: string[] = Array.isArray(m.comments)
+      ? m.comments.filter((c: unknown): c is string => typeof c === 'string' && c.trim().length > 0)
+      : []
+    const imageKeyword = typeof m.imageKeyword === 'string' ? m.imageKeyword.trim() : ''
+    result.push({ content: m.content.trim(), comments, imageKeyword })
   }
+  return result
 }
 
 /** Moments need their own review pass: broad feed context makes repeated hooks easy to miss. */
@@ -431,17 +426,9 @@ function buildUserMomentCommentPrompt(content: string, commenters: Contact[], wo
 }
 
 function parseCommentsResponse(raw: string, expectedCount: number): string[] | null {
-  let text = raw.trim()
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (fenceMatch) text = fenceMatch[1].trim()
-  if (!text) return null
-  try {
-    const parsed = JSON.parse(text)
-    if (!Array.isArray(parsed?.comments) || parsed.comments.length !== expectedCount) return null
-    return parsed.comments.map((c: unknown) => (typeof c === 'string' ? c.trim() : ''))
-  } catch {
-    return null
-  }
+  const parsed = parseJsonLoose<{ comments?: unknown[] }>(raw)
+  if (!parsed || !Array.isArray(parsed.comments) || parsed.comments.length !== expectedCount) return null
+  return parsed.comments.map((c: unknown) => (typeof c === 'string' ? c.trim() : ''))
 }
 
 /**

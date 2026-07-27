@@ -139,5 +139,5 @@ export function getEnabledDiscoverEntries(): { to: string; icon: string; label: 
 
 /** Every module is on by default except opt-in background/debug modules. */
 export const DEFAULT_ENABLED_MODULES: string[] = ALL_MODULES
-  .filter((m) => m.id !== 'proactiveChat' && m.id !== 'mindReading' && m.id !== 'selfIteration' && m.id !== 'nuwaMode' && m.id !== 'lifeSimulation' && m.id !== 'realisticReplies' && m.id !== 'promptModuleEditor')
+  .filter((m) => m.id !== 'proactiveChat' && m.id !== 'mindReading' && m.id !== 'selfIteration' && m.id !== 'lifeSimulation' && m.id !== 'realisticReplies' && m.id !== 'promptModuleEditor')
   .map((m) => m.id)

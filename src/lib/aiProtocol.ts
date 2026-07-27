@@ -152,23 +152,7 @@ export function serializePrivateTurn(parsed: ParsedAiTurn): string {
 }
 
 function tryParseJson(trimmedRaw: string): ParsedAiTurn | null {
-  let text = trimmedRaw
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (fenceMatch) text = fenceMatch[1].trim()
-  if (!text) return null
-
-  let parsed: AiResponse | undefined
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    const extracted = extractJsonObject(text)
-    if (!extracted) return null
-    try {
-      parsed = JSON.parse(extracted)
-    } catch {
-      return null
-    }
-  }
+  const parsed = parseJsonLoose<AiResponse>(trimmedRaw)
   if (!parsed || !Array.isArray(parsed.messages)) return null
 
   const bubbles: AiBubble[] = []
@@ -249,6 +233,31 @@ export function extractJsonObject(text: string): string | null {
     }
   }
   return null
+}
+
+/**
+ * Loose JSON parse for LLM replies: strips an optional ```json code fence, tries JSON.parse,
+ * and on failure falls back to extractJsonObject (balanced-brace scan) before giving up.
+ * Returns null instead of throwing. This is the single shared helper for the fence+parse+extract
+ * three-step that was previously copy-pasted across a dozen parse sites.
+ */
+export function parseJsonLoose<T = unknown>(raw: string): T | null {
+  if (typeof raw !== 'string') return null
+  let text = raw.trim()
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fenceMatch) text = fenceMatch[1].trim()
+  if (!text) return null
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    const extracted = extractJsonObject(text)
+    if (!extracted) return null
+    try {
+      return JSON.parse(extracted) as T
+    } catch {
+      return null
+    }
+  }
 }
 
 export function typingDelayMs(bubble: AiBubble): number {

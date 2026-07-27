@@ -11,7 +11,7 @@ import {
   serializeGroupTurn,
   stripSpeakerNamePrefix,
 } from './groupChat'
-import { extractJsonObject } from './aiProtocol'
+import { parseJsonLoose } from './aiProtocol'
 import { CONTEXT_WINDOW_SIZE, maybeUpdateGroupMemory, nonGroupScopedMemoriesText } from './memory'
 import { aiRelationshipPrompt } from './contactRelations'
 import { knowledgeDigestText, resolveKnowledgeQueries } from './knowledgeBase'
@@ -99,23 +99,11 @@ function parseGroupTurnDebugPayload(
   groupVibe: string,
   storyOutline?: string,
 ): unknown {
-  const trimmed = finalRaw.trim()
-  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  const text = fenceMatch ? fenceMatch[1].trim() : trimmed
-  try {
-    const parsed = JSON.parse(text)
-    return parsed && typeof parsed === 'object' ? { ...(parsed as Record<string, unknown>), mainPrompt, rawText, draftFeedback, jsonRaw, finalRaw, parsedBubbles: bubbles, storyOutline, promptTrace: { sections: [{ label: '群聊主提示词', content: mainPrompt }] } } : parsed
-  } catch {
-    const extracted = extractJsonObject(text)
-    if (extracted) {
-      try {
-        const parsed = JSON.parse(extracted)
-        return parsed && typeof parsed === 'object' ? { ...(parsed as Record<string, unknown>), mainPrompt, rawText, draftFeedback, jsonRaw, finalRaw, parsedBubbles: bubbles, storyOutline, promptTrace: { sections: [{ label: '群聊主提示词', content: mainPrompt }] } } : parsed
-      } catch {
-        // fall through
-      }
-    }
+  const parsed = parseJsonLoose(finalRaw)
+  if (parsed && typeof parsed === 'object') {
+    return { ...(parsed as Record<string, unknown>), mainPrompt, rawText, draftFeedback, jsonRaw, finalRaw, parsedBubbles: bubbles, storyOutline, promptTrace: { sections: [{ label: '群聊主提示词', content: mainPrompt }] } }
   }
+  if (parsed !== null) return parsed
   return { mainPrompt, rawText, draftFeedback, jsonRaw, finalRaw, parsedBubbles: bubbles, knowledgeQueries, turnSummary, groupVibe, storyOutline, promptTrace: { sections: [{ label: '群聊主提示词', content: mainPrompt }] } }
 }
 
@@ -127,15 +115,8 @@ export function stopGroupAiTurn(conversationId: string): void {
 }
 
 function parseCompressedGroupMemory(raw: string): string | null {
-  let text = raw.trim()
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (fenceMatch) text = fenceMatch[1].trim()
-  try {
-    const parsed = JSON.parse(text)
-    return typeof parsed?.memory === 'string' && parsed.memory.trim() ? parsed.memory.trim() : null
-  } catch {
-    return null
-  }
+  const parsed = parseJsonLoose<{ memory?: unknown }>(raw)
+  return typeof parsed?.memory === 'string' && parsed.memory.trim() ? parsed.memory.trim() : null
 }
 
 async function updateGroupMemoryAndVibe(opts: {

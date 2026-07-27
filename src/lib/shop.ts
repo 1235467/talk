@@ -6,6 +6,7 @@
  * any contact's persona or chat history.
  */
 import type { AppSettings } from '../types'
+import { parseJsonLoose } from './aiProtocol'
 import { createDefaultPromptModules, getPromptTemplate } from './promptModules'
 
 export function buildShopPrompt(query: string | null, settings?: Pick<AppSettings, 'promptModules'>): string {
@@ -39,15 +40,9 @@ function clampPrice(price: number): number {
 }
 
 export function parseShopProducts(raw: string): GeneratedProduct[] {
-  let text = raw.trim()
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (fenceMatch) text = fenceMatch[1].trim()
-  if (!text) return []
-
-  try {
-    const parsed = JSON.parse(text)
-    if (!Array.isArray(parsed?.products)) return []
-    return parsed.products
+  const parsed = parseJsonLoose<{ products?: unknown[] }>(raw)
+  if (!parsed || !Array.isArray(parsed.products)) return []
+  return parsed.products
       .filter(
         (p: unknown): p is GeneratedProduct =>
           !!p &&
@@ -64,7 +59,4 @@ export function parseShopProducts(raw: string): GeneratedProduct[] {
         price: clampPrice(p.price),
         icon: p.icon.trim() || '🎁',
       }))
-  } catch {
-    return []
-  }
 }

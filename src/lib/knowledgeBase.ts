@@ -6,6 +6,7 @@ import { useSettingsStore } from '../store/useSettingsStore'
 import { toDateKey } from './time'
 import type { AppSettings, KnowledgeEntry } from '../types'
 import { getPromptTemplate, promptModuleEnabled } from './promptModules'
+import { parseJsonLoose } from './aiProtocol'
 
 /** Entries older than this are pruned whenever new ones are added, so the table (and the prompt digest) don't grow forever. */
 const MAX_ENTRY_AGE_MS = 30 * 24 * 60 * 60 * 1000
@@ -35,24 +36,16 @@ interface ParsedKnowledgeEntry {
 }
 
 function parseKnowledgeEntries(raw: string): ParsedKnowledgeEntry[] | null {
-  let text = raw.trim()
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (fenceMatch) text = fenceMatch[1].trim()
-  if (!text) return null
-  try {
-    const parsed = JSON.parse(text)
-    if (!Array.isArray(parsed?.entries)) return null
-    const result: ParsedKnowledgeEntry[] = []
-    for (const e of parsed.entries) {
-      if (!e || typeof e.topic !== 'string' || !e.topic.trim()) continue
-      if (typeof e.content !== 'string' || !e.content.trim()) continue
-      const sourceQuery = typeof e.sourceQuery === 'string' ? e.sourceQuery.trim() : ''
-      result.push({ sourceQuery, topic: e.topic.trim(), content: e.content.trim() })
-    }
-    return result
-  } catch {
-    return null
+  const parsed = parseJsonLoose<{ entries?: Array<Record<string, unknown>> }>(raw)
+  if (!parsed || !Array.isArray(parsed.entries)) return null
+  const result: ParsedKnowledgeEntry[] = []
+  for (const e of parsed.entries) {
+    if (!e || typeof e.topic !== 'string' || !e.topic.trim()) continue
+    if (typeof e.content !== 'string' || !e.content.trim()) continue
+    const sourceQuery = typeof e.sourceQuery === 'string' ? e.sourceQuery.trim() : ''
+    result.push({ sourceQuery, topic: e.topic.trim(), content: e.content.trim() })
   }
+  return result
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type ElementType } from 'react'
+import { lazy, Suspense, useEffect, useMemo, type ElementType } from 'react'
 import { Route, Routes, useLocation } from 'react-router-dom'
 import { App as CapacitorApp } from '@capacitor/app'
 import { useSettingsStore } from './store/useSettingsStore'
@@ -12,26 +12,29 @@ import { AppErrorBoundary } from './components/AppErrorBoundary'
 import { ensureWallets, settleSalaries } from './lib/finance'
 import { ensureLegacyWorldviewMigrated } from './lib/worldbook'
 import { runLifeSimulation } from './lib/lifeSimulation'
+// Tab pages are the landing screen — keep them eager. Everything else is
+// route-level code-split (lazy) so the initial bundle stays small; matches
+// how features/* already lazy-load their pages.
 import { MessagesPage } from './pages/MessagesPage'
 import { ContactsPage } from './pages/ContactsPage'
 import { DiscoverPage } from './pages/DiscoverPage'
 import { MePage } from './pages/MePage'
-import { ChatPage } from './pages/ChatPage'
-import { ContactCardPage } from './pages/ContactCardPage'
-import { ContactAddPage } from './pages/ContactAddPage'
-import { GroupAddPage } from './pages/GroupAddPage'
-import { GroupInfoPage } from './pages/GroupInfoPage'
-import { MomentsPage } from './pages/MomentsPage'
-import { SettingsPage } from './pages/SettingsPage'
-import { StickersPage } from './pages/StickersPage'
-import { StickerProviderListPage } from './pages/StickerProviderListPage'
-import { StickerProviderSettingsPage } from './pages/StickerProviderSettingsPage'
-import { ImageProviderListPage } from './pages/ImageProviderListPage'
-import { ImageProviderSettingsPage } from './pages/ImageProviderSettingsPage'
-import { ProfileEditPage } from './pages/ProfileEditPage'
-import { ModulesPage } from './pages/ModulesPage'
-import { SkyEyePage } from './pages/SkyEyePage'
-import { SocialInboxPage } from './pages/SocialInboxPage'
+const ChatPage = lazy(() => import('./pages/ChatPage').then((m) => ({ default: m.ChatPage })))
+const ContactCardPage = lazy(() => import('./pages/ContactCardPage').then((m) => ({ default: m.ContactCardPage })))
+const ContactAddPage = lazy(() => import('./pages/ContactAddPage').then((m) => ({ default: m.ContactAddPage })))
+const GroupAddPage = lazy(() => import('./pages/GroupAddPage').then((m) => ({ default: m.GroupAddPage })))
+const GroupInfoPage = lazy(() => import('./pages/GroupInfoPage').then((m) => ({ default: m.GroupInfoPage })))
+const MomentsPage = lazy(() => import('./pages/MomentsPage').then((m) => ({ default: m.MomentsPage })))
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })))
+const StickersPage = lazy(() => import('./pages/StickersPage').then((m) => ({ default: m.StickersPage })))
+const StickerProviderListPage = lazy(() => import('./pages/StickerProviderListPage').then((m) => ({ default: m.StickerProviderListPage })))
+const StickerProviderSettingsPage = lazy(() => import('./pages/StickerProviderSettingsPage').then((m) => ({ default: m.StickerProviderSettingsPage })))
+const ImageProviderListPage = lazy(() => import('./pages/ImageProviderListPage').then((m) => ({ default: m.ImageProviderListPage })))
+const ImageProviderSettingsPage = lazy(() => import('./pages/ImageProviderSettingsPage').then((m) => ({ default: m.ImageProviderSettingsPage })))
+const ProfileEditPage = lazy(() => import('./pages/ProfileEditPage').then((m) => ({ default: m.ProfileEditPage })))
+const ModulesPage = lazy(() => import('./pages/ModulesPage').then((m) => ({ default: m.ModulesPage })))
+const SkyEyePage = lazy(() => import('./pages/SkyEyePage').then((m) => ({ default: m.SkyEyePage })))
+const SocialInboxPage = lazy(() => import('./pages/SocialInboxPage').then((m) => ({ default: m.SocialInboxPage })))
 import { WebPrivacyNotice } from './components/WebPrivacyNotice'
 // Runs once at module load, regardless of admin mode — so there's already
 // log history by the time someone opens "天眼".
@@ -140,6 +143,7 @@ function App() {
       <div className={`app-shell ${themeMode === 'dark' ? 'theme-dark' : ''}`}>
         <NotificationBanner />
         <WebPrivacyNotice />
+        <Suspense key={location.pathname} fallback={<div className="flex h-[var(--app-height)] items-center justify-center text-sm text-gray-400">加载中…</div>}>
         <Routes>
         <Route element={<TabLayout />}>
           <Route path="/" element={<MessagesPage />} />
@@ -169,6 +173,7 @@ function App() {
           <Route path="/sky-eye" element={<SkyEyePage />} />
         )}
         </Routes>
+        </Suspense>
       </div>
     </AppErrorBoundary>
   )

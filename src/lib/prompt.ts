@@ -1,5 +1,5 @@
 import { validateScheduleBlocks } from './schedule'
-import { relationshipLine } from './relationship'
+import { parseJsonLoose } from './aiProtocol'
 import type { AvatarCategory } from './avatarCategory'
 import { PERSONALITY_TRAIT_OPTIONS, type PersonaProfile, type PromptModuleSettings, type ScheduleBlock } from '../types'
 import { createDefaultPromptModules, getPromptTemplate, promptModuleEnabled } from './promptModules'
@@ -135,189 +135,6 @@ export function personalityTraitLine(trait: string | undefined, warmth?: number)
   return prompt ? `\n\n【特色人格底稿 — 你内在的稳定相处基调】\n${personaDescription || prompt}\n\n【性格特质 — 高优先级行为契约】\n${prompt}\n${stage}${examplesBlock}\n执行要求：不要解释“我有这个属性”，要把它落实在本轮的措辞、主动性和情绪反应里。出现该特质的典型触发场景时必须明显体现；普通日常也要保留其底色。强度来自稳定的行为逻辑，不是机械复读同一句口头禅。` : ''
 }
 
-/** Map a mood string to a behavioral prompt for the system prompt. */
-function moodPrompt(mood: string): string {
-  const m = mood.trim()
-  // Exact matches first
-  if (m.includes('开心') || m.includes('高兴') || m.includes('兴奋'))
-    return '你现在感到开心。说话会格外活泼开朗，语气轻快，容易笑，对什么都抱着乐观的态度。可以多用感叹号和语气词。'
-  if (m.includes('生气') || m.includes('愤怒') || m.includes('恼火'))
-    return '你现在在生气。说话会带刺、不耐烦，可能怼人、冷嘲热讽或直接表达不满。不要压抑情绪，想发火就发火。'
-  if (m.includes('难过') || m.includes('伤心') || m.includes('难过') || m.includes('哭'))
-    return '你现在感到难过。说话会变得低沉、话少，可能带点自嘲或求助的味道。不需要强颜欢笑，可以表现出脆弱。'
-  if (m.includes('担心') || m.includes('焦虑') || m.includes('紧张') || m.includes('不安'))
-    return '你现在感到担心/焦虑。说话会变得小心翼翼，可能会反复确认、过度关心对方，或者犹豫不决。'
-  if (m.includes('吃醋') || m.includes('嫉妒') || m.includes('酸'))
-    return '你现在在吃醋。说话会带酸味和占有欲，可能会阴阳怪气、撒娇质问、或者故意冷淡来引起对方注意。'
-  if (m.includes('无语') || m.includes('无奈') || m.includes('扶额'))
-    return '你现在感到无语/无奈。说话会带敷衍感，可能用省略号、叹气、简短回应来表达"懒得说了"的态度。'
-  if (m.includes('害羞') || m.includes('不好意思') || m.includes('脸红'))
-    return '你现在感到害羞。说话会变得扭捏、吞吞吐吐，可能用"...""唔"开头，或者转移话题来掩饰尴尬。'
-  if (m.includes('愧疚') || m.includes('抱歉') || m.includes('对不起'))
-    return '你现在感到愧疚。说话会变得低声下气，频繁道歉，想方设法弥补对方，或者不敢直视问题。'
-  if (m.includes('感动') || m.includes('温暖') || m.includes('暖心'))
-    return '你现在被感动了。说话会变得柔软真诚，可能突然认真起来或者说一些平时不好意思说的真心话。'
-  if (m.includes('困') || m.includes('累') || m.includes('疲惫'))
-    return '你现在很累/困。说话会变得慵懒、话少、反应慢，可能用简短的单字回应，或者撒娇抱怨想休息。'
-  if (m.includes('期待') || m.includes('好奇'))
-    return '你现在充满期待/好奇。说话会变得主动追问、眼睛发亮，语气里带着藏不住的兴奋和求知欲。'
-  // Fallback
-  return `你现在感到: ${m}。请让这种情绪自然地影响你这轮回复的语气和措辞。`
-}
-
-/**
- * Output-format / protocol instructions. Fixed, hidden from the user.
- * JSON example kept as a few-shot anchor (proven to help compliance),
- * surrounding explanatory prose trimmed to minimum.
- */
-const FIXED_PROTOCOL_PROMPT = `【输出格式 — 最重要 必须严格遵守】
-你的整个输出必须是且只能是一个JSON对象 格式如下:
-
-{
-  "messages": [
-    { "type": "text", "content": "短消息" },
-    { "type": "sticker", "name": "表情包名字" },
-    { "type": "link", "app": "shop", "label": "去逛逛", "data": {} },
-    { "type": "scheduleChange", "date": "2026-07-08", "startHour": 19, "endHour": 21, "phoneAccess": "unavailable", "location": "烧烤店", "activity": "和对方一起吃烧烤", "summary": "周三晚上：一起吃烧烤" }
-  ],
-  "mood": "⚠️必填 你当前的心情 15字以内 如'有点开心''在生气''很担心' 每轮必填不能为空",
-  "thought": "⚠️必填 内心真实想法 30字以内 和嘴上说的形成反差 每轮必填不能为空",
-  "knowledgeQueries": ["某个不了解的梗/番剧/游戏名字"]
-}
-
-字段:
-- text: content=消息文字 每条不超过40字 像真人聊天一样把长回复拆成多条短消息 绝对不能把一大段话塞进一条里 比如想说3句话就应该输出3条text消息
-- sticker: name=下面提供的表情包名字列表里的一个 不能编造
-- link: 小程序链接 app=可用小程序标识 label=卡片文字 data=可选
-- scheduleChange: 和对方达成了新的日程约定(不是委托) date=YYYY-MM-DD(结合当前时间推算) startHour/endHour=24小时制整数 phoneAccess=available|unavailable location=地点 activity=内容 summary=一句话总结。只有真的达成新约定才输出 光讨论不算
-- transfer: 你确实想从自己的钱包给对方转账时输出 amount=正整数 note=备注。不得超过自己的余额，不要无理由频繁送钱
-- redPacket: 你想发一个待对方领取的红包时输出 amount=正整数 note=祝福。不得超过自己的余额
-- loanRequest: 你确实需要向对方借钱时输出 amount和note
-- loanDecision: 对方发来了借款申请卡片时输出 loanId、decision=accept|reject、amount。是否同意要结合关系、理由和自己的余额
-- giftPurchase: 你想花自己的钱购买礼物送给对方时输出 amount=真实价格 name=礼物名 icon=emoji description=一句描述。价格不得超过自己的余额
-- ⚠️ mood(必填!) : 你当前的心情 15字以内 每一轮都必须填 不能漏 不能为空 根据对话内容判断你此刻的真实感受 比如"被夸了有点开心""他这么说我好生气""有点担心他"
-- ⚠️ thought(必填!) : 你此刻内心的真实想法 10到50字 用第一人称"我" 绝对不能用"用户""对方"这种词 自由表达 不用刻意和说出的话相反 比如"今天聊天还挺开心的""他居然记得这个 有点意外""明天那件事希望别出岔子"
-- knowledgeQueries: 可选 跟messages平级 不是消息 不了解的网络热梗/番剧/游戏名词 最多2个 没有就不输出
-- messages数组不能为空 正常回复至少要有2条以上 拆成真人聊天那样一句一句发 不要一条消息说完全部
-- **绝不能模仿聊天记录里方括号格式的历史摘要([送出了礼物: xxx]等) 那不是真人说的话**
-
-【可用表情包】
-{{STICKERS}}
-
-【可用小程序】
-{{LINKS}}`
-
-export interface PromptSection {
-  label: string
-  content: string
-}
-
-/**
- * Compressed from 9 sections to 4: Who-you-are / Memory / Context / Protocol.
- * buildSystemPrompt itself is just this plus a join.
- */
-export function buildSystemPromptSections(opts: {
-  stylePrompt: string
-  persona: string
-  relationshipBase: string
-  relationshipDynamic: string
-  warmth: number
-  personalityTrait?: string
-  personalityWarmth?: number
-  memoryFacts: string
-  memoryStyle: string
-  stickerNames: string[]
-  linkApps: { app: string; desc: string }[]
-  currentTimeText: string
-  userProfileText: string
-  activeMood?: string
-  recentEventsText?: string
-  upcomingPlansText?: string
-  currentScheduleText?: string
-  upcomingScheduleText?: string
-  worldviewText?: string
-  knowledgeDigestText?: string
-  speechSamplesText?: string
-  recentMemoriesText?: string
-}): PromptSection[] {
-  const stickersText =
-    opts.stickerNames.length > 0
-      ? opts.stickerNames.map((n) => `- ${n}`).join('\n')
-      : '（当前没有可用表情包）'
-  const linksText =
-    opts.linkApps.length > 0
-      ? opts.linkApps.map((l) => `- ${l.app}: ${l.desc}`).join('\n')
-      : '（当前没有可用小程序）'
-  const protocol = `${FIXED_PROTOCOL_PROMPT.replace('{{STICKERS}}', stickersText).replace('{{LINKS}}', linksText)}
-
-【心情硬规则】
-mood 只能从以下 emoji 中选择一个，不能输出文字说明：😀 😊 🥰 😌 😶 😴 🤔 😳 🥺 😟 😠 😤 😞 😭 😈。`
-
-  // Brief format reminder at the very beginning, before any role/content.
-  const formatReminder = '⚠️ 你的整个回复必须是一个JSON对象 格式见最后的【输出格式】章节。不要输出纯文本、不要加解释、不要用markdown代码块。mood和thought字段必填不能为空。'
-
-  // --- Section 1: Core identity ---
-  const worldviewPrefix = opts.worldviewText ? `这个世界: ${opts.worldviewText}。` : ''
-  const whoSection = `${formatReminder}\n\n${opts.stylePrompt}\n\n【你是谁 — 你的核心身份 比什么都重要】\n${worldviewPrefix}${opts.persona || '（自由发挥 扮演一个普通朋友）'}`.trim()
-
-  // --- Section 2: Relationship ---
-  const relLine = relationshipLine(opts.relationshipBase, opts.relationshipDynamic, opts.warmth)
-  const relSection = `【你和对方的关系 — 这决定你说话的语气和态度】\n${relLine}`
-
-  // --- Section 3: Personality traits (only when present) ---
-  const traitBlock = personalityTraitLine(opts.personalityTrait, opts.warmth)
-  const samplesLine = opts.speechSamplesText ? `\n\n【说话样例 — 模仿这些例子的语气和风格】\n${opts.speechSamplesText}` : ''
-  const personalitySection = traitBlock || samplesLine
-    ? `【特色人格 — 这影响你的一切情感反应、行为模式和说话方式 必须严格遵守】${traitBlock}${samplesLine}`
-    : ''
-
-  // --- Section 4: Memory ---
-  const factsFallback = `（还没有具体的共同经历 但你们已经是${opts.relationshipBase}关系 不是陌生人）`
-  const styleFallback = `（还没有形成具体的相处习惯 但语气要直接符合${opts.relationshipBase}的关系定位 不能表现得生疏）`
-  const recentMemoriesBlock = opts.recentMemoriesText
-    ? `\n\n【最近的记忆碎片】\n${opts.recentMemoriesText}`
-    : ''
-  const memorySection = `【你对TA的了解】\n${opts.memoryFacts || factsFallback}\n\n【相处状态】\n${opts.memoryStyle || styleFallback}${recentMemoriesBlock}`
-
-  // --- Section 5: Mood (separate so the model focuses on it) ---
-  const moodSection = opts.activeMood
-    ? `【你当前的心情】\n${moodPrompt(opts.activeMood)}`
-    : ''
-
-  // --- Section 6: Current context ---
-  const bullets: string[] = []
-  bullets.push(`现在: ${opts.currentTimeText}`)
-  bullets.push(`对方: ${opts.userProfileText}`)
-  if (opts.recentEventsText) bullets.push(`最近: ${opts.recentEventsText}`)
-  if (opts.upcomingPlansText) bullets.push(`约定: ${opts.upcomingPlansText}`)
-  if (opts.currentScheduleText) bullets.push(`你正在: ${opts.currentScheduleText}`)
-  if (opts.upcomingScheduleText) bullets.push(`接下来: ${opts.upcomingScheduleText}`)
-  if (opts.knowledgeDigestText) bullets.push(`网络热梗: ${opts.knowledgeDigestText}`)
-  const contextSection = `【当前情境】\n${bullets.join('\n')}`
-
-  // --- Section 7: Protocol ---
-  // (already built above)
-
-  const sections: PromptSection[] = [
-    { label: '你是谁', content: whoSection },
-    { label: '你和对方的关系', content: relSection },
-  ]
-  if (personalitySection) sections.push({ label: '特色人格', content: personalitySection })
-  if (moodSection) sections.push({ label: '心情', content: moodSection })
-  sections.push(
-    { label: '记忆', content: memorySection },
-    { label: '当前情境', content: contextSection },
-    { label: '输出格式', content: protocol },
-  )
-  return sections
-}
-
-export function buildSystemPrompt(opts: Parameters<typeof buildSystemPromptSections>[0]): string {
-  return buildSystemPromptSections(opts)
-    .map((s) => s.content)
-    .join('\n\n')
-}
-
 export function formatSpeechSamplesForScene(samples: string[] | undefined, scene: 'private' | 'group' | 'moment', max = 3): string {
   if (!samples || samples.length === 0) return ''
   const sceneWords =
@@ -435,12 +252,8 @@ ${worldbookText.trim()}` : ''
 }
 
 export function parsePersonaGeneration(raw: string): PersonaGenerationResult | null {
-  let text = raw.trim()
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (fenceMatch) text = fenceMatch[1].trim()
-  try {
-    const parsed = JSON.parse(text)
-    if (typeof parsed?.name === 'string' && typeof parsed?.persona === 'string') {
+  const parsed = parseJsonLoose<Record<string, unknown>>(raw)
+  if (parsed && typeof parsed.name === 'string' && typeof parsed.persona === 'string') {
       const trait = typeof parsed.personalityTrait === 'string' ? parsed.personalityTrait.trim() : ''
       const speechSamples = Array.isArray(parsed.speechSamples)
         ? parsed.speechSamples
@@ -472,12 +285,9 @@ export function parsePersonaGeneration(raw: string): PersonaGenerationResult | n
         speechSamples,
         mbti,
         personaProfile,
-        monthlySalary: Number.isFinite(parsed.monthlySalary) ? Math.max(1000, Math.min(200000, Math.round(parsed.monthlySalary))) : undefined,
-        initialWarmth: Number.isFinite(parsed.initialWarmth) ? Math.max(-100, Math.min(100, Math.round(parsed.initialWarmth))) : undefined,
+        monthlySalary: typeof parsed.monthlySalary === 'number' && Number.isFinite(parsed.monthlySalary) ? Math.max(1000, Math.min(200000, Math.round(parsed.monthlySalary))) : undefined,
+        initialWarmth: typeof parsed.initialWarmth === 'number' && Number.isFinite(parsed.initialWarmth) ? Math.max(-100, Math.min(100, Math.round(parsed.initialWarmth))) : undefined,
       }
-    }
-  } catch {
-    // ignore
   }
   return null
 }
@@ -497,16 +307,9 @@ export interface WorldviewDraftResult {
 }
 
 export function parseWorldviewDraft(raw: string): WorldviewDraftResult | null {
-  let text = raw.trim()
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (fenceMatch) text = fenceMatch[1].trim()
-  try {
-    const parsed = JSON.parse(text)
-    if (typeof parsed?.worldview === 'string' && parsed.worldview.trim()) {
-      return { worldview: parsed.worldview.trim() }
-    }
-  } catch {
-    // ignore
+  const parsed = parseJsonLoose<{ worldview?: unknown }>(raw)
+  if (typeof parsed?.worldview === 'string' && parsed.worldview.trim()) {
+    return { worldview: parsed.worldview.trim() }
   }
   return null
 }

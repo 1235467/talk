@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
+import { parseJsonLoose } from './aiProtocol'
 import { chatCompletion } from './deepseek'
 import { clampWarmthDelta, applyWarmthDelta, maxWarmthForTrait, minWarmthForTrait, warmthStage, shouldUpdateBase, containsBreakupLanguage, WARMTH_BREAKUP_PENALTY, traitWarmthModifier, customTraitWarmthModifier } from './relationship'
 import { displayName } from './contact'
@@ -203,35 +204,28 @@ export interface MemoryUpdateDebug {
 }
 
 function parseMemoryResponse(raw: string): MemoryUpdateResult | null {
-  let text = raw.trim()
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (fenceMatch) text = fenceMatch[1].trim()
-  try {
-    const parsed = JSON.parse(text)
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      const delta = typeof parsed.warmthDelta === 'number' ? parsed.warmthDelta : Number(parsed.warmthDelta)
-      const assessment = typeof parsed.relationshipAssessment === 'string' ? parsed.relationshipAssessment.trim() : ''
-      const factConfidence = typeof parsed.factConfidence === 'number' ? parsed.factConfidence : Number(parsed.factConfidence)
-      const styleConfidence = typeof parsed.styleConfidence === 'number' ? parsed.styleConfidence : Number(parsed.styleConfidence)
-      const relationshipConfidence =
-        typeof parsed.relationshipConfidence === 'number' ? parsed.relationshipConfidence : Number(parsed.relationshipConfidence)
-      return {
-        facts: typeof parsed.facts === 'string' ? parsed.facts.trim() : '',
-        factConfidence: Number.isFinite(factConfidence) ? Math.max(0, Math.min(100, Math.round(factConfidence))) : 0,
-        style: typeof parsed.style === 'string' ? parsed.style.trim() : '',
-        styleConfidence: Number.isFinite(styleConfidence) ? Math.max(0, Math.min(100, Math.round(styleConfidence))) : 0,
-        plans: parsePlansField(parsed.plans, true),
-        warmthDelta: Number.isFinite(delta) ? clampWarmthDelta(delta) : 0,
-        relationshipAssessment: assessment.slice(0, 80),
-        relationshipConfidence: Number.isFinite(relationshipConfidence)
-          ? Math.max(0, Math.min(100, Math.round(relationshipConfidence)))
-          : 0,
-        intents: parseIntentsField(parsed.intents),
-        memoryItems: parseMemoryItemsField(parsed.memoryItems),
-      }
+  const parsed = parseJsonLoose<Record<string, unknown>>(raw)
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const delta = typeof parsed.warmthDelta === 'number' ? parsed.warmthDelta : Number(parsed.warmthDelta)
+    const assessment = typeof parsed.relationshipAssessment === 'string' ? parsed.relationshipAssessment.trim() : ''
+    const factConfidence = typeof parsed.factConfidence === 'number' ? parsed.factConfidence : Number(parsed.factConfidence)
+    const styleConfidence = typeof parsed.styleConfidence === 'number' ? parsed.styleConfidence : Number(parsed.styleConfidence)
+    const relationshipConfidence =
+      typeof parsed.relationshipConfidence === 'number' ? parsed.relationshipConfidence : Number(parsed.relationshipConfidence)
+    return {
+      facts: typeof parsed.facts === 'string' ? parsed.facts.trim() : '',
+      factConfidence: Number.isFinite(factConfidence) ? Math.max(0, Math.min(100, Math.round(factConfidence))) : 0,
+      style: typeof parsed.style === 'string' ? parsed.style.trim() : '',
+      styleConfidence: Number.isFinite(styleConfidence) ? Math.max(0, Math.min(100, Math.round(styleConfidence))) : 0,
+      plans: parsePlansField(parsed.plans, true),
+      warmthDelta: Number.isFinite(delta) ? clampWarmthDelta(delta) : 0,
+      relationshipAssessment: assessment.slice(0, 80),
+      relationshipConfidence: Number.isFinite(relationshipConfidence)
+        ? Math.max(0, Math.min(100, Math.round(relationshipConfidence)))
+        : 0,
+      intents: parseIntentsField(parsed.intents),
+      memoryItems: parseMemoryItemsField(parsed.memoryItems),
     }
-  } catch {
-    // ignore
   }
   return null
 }
@@ -831,29 +825,23 @@ interface GroupMemoryUpdate {
 }
 
 function parseGroupMemoryResponse(raw: string, expectedCount: number): GroupMemoryUpdate[] | null {
-  let text = raw.trim()
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (fenceMatch) text = fenceMatch[1].trim()
-  if (!text) return null
-  try {
-    const parsed = JSON.parse(text)
-    if (!Array.isArray(parsed?.updates) || parsed.updates.length !== expectedCount) return null
-    const result: GroupMemoryUpdate[] = []
-    for (const u of parsed.updates) {
-      if (!u || typeof u.facts !== 'string' || typeof u.style !== 'string') return null
-      result.push({
-        facts: u.facts.trim(),
-        style: u.style.trim(),
-        plans: parsePlansField(u.plans),
-        memoryItems: parseMemoryItemsField((u as Record<string, unknown>).memoryItems),
-        groupMemoryItems: parseMemoryItemsField((u as Record<string, unknown>).groupMemoryItems),
-        interpersonalMemoryItems: parseMemoryItemsField((u as Record<string, unknown>).interpersonalMemoryItems),
-      })
-    }
-    return result
-  } catch {
-    return null
+  const parsed = parseJsonLoose<{ updates?: unknown[] }>(raw)
+  if (!parsed || !Array.isArray(parsed.updates) || parsed.updates.length !== expectedCount) return null
+  const result: GroupMemoryUpdate[] = []
+  for (const value of parsed.updates) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+    const u = value as Record<string, unknown>
+    if (typeof u.facts !== 'string' || typeof u.style !== 'string') return null
+    result.push({
+      facts: u.facts.trim(),
+      style: u.style.trim(),
+      plans: parsePlansField(u.plans),
+      memoryItems: parseMemoryItemsField((u as Record<string, unknown>).memoryItems),
+      groupMemoryItems: parseMemoryItemsField((u as Record<string, unknown>).groupMemoryItems),
+      interpersonalMemoryItems: parseMemoryItemsField((u as Record<string, unknown>).interpersonalMemoryItems),
+    })
   }
+  return result
 }
 
 function attachRelatedContactIds(items: ParsedMemoryItem[], memberByName: Map<string, Contact>): ParsedMemoryItem[] {

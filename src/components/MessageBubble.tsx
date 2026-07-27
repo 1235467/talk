@@ -1,8 +1,9 @@
-import { forwardRef } from 'react'
+import { memo, useMemo } from 'react'
 import type React from 'react'
 import { Avatar } from './Avatar'
 import { useLongPress } from '../hooks/useLongPress'
-import type { Message } from '../types'
+import { displayName } from '../lib/contact'
+import type { Contact, Message } from '../types'
 
 interface MessageBubbleProps {
   message: Message
@@ -12,46 +13,57 @@ interface MessageBubbleProps {
   userAvatar: string
   stickerUrl?: string
   highlighted?: boolean
-  mentionNames?: string[]
+  /** Stable map used to resolve @mention ids → names inside the bubble (keeps props referentially stable for memo). */
+  memberById?: Map<string, Contact>
   replyPreview?: string
   selecting?: boolean
   selected?: boolean
-  onReply?: () => void
-  onLongPress?: () => void
-  onSelect?: () => void
-  onLinkClick?: (label: string) => void
+  /** All callbacks receive the message id/object so the parent can pass a single stable handler (no per-item closures). */
+  onReply?: (id: string) => void
+  onLongPress?: (id: string) => void
+  onSelect?: (id: string) => void
+  onLinkClick?: (message: Message) => void
   onFinanceClick?: (message: Message) => void
+  /** Stable ref registrar: called with (id, el) so the parent can track bubble DOM nodes without a per-item ref closure. */
+  registerRef?: (id: string, el: HTMLDivElement | null) => void
   showName?: boolean
 }
 
-export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps>(function MessageBubble(
-  {
-    message,
-    contactName,
-    contactAvatar,
-    contactAvatarColor,
-    userAvatar,
-    stickerUrl,
-    highlighted,
-    mentionNames = [],
-    replyPreview,
-    selecting,
-    selected,
-    onReply,
-    onLongPress,
-    onSelect,
-    onLinkClick, onFinanceClick,
-    showName = false,
-  },
-  ref,
-) {
+export const MessageBubble = memo(function MessageBubble({
+  message,
+  contactName,
+  contactAvatar,
+  contactAvatarColor,
+  userAvatar,
+  stickerUrl,
+  highlighted,
+  memberById,
+  replyPreview,
+  selecting,
+  selected,
+  onReply,
+  onLongPress,
+  onSelect,
+  onLinkClick,
+  onFinanceClick,
+  registerRef,
+  showName = false,
+}: MessageBubbleProps) {
   const isUser = message.role === 'user'
-  const longPress = useLongPress(() => onLongPress?.())
+  const longPress = useLongPress(() => onLongPress?.(message.id))
+  const mentionNames = useMemo(
+    () =>
+      (message.mentions ?? [])
+        .map((id) => memberById?.get(id))
+        .filter((c): c is Contact => !!c)
+        .map(displayName),
+    [message.mentions, memberById],
+  )
   return (
     <div
-      ref={ref}
+      ref={(el) => registerRef?.(message.id, el)}
       {...(selecting ? {} : longPress)}
-      onClick={selecting ? onSelect : undefined}
+      onClick={selecting ? () => onSelect?.(message.id) : undefined}
       className={`relative select-none [-webkit-touch-callout:none] px-3 py-1.5 ${selecting ? 'cursor-pointer pl-12' : ''} ${
         selected ? 'bg-gray-200' : highlighted ? 'bg-yellow-50' : ''
       }`}
@@ -102,7 +114,7 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps>(func
 
           {message.type === 'link' && (
             <button
-              onClick={() => onLinkClick?.(message.link?.label ?? message.content)}
+              onClick={() => onLinkClick?.(message)}
               className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-left"
             >
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#aa3bff]/10 text-sm">
@@ -152,7 +164,7 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps>(func
 
           <div className={`mt-0.5 flex items-center gap-2 px-1 ${isUser ? 'flex-row-reverse' : ''}`}>
             {onReply && (
-              <button onClick={onReply} className="text-[10px] text-gray-400">
+              <button onClick={() => onReply(message.id)} className="text-[10px] text-gray-400">
                 回复
               </button>
             )}

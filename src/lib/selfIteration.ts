@@ -2,7 +2,7 @@ import { db } from '../db/db'
 import { isModuleEnabled } from '../features'
 import { useSettingsStore } from '../store/useSettingsStore'
 import type { AppSettings, Contact, Message } from '../types'
-import { extractJsonObject } from './aiProtocol'
+import { parseJsonLoose } from './aiProtocol'
 import { chatCompletion, type ChatMessage } from './deepseek'
 import { displayName } from './contact'
 import { getPromptTemplate, promptModuleEnabled } from './promptModules'
@@ -35,30 +35,11 @@ function formatMessage(message: Message, contactName: string, userNickname: stri
 }
 
 function parseResult(raw: string): SelfIterationResult | null {
-  let text = raw.trim()
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (fenceMatch) text = fenceMatch[1].trim()
-  try {
-    const parsed = JSON.parse(text)
-    if (typeof parsed?.globalPrompt === 'string' && typeof parsed?.contactPrompt === 'string') {
-      return {
-        globalPrompt: truncate(parsed.globalPrompt, 1800),
-        contactPrompt: truncate(parsed.contactPrompt, 1400),
-      }
-    }
-  } catch {
-    const extracted = extractJsonObject(text)
-    if (!extracted) return null
-    try {
-      const parsed = JSON.parse(extracted)
-      if (typeof parsed?.globalPrompt === 'string' && typeof parsed?.contactPrompt === 'string') {
-        return {
-          globalPrompt: truncate(parsed.globalPrompt, 1800),
-          contactPrompt: truncate(parsed.contactPrompt, 1400),
-        }
-      }
-    } catch {
-      return null
+  const parsed = parseJsonLoose<{ globalPrompt?: unknown; contactPrompt?: unknown }>(raw)
+  if (typeof parsed?.globalPrompt === 'string' && typeof parsed?.contactPrompt === 'string') {
+    return {
+      globalPrompt: truncate(parsed.globalPrompt, 1800),
+      contactPrompt: truncate(parsed.contactPrompt, 1400),
     }
   }
   return null

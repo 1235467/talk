@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { memo, useCallback, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db/db'
@@ -11,8 +11,7 @@ import { useLongPress } from '../hooks/useLongPress'
 import { formatListTime } from '../lib/time'
 import { displayName } from '../lib/contact'
 import { previewForMessage } from '../lib/messagePreview'
-import { unreadCountFor } from '../lib/unread'
-import type { Message } from '../types'
+import { useLastMessageByConversation, useUnreadByConversation } from '../lib/unread'
 
 const EMPTY_ARRAY: never[] = []
 
@@ -25,24 +24,16 @@ export function MessagesPage() {
   const conversations = useLiveQuery(() => db.conversations.toArray(), []) ?? EMPTY_ARRAY
   const contacts = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_ARRAY
   const groups = useLiveQuery(() => db.groups.toArray(), []) ?? EMPTY_ARRAY
-  const messages = useLiveQuery(() => db.messages.toArray(), []) ?? EMPTY_ARRAY
+  const unreadByConversation = useUnreadByConversation()
+  const lastMessageByConversation = useLastMessageByConversation()
 
   const rows = useMemo(() => {
     const contactById = new Map(contacts.map((c) => [c.id, c]))
     const groupById = new Map(groups.map((g) => [g.id, g]))
-    const lastMsgByConv = new Map<string, Message>()
-    const messagesByConv = new Map<string, Message[]>()
-    for (const m of messages) {
-      const prev = lastMsgByConv.get(m.conversationId)
-      if (!prev || m.createdAt > prev.createdAt) lastMsgByConv.set(m.conversationId, m)
-      const arr = messagesByConv.get(m.conversationId) ?? []
-      arr.push(m)
-      messagesByConv.set(m.conversationId, arr)
-    }
     return conversations
       .map((conv) => {
-        const lastMessage = lastMsgByConv.get(conv.id)
-        const unread = unreadCountFor(conv.lastReadAt, messagesByConv.get(conv.id) ?? [])
+        const lastMessage = lastMessageByConversation.get(conv.id)
+        const unread = unreadByConversation.get(conv.id) ?? 0
         if (conv.groupId) {
           const group = groupById.get(conv.groupId)
           if (!group) return null
@@ -75,7 +66,10 @@ export function MessagesPage() {
         if (a.conv.pinned !== b.conv.pinned) return a.conv.pinned ? -1 : 1
         return b.conv.updatedAt - a.conv.updatedAt
       })
-  }, [conversations, contacts, groups, messages])
+  }, [conversations, contacts, groups, lastMessageByConversation, unreadByConversation])
+
+  const openConversation = useCallback((id: string) => navigate(`/chat/${id}`), [navigate])
+  const openConversationMenu = useCallback((id: string) => setMenuFor(id), [])
 
   const menuConv = rows.find((r) => r.conv.id === menuFor)?.conv
 
@@ -106,6 +100,7 @@ export function MessagesPage() {
         {rows.map(({ conv, avatar, avatarColor, name, preview, unread }) => (
           <ConversationRow
             key={conv.id}
+            conversationId={conv.id}
             pinned={conv.pinned}
             avatar={avatar}
             avatarColor={avatarColor}
@@ -113,8 +108,8 @@ export function MessagesPage() {
             preview={preview}
             unread={unread}
             time={formatListTime(conv.updatedAt)}
-            onClick={() => navigate(`/chat/${conv.id}`)}
-            onLongPress={() => setMenuFor(conv.id)}
+            onClick={openConversation}
+            onLongPress={openConversationMenu}
           />
         ))}
       </div>
@@ -146,7 +141,8 @@ export function MessagesPage() {
   )
 }
 
-function ConversationRow(props: {
+const ConversationRow = memo(function ConversationRow(props: {
+  conversationId: string
   pinned: boolean
   avatar: string
   avatarColor: string
@@ -154,14 +150,14 @@ function ConversationRow(props: {
   preview: string
   unread: number
   time: string
-  onClick: () => void
-  onLongPress: () => void
+  onClick: (id: string) => void
+  onLongPress: (id: string) => void
 }) {
-  const longPress = useLongPress(props.onLongPress)
+  const longPress = useLongPress(() => props.onLongPress(props.conversationId))
   return (
     <div
       {...longPress}
-      onClick={props.onClick}
+      onClick={() => props.onClick(props.conversationId)}
       className={`flex cursor-pointer items-center gap-3 px-4 py-2.5 select-none ${
         props.pinned ? 'bg-gray-100' : 'bg-white active:bg-gray-50'
       }`}
@@ -179,4 +175,4 @@ function ConversationRow(props: {
       </div>
     </div>
   )
-}
+})

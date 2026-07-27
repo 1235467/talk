@@ -3,7 +3,7 @@ import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
 import { chatCompletion, coalesceConsecutiveRoles, type ChatMessage } from './deepseek'
 import {
-  extractJsonObject,
+  parseJsonLoose,
   parseAiResponse,
   parseRawPrivateDraft,
   rawPrivateDraftNeedsUtility,
@@ -181,22 +181,7 @@ function parseAiTurnDebugPayload(opts: {
   promptTrace?: import('../types').PromptTrace
 }): unknown {
   const { mainPrompt, conversionPrompt, finalRaw, jsonRaw, rawText, bubbles, knowledgeQueries, mood, thought, qualityCheck, injectedIntents, promptTrace } = opts
-  const trimmed = finalRaw.trim()
-  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  const text = fenceMatch ? fenceMatch[1].trim() : trimmed
-  let conversionParsed: unknown = null
-  try {
-    conversionParsed = JSON.parse(text)
-  } catch {
-    const extracted = extractJsonObject(text)
-    if (extracted) {
-      try {
-        conversionParsed = JSON.parse(extracted)
-      } catch {
-        // fall through
-      }
-    }
-  }
+  const conversionParsed: unknown = parseJsonLoose(finalRaw)
   return {
     mainPrompt,
     conversionPrompt,
