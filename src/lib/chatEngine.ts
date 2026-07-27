@@ -26,7 +26,7 @@ import { recentSocialEventsText } from './socialEvents'
 import { recentSharedOriginalContext } from './sharedRecentContext'
 import { useChatUiStore } from '../store/useChatUiStore'
 import { enqueueSelfIterationTask } from './selfIteration'
-import { USER_WALLET_ID, balanceOf, reserveRedPacket, transferFunds } from './finance'
+import { USER_WALLET_ID, getBalance, reserveRedPacket, transferFunds } from './finance'
 import { searchPexelsPhoto } from './photoSearch'
 import { generateRemoteImage, searchRemoteStickers, trackRemoteStickerSend, type RemoteStickerResult } from './remoteMedia'
 import { isImageProviderReady, isStickerProviderReady } from './mediaProviders'
@@ -354,7 +354,7 @@ async function runAiTurn(
     const memoryPromptOn = promptModuleEnabled(settings, 'memory')
     const recentMemories = memoryPromptOn ? await recentMemoriesText(contact.id) : ''
     const financeContext = isModuleEnabled('career') && promptModuleEnabled(settings, 'career')
-      ? `\n【经济状况】你的可用余额：${await balanceOf(contact.id)}；对方可用余额：${await balanceOf(USER_WALLET_ID)}。未结清借款：${(await db.loans.filter(l => l.status === 'active' && (l.lenderId === contact.id || l.borrowerId === contact.id)).toArray()).map(l => `${l.borrowerId === contact.id ? '你欠对方' : '对方欠你'}${l.outstanding}`).join('；') || '无'}。所有金钱动作必须量力而行，不得凭空造钱。`
+      ? `\n【经济状况】你的可用余额：${await getBalance(contact.id)}；对方可用余额：${await getBalance(USER_WALLET_ID)}。未结清借款：${(await db.loans.filter(l => l.status === 'active' && (l.lenderId === contact.id || l.borrowerId === contact.id)).toArray()).map(l => `${l.borrowerId === contact.id ? '你欠对方' : '对方欠你'}${l.outstanding}`).join('；') || '无'}。所有金钱动作必须量力而行，不得凭空造钱。`
       : ''
     const socialMemories = memoryPromptOn ? await socialMemoriesText(contact.id) : ''
     const sharedOriginalContext = memoryPromptOn ? await recentSharedOriginalContext([contact.id], settings.userNickname, {
@@ -726,7 +726,7 @@ function revealBubbles(
       if (bubble.type === 'transfer') {
         try { const tx = await transferFunds({ from: contact.id, to: USER_WALLET_ID, amount: bubble.amount, kind: 'transfer', note: bubble.note, idempotencyKey: `ai:${streamId}:${i}` }); finance = { transactionId: tx.id, amount: tx.amount, note: bubble.note, status: 'completed' } } catch (err) { console.warn('[finance] AI转账被拒绝', err); return }
       } else if (bubble.type === 'redPacket') {
-        try { const tx = await reserveRedPacket(contact.id, bubble.amount, bubble.note); finance = { transactionId: tx.id, amount: tx.amount, note: bubble.note, status: 'pending' } } catch (err) { console.warn('[finance] AI红包被拒绝', err); return }
+        try { const tx = await reserveRedPacket(contact.id, bubble.amount, bubble.note, `ai-red-packet:${streamId}:${i}`); finance = { transactionId: tx.id, amount: tx.amount, note: bubble.note, status: 'pending' } } catch (err) { console.warn('[finance] AI红包被拒绝', err); return }
       } else if (bubble.type === 'loanRequest') {
         const loanId = uuid(); await db.loans.add({ id: loanId, lenderId: USER_WALLET_ID, borrowerId: contact.id, principal: bubble.amount, outstanding: bubble.amount, note: bubble.note, status: 'pending', createdAt: Date.now() }); finance = { loanId, amount: bubble.amount, note: bubble.note, status: 'pending' }
       } else if (bubble.type === 'loanDecision' && bubble.loanId) {

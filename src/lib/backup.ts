@@ -1,6 +1,7 @@
 import type { Table } from 'dexie'
 import { db } from '../db/db'
 import type { AppSettings } from '../types'
+import { ensureWalletsAfterRestore } from './finance'
 
 const BACKUP_FORMAT = 'talk-backup'
 const BACKUP_SCHEMA_VERSION = 2
@@ -91,4 +92,5 @@ export async function restoreBackup(backup: TalkBackup) {
       }
     },
   )
+  await ensureWalletsAfterRestore(backup.settings)
 }

@@ -485,7 +485,8 @@ export interface AppSettings {
   userGender: string
   userBirthday: string // "YYYY-MM-DD", empty if unset
   userBio: string
-  walletBalance: number // 金币(coins) the user can spend in the shop
+  /** @deprecated Legacy pre-ledger balance. Runtime balance lives in walletAccounts. */
+  walletBalance: number
   userOccupation: string
   userMonthlySalary: number
   userJobStartedDate?: string
