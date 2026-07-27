@@ -190,6 +190,6 @@ Playwright 使用移动设备项目和 HashRouter 路由。若 5173 已有长期
 
 ## 当前已知技术债
 
-- `types/index.ts`、`memory.ts` 和联系人创建页面仍偏大。
-- TypeScript 尚未开启完整 strict，lint 规则仍较保守。
+- `types/index.ts`、`memory.ts` 和联系人创建页面仍偏大；女娲 JSON 协议已先拆到 `src/lib/nuwaPersona.ts`，后续继续按纯逻辑/副作用边界渐进拆分。
+- TypeScript 已开启 `strictNullChecks`，但尚未开启完整 strict。
 - 钱包旧字段迁移完成前，需要持续防止出现第二个运行时余额来源。
