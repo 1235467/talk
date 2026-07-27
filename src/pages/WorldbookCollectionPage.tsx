@@ -7,7 +7,7 @@ import { TopBar } from '../components/TopBar'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { chatCompletion } from '../lib/deepseek'
 import { buildWorldviewDraftPrompt, parseWorldviewDraft } from '../lib/prompt'
-import { promptModuleEnabled } from '../lib/promptModules'
+import { featureActive } from '../lib/promptModules'
 import type { WorldbookEntry } from '../types'
 import { estimateWorldbookTokens, formatEstimatedTokens } from '../lib/worldbookTokens'
 
@@ -69,7 +69,7 @@ export function WorldbookCollectionPage() {
     if (!idea.trim() || !settings.apiKey) return setError(settings.apiKey ? '请输入世界设定想法' : '请先在设置中配置 API Key')
     setBusy(true); setError('')
     try {
-      if (!promptModuleEnabled(settings, 'worldview')) throw new Error('世界书提示词模块已屏蔽')
+      if (!featureActive(settings, 'worldview')) throw new Error('世界书提示词模块已屏蔽')
       const raw = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.utilityModel, messages: [{ role: 'system', content: buildWorldviewDraftPrompt(idea.trim(), '', settings.promptModules) }, { role: 'user', content: '请生成' }], jsonMode: true, purpose: 'worldbook' })
       const parsed = parseWorldviewDraft(raw)
       if (!parsed) throw new Error('生成结果解析失败')

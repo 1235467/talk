@@ -1,13 +1,13 @@
 import { db } from '../db/db'
+import { isModuleEnabled } from '../features'
 import { parseJsonLoose, parseKnowledgeQueriesField } from './aiProtocol'
 import { activeUpcomingPlansText } from './memory'
 import { customPersonalityTraitsLine, formatPersonaProfile, formatSpeechSamplesForScene, personalityTraitLine } from './prompt'
 import { describeCurrentSchedule } from './schedule'
-import { isModuleEnabled } from '../features'
 import type { Contact, GroupAiBubble, GroupAiResponse, GroupEnergyLevel, GroupSpeakerLimit, PromptModuleSettings } from '../types'
 import { dynamicRelationScore } from './contactRelations'
 import { normalizeMood } from './mood'
-import { createDefaultPromptModules, getPromptTemplate, promptModuleEnabled } from './promptModules'
+import { createDefaultPromptModules, featureActive, getPromptTemplate, promptModuleEnabled } from './promptModules'
 
 /** Group chats can cap how many members answer per turn; see pickSpeakers. */
 const DEFAULT_GROUP_SPEAKER_LIMIT: GroupSpeakerLimit = 3
@@ -118,13 +118,17 @@ export function buildGroupRawChatPrompt(opts: {
   speakerMemoriesMap?: Map<string, string>
   aiRelationshipText?: string
   promptModules?: PromptModuleSettings
+  enabledModules: string[]
 }): string {
-  const promptSettings = { promptModules: opts.promptModules ?? createDefaultPromptModules() }
+  const promptSettings = {
+    promptModules: opts.promptModules ?? createDefaultPromptModules(),
+    enabledModules: opts.enabledModules,
+  }
   if (!promptModuleEnabled(promptSettings, 'chat')) return ''
-  const relationshipPromptOn = promptModuleEnabled(promptSettings, 'relationship')
+  const relationshipPromptOn = featureActive(promptSettings, 'relationship')
   const memoryPromptOn = promptModuleEnabled(promptSettings, 'memory')
-  const personalityPromptOn = promptModuleEnabled(promptSettings, 'personalityTraits')
-  const selfIterationPromptOn = promptModuleEnabled(promptSettings, 'selfIteration')
+  const personalityPromptOn = featureActive(promptSettings, 'personalityTraits')
+  const selfIterationPromptOn = featureActive(promptSettings, 'selfIteration')
   const rosterText = opts.allMembers.map((m) => `- ${m.name}`).join('\n')
   const speakerNames = opts.speakers.map((s) => s.name).join('、')
   const speakerBlocks = opts.speakers
@@ -144,7 +148,7 @@ ${relationshipPromptOn ? `- 你和用户的关系: ${base}${c.relationshipDynami
 - 当前状态: ${scheduleText || '没有特别安排'}。
 ${memoryPromptOn ? `- 对用户的了解: ${c.memoryFacts || '暂无具体聊天记忆'}。\n- 相处习惯: ${c.memoryStyle || '暂无'}。\n${sharedHistoryText}${plansText ? `- 和用户的约定: ${plansText}。\n` : ''}${recentMemoText ? `- 最近记忆碎片:\n${recentMemoText}\n` : ''}` : ''}${selfIterationPromptOn && c.selfIterationPrompt ? `- 关系协商记录:\n${c.selfIterationPrompt}\n` : ''}
 感觉:
-- 人设必须严格遵守: ${c.systemPrompt || '自由发挥成一个普通朋友'}。${isModuleEnabled('career') && promptModuleEnabled(promptSettings, 'career') && c.occupation ? `职业：${c.occupation}，月薪${c.monthlySalary ?? 0}。` : ''}${c.personaConstraints ? `\n- 用户补充说明（不可违背）: ${c.personaConstraints}` : ''}${c.personaProfile ? `\n- 人设硬约束:\n${formatPersonaProfile(c.personaProfile)}` : ''}
+- 人设必须严格遵守: ${c.systemPrompt || '自由发挥成一个普通朋友'}。${featureActive(promptSettings, 'career') && c.occupation ? `职业：${c.occupation}，月薪${c.monthlySalary ?? 0}。` : ''}${c.personaConstraints ? `\n- 用户补充说明（不可违背）: ${c.personaConstraints}` : ''}${c.personaProfile ? `\n- 人设硬约束:\n${formatPersonaProfile(c.personaProfile)}` : ''}
 ${personalityPromptOn ? `${c.mbti ? `- MBTI: ${c.mbti}。` : ''}${personalityTraitLine(c.personalityTrait, c.warmth ?? 0)}${customPersonalityTraitsLine(c.customPersonalityTraits, c.warmth ?? 0)}` : ''}
 ${samplesText ? `- 说话样例:\n${samplesText}` : ''}`
     })
@@ -161,7 +165,7 @@ ${samplesText ? `- 说话样例:\n${samplesText}` : ''}`
   const aiRelationships = relationshipPromptOn && opts.aiRelationshipText ? `\n${opts.aiRelationshipText}` : ''
   const worldview = opts.worldviewText ? `\n${getPromptTemplate(promptSettings, 'worldview', 'groupRuntime', { worldbookEntries: opts.worldviewText }) ?? ''}` : ''
   const stylePrompt = getPromptTemplate(promptSettings, 'chat', 'style') ?? ''
-  const knowledge = promptModuleEnabled(promptSettings, 'knowledgeBase') && opts.knowledgeDigestText ? `\n【可参考资讯】\n${opts.knowledgeDigestText}` : ''
+  const knowledge = featureActive(promptSettings, 'knowledgeBase') && opts.knowledgeDigestText ? `\n【可参考资讯】\n${opts.knowledgeDigestText}` : ''
   const selfIteration = selfIterationPromptOn && opts.selfIterationGlobalText ? `\n【用户边界与偏好 - 全局】\n${opts.selfIterationGlobalText}` : ''
   const groupMemory = memoryPromptOn && opts.groupMemoryText?.trim() ? `\n【群聊记忆】\n${opts.groupMemoryText.trim()}` : ''
   const groupVibe = opts.groupVibeText?.trim() ? `\n【群聊氛围】\n${opts.groupVibeText.trim()}` : ''

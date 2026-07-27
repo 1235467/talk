@@ -21,7 +21,7 @@ import { pickAvatarCategory } from '../lib/avatarCategory'
 import { OCCUPATION_OPTIONS, employmentPatch } from '../lib/career'
 import { randomAnimeAvatar, searchPexelsPhoto } from '../lib/photoSearch'
 import { retrieveWorldbookContext, selectedWorldbookEntriesText } from '../lib/worldbook'
-import { getPromptTemplate, promptModuleEnabled } from '../lib/promptModules'
+import { featureActive, getPromptTemplate, promptModuleEnabled } from '../lib/promptModules'
 import { customTraitsValidationError, hasOverlappingCustomTraitRules } from '../lib/contactCreator'
 import { CONTACT_RELATION_LABELS, HOBBY_TAG_OPTIONS, PERSONALITY_TRAIT_OPTIONS, type ContactRelationLabel, type CustomPersonalityTrait, type PersonaCreationRecord } from '../types'
 import {
@@ -234,7 +234,7 @@ export function ContactAddPage() {
   }
 
   async function creationWorldbookContext(query: string) {
-    if (!promptModuleEnabled(settings, 'worldview')) return ''
+    if (!featureActive(settings, 'worldview')) return ''
     const [selectedText, retrievedText] = await Promise.all([
       selectedWorldbookEntriesText(selectedWorldbookEntryIds),
       retrieveWorldbookContext(query, { maxEntries: 8, maxChars: 6500, includeHighPriorityFallback: true }),

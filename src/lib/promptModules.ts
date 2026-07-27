@@ -272,6 +272,33 @@ export function promptModuleEnabled(settings: Pick<AppSettings, 'promptModules'>
   return settings.promptModules?.[moduleId]?.enabled !== false
 }
 
+const FEATURE_GATED_PROMPT_MODULES = new Set<PromptModuleId>([
+  'relationship',
+  'intent',
+  'personalityTraits',
+  'worldview',
+  'knowledgeBase',
+  'selfIteration',
+  'storyOutline',
+  'career',
+  'shop',
+  'lifeSimulation',
+  'aiReplyAssist',
+])
+
+/**
+ * Single runtime decision for capabilities that have both a feature switch
+ * and an editable prompt-module switch. Prompt-only modules remain governed
+ * by promptModuleEnabled().
+ */
+export function featureActive(
+  settings: Pick<AppSettings, 'enabledModules' | 'promptModules'>,
+  moduleId: PromptModuleId,
+): boolean {
+  if (!promptModuleEnabled(settings, moduleId)) return false
+  return !FEATURE_GATED_PROMPT_MODULES.has(moduleId) || settings.enabledModules.includes(moduleId)
+}
+
 export function renderPromptTemplate(templateText: string, variables: Record<string, unknown>): string {
   return templateText.replace(/{{\s*([A-Za-z][A-Za-z0-9_]*)\s*}}/g, (_, key: string) => {
     const value = variables[key]

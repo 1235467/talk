@@ -5,7 +5,7 @@ import { tavilySearch, type WebSearchResult } from './webSearch'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { toDateKey } from './time'
 import type { AppSettings, KnowledgeEntry } from '../types'
-import { getPromptTemplate, promptModuleEnabled } from './promptModules'
+import { featureActive, getPromptTemplate } from './promptModules'
 import { parseJsonLoose } from './aiProtocol'
 
 /** Entries older than this are pruned whenever new ones are added, so the table (and the prompt digest) don't grow forever. */
@@ -95,7 +95,7 @@ function recordKnowledgeQueriesSent(n: number): void {
 }
 
 async function searchAndStore(topics: { query: string }[], settings: AppSettings): Promise<ParsedKnowledgeEntry[]> {
-  if (!promptModuleEnabled(settings, 'knowledgeBase')) return []
+  if (!featureActive(settings, 'knowledgeBase')) return []
   const rawResultsPerQuery: { query: string; results: WebSearchResult[] }[] = []
   for (const { query } of topics) {
     try {

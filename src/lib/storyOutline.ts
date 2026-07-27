@@ -1,7 +1,7 @@
 import { chatCompletion, type ChatMessage } from './deepseek'
 import { displayName } from './contact'
 import type { AppSettings, Contact, GroupEnergyLevel, Message } from '../types'
-import { getPromptTemplate } from './promptModules'
+import { featureActive, getPromptTemplate } from './promptModules'
 
 function truncate(text: string, max: number): string {
   const trimmed = text.trim()
@@ -38,6 +38,7 @@ async function generateOutline(opts: {
   historyText: string
   signal?: AbortSignal
 }): Promise<string> {
+  if (!featureActive(opts.settings, 'storyOutline')) return ''
   const systemPrompt = getPromptTemplate(opts.settings, 'storyOutline', 'generation', {
     storyContext: `场景：${opts.title}\n逻辑前提：${truncate(opts.premiseText, 5000)}\n最近聊天：${truncate(opts.historyText || '（无）', 2500)}`,
   })

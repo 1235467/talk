@@ -5,7 +5,7 @@ import type { AppSettings, Contact, Message } from '../types'
 import { parseJsonLoose } from './aiProtocol'
 import { chatCompletion, type ChatMessage } from './deepseek'
 import { displayName } from './contact'
-import { getPromptTemplate, promptModuleEnabled } from './promptModules'
+import { featureActive, getPromptTemplate } from './promptModules'
 
 interface SelfIterationTask {
   conversationId: string
@@ -66,7 +66,7 @@ function buildLearningPrompt(opts: {
 async function runTask(task: SelfIterationTask): Promise<void> {
   if (!isModuleEnabled('selfIteration')) return
   const settings = useSettingsStore.getState()
-  if (!settings.apiKey || !promptModuleEnabled(settings, 'selfIteration')) return
+  if (!settings.apiKey || !featureActive(settings, 'selfIteration')) return
 
   const contact = await db.contacts.get(task.contactId)
   if (!contact) return

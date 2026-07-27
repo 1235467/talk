@@ -159,6 +159,7 @@ export function GroupInfoPage() {
           knowledgeDigestText: isModuleEnabled('knowledgeBase') ? (knowledgeDigestText(knowledgeEntries) || undefined) : undefined,
           selfIterationGlobalText: isModuleEnabled('selfIteration') ? settings.selfIterationGlobalPrompt : undefined,
           speakerMemoriesMap: new Map(),
+          enabledModules: settings.enabledModules,
         })
       : ''
 

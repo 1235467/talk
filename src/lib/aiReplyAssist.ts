@@ -1,11 +1,10 @@
 import { db } from '../db/db'
-import { isModuleEnabled } from '../features'
 import type { AppSettings, Contact, Group, Message } from '../types'
 import { chatCompletion } from './deepseek'
 import { describeCurrentSchedule, describeUpcomingScheduleText } from './schedule'
 import { recentSocialEventsText } from './socialEvents'
 import { retrieveWorldbookContext } from './worldbook'
-import { getPromptTemplate, promptModuleEnabled } from './promptModules'
+import { featureActive, getPromptTemplate } from './promptModules'
 
 function trimText(value: unknown, limit = 900) {
   const text = String(value || '').trim()
@@ -39,6 +38,9 @@ export async function draftReply(
   contact?: Contact,
   group?: Group,
 ) {
+  if (!featureActive(settings, 'aiReplyAssist')) {
+    throw new Error('代写助手提示词模块已屏蔽')
+  }
   const history = messages
     .slice(-14)
     .map((message) => `${message.role === 'user' ? settings.userNickname || '用户' : contact?.name || '群成员'}：${message.content}`)
@@ -52,7 +54,7 @@ export async function draftReply(
   const baseContext = [history, userProfileText(settings), contact?.systemPrompt, contact?.memoryFacts, group?.memory, group?.vibe]
     .filter(Boolean)
     .join('\n')
-  const worldbookContext = isModuleEnabled('worldview') && promptModuleEnabled(settings, 'worldview')
+  const worldbookContext = featureActive(settings, 'worldview')
     ? await retrieveWorldbookContext(baseContext, { maxEntries: 4, maxChars: 2400 })
     : ''
 

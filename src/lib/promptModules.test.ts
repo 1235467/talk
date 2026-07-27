@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createDefaultPromptModules,
+  featureActive,
   getPromptTemplate,
   normalizePromptModules,
   renderPromptTemplate,
@@ -58,5 +59,25 @@ describe('original prompt templates', () => {
       existingPersona: '保留这段',
       roleDescription: '补充边界',
     })).toContain('保留这段')
+  })
+
+  it('requires both switches for feature-gated prompt modules', () => {
+    const promptModules = createDefaultPromptModules()
+    const settings = { promptModules, enabledModules: ['worldview'] }
+    expect(featureActive(settings, 'worldview')).toBe(true)
+
+    settings.enabledModules = []
+    expect(featureActive(settings, 'worldview')).toBe(false)
+
+    settings.enabledModules = ['worldview']
+    promptModules.worldview.enabled = false
+    expect(featureActive(settings, 'worldview')).toBe(false)
+  })
+
+  it('keeps prompt-only modules independent of the feature registry', () => {
+    const promptModules = createDefaultPromptModules()
+    expect(featureActive({ promptModules, enabledModules: [] }, 'chat')).toBe(true)
+    promptModules.chat.enabled = false
+    expect(featureActive({ promptModules, enabledModules: [] }, 'chat')).toBe(false)
   })
 })

@@ -30,7 +30,7 @@ import { recentSharedOriginalContext } from './sharedRecentContext'
 import { createGroupPlan, planCardMessage } from './groupPlans'
 import { useChatUiStore } from '../store/useChatUiStore'
 import { retrieveWorldbookContext } from './worldbook'
-import { promptModuleEnabled } from './promptModules'
+import { featureActive, promptModuleEnabled } from './promptModules'
 import { realisticReplyDelayMs } from './replyTiming'
 import type { AppSettings, Contact, Group, GroupAiBubble, Message, Sticker } from '../types'
 
@@ -353,7 +353,7 @@ async function runGroupAiTurn(
     if (replied?.role === 'assistant' && replied.speakerContactId) preferredSpeakerIds.add(replied.speakerContactId)
     const speakers = await pickSociallyConnectedSpeakers(members, Array.from(preferredSpeakerIds), group.speakerLimit ?? 3)
     console.log(`[group] 本轮发言人: ${speakers.map((s) => s.name).join('、')}`)
-    const knowledgeEntries = isModuleEnabled('knowledgeBase') && promptModuleEnabled(settings, 'knowledgeBase') ? await db.knowledgeEntries.toArray() : []
+    const knowledgeEntries = featureActive(settings, 'knowledgeBase') ? await db.knowledgeEntries.toArray() : []
     const targetContext = targetedContextText(latestUserMessage, contactById, messageById, settings.userNickname)
     const recentEventsText = await recentSocialEventsText(members.map((m) => m.id), 4)
     const sharedOriginalContext = promptModuleEnabled(settings, 'memory') ? await recentSharedOriginalContext(members.map((m) => m.id), settings.userNickname, {
@@ -363,10 +363,10 @@ async function runGroupAiTurn(
       // it here avoids paying twice for the same messages.
       excludeConversationId: conversationId,
     }) : ''
-    const worldbookText = isModuleEnabled('worldview') && promptModuleEnabled(settings, 'worldview') ? await retrieveWorldbookContext([group.name, group.vibe, targetContext, history.slice(-10).map((m) => m.content).join(' '), members.map((m) => `${m.name} ${m.systemPrompt}`).join(' ')].filter(Boolean).join('\n')) : ''
+    const worldbookText = featureActive(settings, 'worldview') ? await retrieveWorldbookContext([group.name, group.vibe, targetContext, history.slice(-10).map((m) => m.content).join(' '), members.map((m) => `${m.name} ${m.systemPrompt}`).join(' ')].filter(Boolean).join('\n')) : ''
 
     const speakerMemoriesMap = promptModuleEnabled(settings, 'memory') ? await loadSpeakerMemories(speakers) : new Map<string, string>()
-    const aiRelationshipText = promptModuleEnabled(settings, 'relationship') ? await aiRelationshipPrompt(members) : ''
+    const aiRelationshipText = featureActive(settings, 'relationship') ? await aiRelationshipPrompt(members) : ''
     const remoteStickerSearchEnabled = isStickerProviderReady(settings)
     const imageGenerationEnabled = isImageProviderReady(settings)
     const mediaPromptOptions = { remoteStickerSearchEnabled, imageGenerationEnabled }
@@ -388,11 +388,12 @@ async function runGroupAiTurn(
       targetedContextText: targetContext,
       recentEventsText: recentEventsText || undefined,
       worldviewText: worldbookText || undefined,
-      knowledgeDigestText: isModuleEnabled('knowledgeBase') && promptModuleEnabled(settings, 'knowledgeBase') ? (knowledgeDigestText(knowledgeEntries) || undefined) : undefined,
-      selfIterationGlobalText: isModuleEnabled('selfIteration') && promptModuleEnabled(settings, 'selfIteration') ? settings.selfIterationGlobalPrompt : undefined,
+      knowledgeDigestText: featureActive(settings, 'knowledgeBase') ? (knowledgeDigestText(knowledgeEntries) || undefined) : undefined,
+      selfIterationGlobalText: featureActive(settings, 'selfIteration') ? settings.selfIterationGlobalPrompt : undefined,
       speakerMemoriesMap,
       aiRelationshipText,
       promptModules: settings.promptModules,
+      enabledModules: settings.enabledModules,
     })
     if (!systemPrompt.trim()) throw new Error('对话核心提示词模块已屏蔽')
 
@@ -472,10 +473,10 @@ async function runGroupAiTurn(
       latestUserText: latestUserMessage?.content ?? '',
       draftText: rawText,
       personaFacts: [
-        ...speakers.map((speaker) => `${displayName(speaker)}：${speaker.systemPrompt.slice(0, 700)}${speaker.personaConstraints ? `；硬约束=${speaker.personaConstraints.slice(0, 350)}` : ''}${promptModuleEnabled(settings, 'personalityTraits') && speaker.personalityTrait ? `；人格特质=${speaker.personalityTrait}` : ''}${promptModuleEnabled(settings, 'memory') && speaker.sharedHistory ? `；共同过往锚点=${speaker.sharedHistory.slice(0, 500)}` : ''}`),
+        ...speakers.map((speaker) => `${displayName(speaker)}：${speaker.systemPrompt.slice(0, 700)}${speaker.personaConstraints ? `；硬约束=${speaker.personaConstraints.slice(0, 350)}` : ''}${featureActive(settings, 'personalityTraits') && speaker.personalityTrait ? `；人格特质=${speaker.personalityTrait}` : ''}${promptModuleEnabled(settings, 'memory') && speaker.sharedHistory ? `；共同过往锚点=${speaker.sharedHistory.slice(0, 500)}` : ''}`),
         `群聊设置：热闹程度=${group.energyLevel ?? 'normal'}；AI互聊=${group.allowAiChatter === false ? '关闭' : '开启'}`,
         targetContext ? `本轮定向上下文=${targetContext.slice(0, 600)}` : '',
-        promptModuleEnabled(settings, 'worldview') && worldbookText ? `命中世界书=${worldbookText.slice(0, 800)}` : '',
+        featureActive(settings, 'worldview') && worldbookText ? `命中世界书=${worldbookText.slice(0, 800)}` : '',
       ].filter(Boolean).join('\n'),
       recentContext: recentHistory
         .slice(-4)
@@ -544,7 +545,7 @@ async function runGroupAiTurn(
       }
     }
     knowledgeQueries = Array.from(new Set([...initiallyRequestedKnowledge, ...knowledgeQueries])).slice(0, 2)
-    if (isModuleEnabled('knowledgeBase') && knowledgeQueries.length > 0) {
+    if (featureActive(settings, 'knowledgeBase') && knowledgeQueries.length > 0) {
       const knowledge = await resolveKnowledgeQueries(knowledgeQueries, settings)
       if (knowledge.text) {
         rawText = await chatCompletion({ apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.model,messages:[...chatMessages,{role:'user',content:`刚才出现了你们不了解的词。搜索结果如下：\n${knowledge.text}${reviewFailure?`\n\n上一版审查问题：${reviewFailure}，重写时同时修正。`:''}\n请基于结果重新生成群聊草稿，保持原群聊格式，像刚查明白后自然接话，不要写成报告。`}],signal:controller.signal, thinking:'disabled',temperature:0.9,maxTokens:1800,trace:{turnId:streamId,stage:'second_chat',conversationId} })

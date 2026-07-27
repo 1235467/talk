@@ -4,7 +4,7 @@ import { chatCompletion } from './deepseek'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { retrieveWorldbookContext } from './worldbook'
 import type { AppSettings, Contact, ContactLifeState, LifeEvent } from '../types'
-import { getPromptTemplate, promptModuleEnabled } from './promptModules'
+import { featureActive, getPromptTemplate } from './promptModules'
 
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
@@ -46,9 +46,9 @@ function nextState(contact: Contact, current: ContactLifeState | undefined, even
 
 async function polishVisible(events: LifeEvent[], settings: AppSettings): Promise<Map<string, string>> {
   const fallback = new Map(events.map((e) => [e.id, e.summary]))
-  if (!settings.apiKey || events.length === 0 || !promptModuleEnabled(settings, 'lifeSimulation')) return fallback
+  if (!settings.apiKey || events.length === 0 || !featureActive(settings, 'lifeSimulation')) return fallback
   try {
-    const world = promptModuleEnabled(settings, 'worldview') ? await retrieveWorldbookContext(events.map((e) => e.summary).join('\n'), { maxEntries: 3, maxChars: 1600 }) : ''
+    const world = featureActive(settings, 'worldview') ? await retrieveWorldbookContext(events.map((e) => e.summary).join('\n'), { maxEntries: 3, maxChars: 1600 }) : ''
     const worldPrompt = world ? getPromptTemplate(settings, 'worldview', 'lifeRuntime', { worldbookEntries: world }) : ''
     const lifeContext = `${worldPrompt || ''}\n事件：${JSON.stringify(events.map((e) => ({ id: e.id, summary: e.summary })))}`
     const editable = getPromptTemplate(settings, 'lifeSimulation', 'polish', { lifeContext })!

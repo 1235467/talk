@@ -99,6 +99,7 @@ describe('group chat persona prompt anchors', () => {
       stickerNames: [],
       currentTimeText: '周六上午',
       userProfileText: '昵称：我',
+      enabledModules: ['career', 'relationship', 'personalityTraits'],
     }
     const rawPrompt = buildGroupRawChatPrompt(common)
     expect(rawPrompt).toContain('大学社团认识')
@@ -120,6 +121,7 @@ describe('group chat persona prompt anchors', () => {
     const prompt = buildGroupRawChatPrompt({
       stylePrompt: '短句', groupName: '测试群', allMembers: [contact], speakers: [contact], stickerNames: [],
       currentTimeText: '现在', userProfileText: '用户', worldviewText: 'WORLDBOOK_PAYLOAD', promptModules,
+      enabledModules: ['career', 'relationship', 'personalityTraits', 'worldview'],
     })
 
     expect(prompt).toContain('核心人设')

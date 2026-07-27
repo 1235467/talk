@@ -7,7 +7,7 @@ function promptWithDisabled(disabled: Array<'memory' | 'relationship' | 'intent'
   const promptModules = createDefaultPromptModules()
   for (const id of disabled) promptModules[id].enabled = false
   return buildMemoryUpdatePrompt({
-    settings: { promptModules } as AppSettings,
+    settings: { promptModules, enabledModules: ['relationship', 'intent'] } as AppSettings,
     existingFacts: '旧事实',
     existingStyle: '旧风格',
     existingPlansText: '',
@@ -36,5 +36,20 @@ describe('shared memory/relationship/intent model prompt', () => {
 
   it('skips the shared call when all three prompt modules are blocked', () => {
     expect(promptWithDisabled(['memory', 'relationship', 'intent'])).toBe('')
+  })
+
+  it('omits feature-gated fields when the feature switch is off', () => {
+    const promptModules = createDefaultPromptModules()
+    const prompt = buildMemoryUpdatePrompt({
+      settings: { promptModules, enabledModules: [] } as AppSettings,
+      existingFacts: '旧事实',
+      existingStyle: '旧风格',
+      existingPlansText: '',
+      warmth: 20,
+      currentTimeText: '现在',
+    })
+    expect(prompt).toContain('memoryItems')
+    expect(prompt).not.toContain('warmthDelta')
+    expect(prompt).not.toContain('"intents"')
   })
 })

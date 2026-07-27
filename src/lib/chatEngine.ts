@@ -31,7 +31,7 @@ import { trackRemoteStickerSend } from './remoteMedia'
 import { resolveBubbleMedia } from './bubbleMedia'
 import { createTurnController, revealSequentially } from './conversationRuntime'
 import { isImageProviderReady, isStickerProviderReady } from './mediaProviders'
-import { promptModuleEnabled } from './promptModules'
+import { featureActive, promptModuleEnabled } from './promptModules'
 import { realisticReplyDelayMs } from './replyTiming'
 import type { AiBubble, AppSettings, Contact, Message, MessageType, ScheduleOverride, Sticker } from '../types'
 
@@ -216,7 +216,7 @@ export function buildUserProfileText(settings: AppSettings): string {
   const age = ageFromBirthday(settings.userBirthday)
   if (age !== null) parts.push(`年龄: ${age}岁`)
   if (settings.userBio) parts.push(`简介: ${settings.userBio}`)
-  if (isModuleEnabled('career') && settings.userOccupation) parts.push(`职业: ${settings.userOccupation} 月薪: ${settings.userMonthlySalary}`)
+  if (featureActive(settings, 'career') && settings.userOccupation) parts.push(`职业: ${settings.userOccupation} 月薪: ${settings.userMonthlySalary}`)
   return parts.join(' · ')
 }
 
@@ -321,7 +321,7 @@ async function runAiTurn(
 
     // Cold-start warmth evaluation: 好感度 is enabled but this contact
     // was created while the module was off → evaluate once from chat history.
-    if (isModuleEnabled('relationship') && contact.warmth === undefined) {
+    if (featureActive(settings, 'relationship') && contact.warmth === undefined) {
       await evaluateInitialWarmth(contact, conversationId, settings)
       // Re-read the contact so the newly-set warmth is available below.
       const fresh = await db.contacts.get(contact.id)
@@ -335,14 +335,14 @@ async function runAiTurn(
     if (pendingEvents.length > 0) await db.contacts.update(contact.id, { pendingEvents: [] })
     const socialEventsText = await recentSocialEventsText([contact.id], 4)
     const recentEventsText = [pendingEvents.join('；'), socialEventsText].filter(Boolean).join('\n')
-    const injectedIntents = isModuleEnabled('intent') && promptModuleEnabled(settings, 'intent') ? activeIntents(contact, now) : []
+    const injectedIntents = featureActive(settings, 'intent') ? activeIntents(contact, now) : []
     const injectedIntentText = activeIntentPrompt(injectedIntents)
 
     // ---- Step 1: build context sections (no JSON protocol) ----
     const scheduleText = describeUpcomingScheduleText(contact, new Date())
     const memoryPromptOn = promptModuleEnabled(settings, 'memory')
     const recentMemories = memoryPromptOn ? await recentMemoriesText(contact.id) : ''
-    const financeContext = isModuleEnabled('career') && promptModuleEnabled(settings, 'career')
+    const financeContext = featureActive(settings, 'career')
       ? `\n【经济状况】你的可用余额：${await getBalance(contact.id)}；对方可用余额：${await getBalance(USER_WALLET_ID)}。未结清借款：${(await db.loans.filter(l => l.status === 'active' && (l.lenderId === contact.id || l.borrowerId === contact.id)).toArray()).map(l => `${l.borrowerId === contact.id ? '你欠对方' : '对方欠你'}${l.outstanding}`).join('；') || '无'}。所有金钱动作必须量力而行，不得凭空造钱。`
       : ''
     const socialMemories = memoryPromptOn ? await socialMemoriesText(contact.id) : ''
@@ -354,31 +354,31 @@ async function runAiTurn(
     const lifeEventText = isModuleEnabled('lifeSimulation')
       ? (await db.lifeEvents.where('contactId').equals(contact.id).reverse().sortBy('occurredAt')).slice(0, 4).map((event) => event.summary).join('；')
       : ''
-    const worldbookTrace = isModuleEnabled('worldview') && promptModuleEnabled(settings, 'worldview') ? await retrieveWorldbookTrace([
+    const worldbookTrace = featureActive(settings, 'worldview') ? await retrieveWorldbookTrace([
       _triggeringUserText, proactiveContext, contact.name, contact.systemPrompt, contact.memoryFacts,
       history.slice(-8).map((m) => m.content).join(' '),
     ].filter(Boolean).join('\n')) : { text: '', matches: [] }
     const worldbookText = worldbookTrace.text
     const relationshipText = `【你和对方的关系】${relationshipLine(
-      isModuleEnabled('relationship') && promptModuleEnabled(settings, 'relationship') ? (contact.relationshipBase || '朋友') : '朋友',
-      isModuleEnabled('relationship') && promptModuleEnabled(settings, 'relationship') ? (contact.relationshipDynamic || '') : '',
-      isModuleEnabled('relationship') && promptModuleEnabled(settings, 'relationship') ? (contact.warmth ?? 0) : 0,
+      featureActive(settings, 'relationship') ? (contact.relationshipBase || '朋友') : '朋友',
+      featureActive(settings, 'relationship') ? (contact.relationshipDynamic || '') : '',
+      featureActive(settings, 'relationship') ? (contact.warmth ?? 0) : 0,
     )}`
     const userMemoryText = `【你对TA的了解】${contact.memoryFacts || '（刚开始聊）'}`
     const habitText = `【相处习惯】${contact.memoryStyle || '（还没有形成习惯）'}`
     const situationText = `【当前情境】现在: ${describeCurrentTime(new Date())}。对方: ${buildUserProfileText(settings)}。${activeMood ? `你的心情: ${activeMood}。` : ''}【日程】${describeCurrentSchedule(contact, new Date()) ? `\n当前: ${describeCurrentSchedule(contact, new Date())}` : '\n当前: 暂无安排'}${scheduleText ? `\n接下来:\n${scheduleText}` : '\n接下来: 暂无安排'}${memoryPromptOn && activeUpcomingPlansText(contact, new Date()) ? `\n约定: ${activeUpcomingPlansText(contact, new Date())}` : ''}${recentEventsText ? `\n最近: ${recentEventsText}` : ''}`
     const contextSections = buildRawChatPrompt({
       name: contact.name,
-      persona: `${contact.systemPrompt}${promptModuleEnabled(settings, 'personalityTraits') ? customPersonalityTraitsLine(contact.customPersonalityTraits, contact.warmth ?? 0) : ''}${isModuleEnabled('career') && promptModuleEnabled(settings, 'career') && contact.occupation ? `\n当前职业：${contact.occupation}，现实月薪：${contact.monthlySalary ?? 0}。工作会真实影响你的作息和日常话题。` : ''}${financeContext}`,
+      persona: `${contact.systemPrompt}${featureActive(settings, 'personalityTraits') ? customPersonalityTraitsLine(contact.customPersonalityTraits, contact.warmth ?? 0) : ''}${featureActive(settings, 'career') && contact.occupation ? `\n当前职业：${contact.occupation}，现实月薪：${contact.monthlySalary ?? 0}。工作会真实影响你的作息和日常话题。` : ''}${financeContext}`,
       personaConstraints: contact.personaConstraints,
       personaProfile: contact.personaProfile,
       stylePrompt: settings.globalSystemPrompt,
       promptModules: settings.promptModules,
-      selfIterationGlobalText: isModuleEnabled('selfIteration') && promptModuleEnabled(settings, 'selfIteration') ? settings.selfIterationGlobalPrompt : undefined,
-      selfIterationContactText: isModuleEnabled('selfIteration') && promptModuleEnabled(settings, 'selfIteration') ? contact.selfIterationPrompt : undefined,
-      relationshipBase: isModuleEnabled('relationship') && promptModuleEnabled(settings, 'relationship') ? (contact.relationshipBase || '朋友') : '朋友',
-      personalityTrait: isModuleEnabled('personalityTraits') && promptModuleEnabled(settings, 'personalityTraits') ? contact.personalityTrait : undefined,
-      personalityWarmth: isModuleEnabled('relationship') && promptModuleEnabled(settings, 'relationship') ? (contact.warmth ?? 0) : undefined,
+      selfIterationGlobalText: featureActive(settings, 'selfIteration') ? settings.selfIterationGlobalPrompt : undefined,
+      selfIterationContactText: featureActive(settings, 'selfIteration') ? contact.selfIterationPrompt : undefined,
+      relationshipBase: featureActive(settings, 'relationship') ? (contact.relationshipBase || '朋友') : '朋友',
+      personalityTrait: featureActive(settings, 'personalityTraits') ? contact.personalityTrait : undefined,
+      personalityWarmth: featureActive(settings, 'relationship') ? (contact.warmth ?? 0) : undefined,
       worldviewText: worldbookText || undefined,
       latestUserText: _triggeringUserText,
       recentContext: '',
@@ -396,7 +396,7 @@ async function runAiTurn(
       imageSearchEnabled: !!settings.pexelsApiKey,
       mbti: contact.mbti || undefined,
       recentMemoriesText: recentMemories || undefined,
-      speechSamplesText: promptModuleEnabled(settings, 'personalityTraits') ? (formatSpeechSamplesForScene(contact.speechSamples, 'private', 3) || undefined) : undefined,
+      speechSamplesText: featureActive(settings, 'personalityTraits') ? (formatSpeechSamplesForScene(contact.speechSamples, 'private', 3) || undefined) : undefined,
       sharedHistory: memoryPromptOn ? contact.sharedHistory : undefined,
     })
     if (!contextSections.trim()) throw new Error('对话核心提示词模块已屏蔽')
@@ -487,9 +487,9 @@ async function runAiTurn(
         promptModuleEnabled(settings, 'chat') ? `角色=${displayName(contact)}` : '',
         promptModuleEnabled(settings, 'chat') ? `人设=${contact.systemPrompt.slice(0, 1400)}` : '',
         promptModuleEnabled(settings, 'chat') && contact.personaConstraints ? `硬约束=${contact.personaConstraints.slice(0, 700)}` : '',
-        promptModuleEnabled(settings, 'personalityTraits') && contact.personalityTrait ? `人格特质=${contact.personalityTrait}` : '',
+        featureActive(settings, 'personalityTraits') && contact.personalityTrait ? `人格特质=${contact.personalityTrait}` : '',
         promptModuleEnabled(settings, 'memory') && contact.sharedHistory ? `与用户共同过往（关系硬锚点）=${contact.sharedHistory.slice(0, 900)}` : '',
-        promptModuleEnabled(settings, 'worldview') && worldbookText ? `本轮命中世界书=${worldbookText.slice(0, 1000)}` : '',
+        featureActive(settings, 'worldview') && worldbookText ? `本轮命中世界书=${worldbookText.slice(0, 1000)}` : '',
         sharedOriginalContext ? `相关跨场景事实=${sharedOriginalContext.slice(-1000)}` : '',
       ].filter(Boolean).join('\n'),
       recentContext: formatRecentConversationForReview(recentHistory.slice(-4), contact),
@@ -555,7 +555,7 @@ async function runAiTurn(
     }
     console.info(`[chat-perf] review-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)} repaired=${qualityCheckDebug.repaired ? 'yes' : 'no'}`)
     knowledgeQueries = Array.from(new Set([...initiallyRequestedKnowledge, ...knowledgeQueries])).slice(0, 2)
-    if (isModuleEnabled('knowledgeBase') && knowledgeQueries.length > 0) {
+    if (featureActive(settings, 'knowledgeBase') && knowledgeQueries.length > 0) {
       const knowledge = await resolveKnowledgeQueries(knowledgeQueries, settings)
       if (knowledge.text) {
         const review = qualityCheckDebug.repaired || qualityCheckDebug.detectedInvalid

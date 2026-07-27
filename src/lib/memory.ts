@@ -5,11 +5,10 @@ import { chatCompletion } from './deepseek'
 import { clampWarmthDelta, applyWarmthDelta, maxWarmthForTrait, minWarmthForTrait, warmthStage, shouldUpdateBase, containsBreakupLanguage, WARMTH_BREAKUP_PENALTY, traitWarmthModifier, customTraitWarmthModifier } from './relationship'
 import { displayName } from './contact'
 import { describeCurrentTime, toDateKey } from './time'
-import { isModuleEnabled } from '../features'
 import { parseIntentsField, type ParsedIntent } from './intent'
 import { applyInterpersonalMemorySignals, uniqueRelationPairs } from './contactRelations'
 import type { AppSettings, Contact, ContactMemory, ContactMemoryScope, ContactRelationLabel, IntentItem, MemoryCategory, MemoryKind, Message, PlanItem } from '../types'
-import { getPromptTemplate, promptModuleEnabled } from './promptModules'
+import { featureActive, getPromptTemplate, promptModuleEnabled } from './promptModules'
 
 /** How many *new* messages accumulate before we bother refreshing memory. Keeps the extra API call rare. */
 export const MEMORY_UPDATE_INTERVAL = 10
@@ -54,8 +53,12 @@ export function buildMemoryUpdatePrompt(opts: {
     existingStyle: opts.existingStyle || '（暂无）',
     existingPlans: opts.existingPlansText || '（暂无）',
   })
-  const relationshipPrompt = getPromptTemplate(opts.settings, 'relationship', 'memoryScoring')
-  const intentPrompt = getPromptTemplate(opts.settings, 'intent', 'extraction')
+  const relationshipPrompt = featureActive(opts.settings, 'relationship')
+    ? getPromptTemplate(opts.settings, 'relationship', 'memoryScoring')
+    : null
+  const intentPrompt = featureActive(opts.settings, 'intent')
+    ? getPromptTemplate(opts.settings, 'intent', 'extraction')
+    : null
   const activeBlocks = [memoryPrompt, relationshipPrompt ? `${relationshipPrompt}\n当前好感度：${opts.warmth}/100（${stage.label}）` : '', intentPrompt].filter(Boolean)
   if (activeBlocks.length === 0) return ''
   const outputShape: Record<string, unknown> = {}
@@ -460,8 +463,8 @@ export async function maybeUpdateMemory(
     const newMessages = allMessages.slice(cursor)
     if (newMessages.length < MEMORY_UPDATE_INTERVAL) return null
     const memoryPromptEnabled = promptModuleEnabled(settings, 'memory')
-    const relationshipPromptEnabled = promptModuleEnabled(settings, 'relationship') && isModuleEnabled('relationship')
-    const intentPromptEnabled = promptModuleEnabled(settings, 'intent') && isModuleEnabled('intent')
+    const relationshipPromptEnabled = featureActive(settings, 'relationship')
+    const intentPromptEnabled = featureActive(settings, 'intent')
     if (!memoryPromptEnabled && !relationshipPromptEnabled && !intentPromptEnabled) return null
 
     const raw = await chatCompletion({
@@ -494,7 +497,7 @@ export async function maybeUpdateMemory(
     // Relationship scoring is only active when the 好感度 module is enabled.
     // Memory (facts/style/plans) always updates regardless.
     const relEnabled = relationshipPromptEnabled
-    const personalityEnabled = isModuleEnabled('personalityTraits')
+    const personalityEnabled = featureActive(settings, 'personalityTraits')
     const intentEnabled = intentPromptEnabled
 
     const oldWarmth = contact.warmth ?? 0

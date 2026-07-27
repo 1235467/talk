@@ -8,14 +8,13 @@ import { searchPexelsPhoto } from './photoSearch'
 import { recordSocialEvent } from './socialEvents'
 import { displayName } from './contact'
 import { customPersonalityTraitsLine, formatSpeechSamplesForScene, personalityTraitLine } from './prompt'
-import { isModuleEnabled } from '../features'
 import { retrieveWorldbookContext } from './worldbook'
 import { recentMemoriesText, socialMemoriesText } from './memory'
 import { recentSocialEventsText } from './socialEvents'
 import { recentSharedOriginalContext } from './sharedRecentContext'
 import { parseTurnLogicReview } from './turnLogicReviewer'
 import type { AppSettings, Contact } from '../types'
-import { getPromptTemplate, promptModuleEnabled } from './promptModules'
+import { featureActive, getPromptTemplate, promptModuleEnabled } from './promptModules'
 
 const ELIGIBLE_WINDOW_MS = 10 * 60 * 1000
 /** Of the friends who *do* react (relationship allows it and the dice roll passed), this fraction also leave a comment instead of just liking. */
@@ -282,7 +281,7 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
   }))
   const contexts = new Map(contextRows)
   const momentsWorldbookPrompt =
-    isModuleEnabled('worldview') && promptModuleEnabled(settings, 'worldview')
+    featureActive(settings, 'worldview')
       ? (getPromptTemplate(settings, 'worldview', 'momentsRuntime', {
           worldbookEntries: await retrieveWorldbookContext(entries.map((e) => `${e.poster.name} ${e.poster.systemPrompt} ${e.poster.memoryFacts}`).join('\n')),
         }) ?? '')
@@ -463,7 +462,7 @@ export async function postUserMoment(content: string, settings: AppSettings): Pr
         return [contact.id, [originalContext, memories, social, events].filter(Boolean).join('\n\n').slice(0, 9_000)] as const
       }))
       const commentWorldbookPrompt =
-        isModuleEnabled('worldview') && promptModuleEnabled(settings, 'worldview')
+        featureActive(settings, 'worldview')
           ? (getPromptTemplate(settings, 'worldview', 'momentsRuntime', {
               worldbookEntries: await retrieveWorldbookContext(content),
             }) ?? '')
@@ -600,7 +599,7 @@ export async function generateMomentReply(
 
     const stickerNames = stickers.map((s) => s.name)
     const replyWorldbookEntries =
-      isModuleEnabled('worldview') && promptModuleEnabled(settings, 'worldview')
+      featureActive(settings, 'worldview')
         ? await retrieveWorldbookContext(`${poster.name}\n${poster.systemPrompt}\n${moment.content}\n${threadLines}`)
         : ''
     const replyWorldbookPrompt = replyWorldbookEntries
@@ -682,7 +681,7 @@ export async function generateMomentDiscussion(
     const names = new Map(candidates.map((contact) => [contact.id, displayName(contact)]))
     const thread = comments.slice(-12).map((comment) => ({ id: comment.id, author: comment.authorContactId === 'user' ? settings.userNickname || '用户' : names.get(comment.authorContactId) || byId.get(comment.authorContactId)?.name || '某人', content: comment.content, replyTo: comment.replyToCommentId }))
     const discussionWorldbookPrompt =
-      isModuleEnabled('worldview') && promptModuleEnabled(settings, 'worldview')
+      featureActive(settings, 'worldview')
         ? (getPromptTemplate(settings, 'worldview', 'momentsRuntime', {
             worldbookEntries: await retrieveWorldbookContext(`${moment.content}\n${JSON.stringify(thread)}`),
           }) ?? '')

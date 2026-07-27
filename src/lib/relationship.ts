@@ -282,9 +282,8 @@ export function shouldUpdateBase(dynamic: string, warmth: number): string | null
 
 import { db } from '../db/db'
 import { chatCompletion } from './deepseek'
-import { isModuleEnabled } from '../features'
 import type { AppSettings, Contact } from '../types'
-import { getPromptTemplate, promptModuleEnabled } from './promptModules'
+import { featureActive, getPromptTemplate } from './promptModules'
 
 /**
  * Called once per contact when 好感度 is enabled and warmth hasn't been
@@ -297,9 +296,9 @@ export async function evaluateInitialWarmth(
   conversationId: string,
   settings: AppSettings,
 ): Promise<number> {
-  if (!promptModuleEnabled(settings, 'relationship')) return contact.warmth ?? 0
+  if (!featureActive(settings, 'relationship')) return contact.warmth ?? 0
   // Personality trait with initial warmth takes priority over API evaluation.
-  if (isModuleEnabled('personalityTraits') && contact.personalityTrait && contact.personalityTrait !== '无') {
+  if (featureActive(settings, 'personalityTraits') && contact.personalityTrait && contact.personalityTrait !== '无') {
     const initial = initialWarmthForBase(contact.relationshipBase || '朋友', contact.personalityTrait)
     await db.contacts.update(contact.id, { warmth: initial })
     return initial

@@ -105,7 +105,7 @@ Prompt 模块定义在 `src/lib/promptModules.ts`，用于允许用户查看、�
 - Feature 开关决定产品能力、入口和后台行为是否启用。
 - Prompt 开关决定对应提示词是否发送给模型。
 
-当前代码仍有少量场景需要同时检查 `isModuleEnabled()` 和 `promptModuleEnabled()`。修改调用点时要确认两个开关的职责，避免只检查其中一个。
+同时受两层开关控制的模型能力统一通过 `featureActive(settings, id)` 判断；仅有 Prompt 开关的核心模块（如 `chat`、`memory`、`moments`、`nuwaMode`）继续使用 `promptModuleEnabled()`。不要在调用点重新手写 `isModuleEnabled() && promptModuleEnabled()`。
 
 ## 聊天回合管线
 
@@ -190,8 +190,6 @@ Playwright 使用移动设备项目和 HashRouter 路由。若 5173 已有长期
 
 ## 当前已知技术债
 
-- 私聊和群聊引擎仍有可抽取的 turn controller、顺序展示和媒体解析重复。
-- Feature 与 Prompt 双开关尚未完全收敛为统一能力判断。
 - `types/index.ts`、`memory.ts` 和联系人创建页面仍偏大。
 - TypeScript 尚未开启完整 strict，lint 规则仍较保守。
 - 钱包旧字段迁移完成前，需要持续防止出现第二个运行时余额来源。
