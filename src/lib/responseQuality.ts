@@ -1,4 +1,4 @@
-import { chatCompletion } from './deepseek'
+import { chatCompletionText as chatCompletion } from './deepseek'
 import { displayName } from './contact'
 import { activeUpcomingPlansText } from './memory'
 import { describeCurrentSchedule, describeUpcomingScheduleText } from './schedule'

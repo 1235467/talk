@@ -11,6 +11,7 @@ import {
 import type { AppSettings } from '../types'
 import { createDefaultPromptModules, normalizePromptModules } from '../lib/promptModules'
 import { normalizeChatPageSize } from '../lib/chatPagination'
+import type { AiProviderId } from '../lib/aiProviders'
 
 interface SettingsState extends AppSettings {
   setSettings: (patch: Partial<AppSettings>) => void
@@ -38,6 +39,7 @@ function initialImageProviders() {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
+      aiProvider: 'deepseek',
       apiKey: envKey,
       baseUrl: envBaseUrl,
       model: 'deepseek-v4-pro',
@@ -90,9 +92,12 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'talk-settings',
-      version: 14,
+      version: 15,
       migrate: (persisted, version) => {
         const next = persisted as Partial<SettingsState>
+        if (!['deepseek', 'openai', 'gemini', 'anthropic', 'xai', 'qwen', 'glm', 'minimax', 'kimi', 'custom'].includes(String(next.aiProvider))) {
+          next.aiProvider = 'deepseek' as AiProviderId
+        }
         if (version < 1 && Array.isArray(next.enabledModules) && !next.enabledModules.includes('intent')) {
           next.enabledModules = [...next.enabledModules, 'intent']
         }

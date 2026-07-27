@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
-import { chatCompletion, coalesceConsecutiveRoles, type ChatMessage } from './deepseek'
+import { chatCompletion as chatCompletionResult, chatCompletionText as chatCompletion, coalesceConsecutiveRoles, type ChatCompletionOptions, type ChatMessage } from './deepseek'
 import {
   parseJsonLoose,
   parseAiResponse,
@@ -84,6 +84,18 @@ export function getConversationRuntimeState(conversationId: string): Conversatio
 // Mood expiry is now a user-configurable setting (see ProactiveSettingsPage → mood settings).
 // The default is 30 min, stored in AppSettings.moodExpiryMs.
 const turns = createTurnController()
+
+async function bestEffortUtilityCompletion(opts: ChatCompletionOptions): Promise<string> {
+  try {
+    const result = await chatCompletionResult(opts)
+    if (result.status === 'ok' || (result.status === 'length' && result.content.trim())) return result.content
+    console.warn(`[chat] 格式转换器不可用 status=${result.status}，保留本地可见文本`)
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    console.warn('[chat] 格式转换器调用失败，保留本地可见文本', error)
+  }
+  return ''
+}
 
 function getActiveMood(contact: Contact, now: number): string | undefined {
   if (!contact.mood || !contact.mood.text) return undefined
@@ -444,7 +456,7 @@ async function runAiTurn(
     let parsedTurn = localTurn
     if (rawPrivateDraftNeedsUtility(rawText, localTurn)) {
       conversionPrompt = buildJsonConversionPrompt(rawText)
-      jsonRaw = await chatCompletion({
+      jsonRaw = await bestEffortUtilityCompletion({
         apiKey: settings.apiKey,
         baseUrl: settings.baseUrl,
         model: settings.utilityModel,
@@ -498,7 +510,11 @@ async function runAiTurn(
     })
     let logicReview = bubbles.length > 0 ? await runLogicReview('first_quality') : undefined
     if (!turns.isCurrent(conversationId, streamId)) return
-    if (logicReview && !logicReview.valid) {
+    if (logicReview?.status === 'unavailable') {
+      qualityCheckDebug.reason = `审查降级：${logicReview.reason}`
+      console.warn(`[chat] 逻辑审查不可用，放行已解析回复 对方=${displayName(contact)} 原因=${logicReview.reason}`)
+    }
+    if (logicReview?.status === 'reject') {
       qualityCheckDebug.detectedInvalid = true
       qualityCheckDebug.reason = logicReview.reason
       console.warn(`[chat] 逻辑自检要求主模型重写 对方=${displayName(contact)} 原因=${logicReview.reason}`)
@@ -525,7 +541,7 @@ async function runAiTurn(
       jsonRaw = serializePrivateTurn(rewrittenLocal)
       if (rawPrivateDraftNeedsUtility(rawText, rewrittenLocal)) {
         conversionPrompt = buildJsonConversionPrompt(rawText)
-        jsonRaw = await chatCompletion({
+        jsonRaw = await bestEffortUtilityCompletion({
           apiKey: settings.apiKey,
           baseUrl: settings.baseUrl,
           model: settings.utilityModel,
@@ -544,12 +560,16 @@ async function runAiTurn(
         })
         const converted = parseAiResponse(jsonRaw)
         if (converted.bubbles.length > 0) parsedTurn = converted
+        else jsonRaw = serializePrivateTurn(rewrittenLocal)
       }
       finalRaw = jsonRaw
       ;({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought } = parsedTurn)
       qualityCheckDebug.repaired = true
       logicReview = bubbles.length > 0 ? await runLogicReview('second_quality') : undefined
-      if (logicReview && !logicReview.valid) {
+      if (logicReview?.status === 'unavailable') {
+        qualityCheckDebug.reason = `二次审查降级：${logicReview.reason}`
+        console.warn(`[chat] 二次逻辑审查不可用，放行重写回复 对方=${displayName(contact)} 原因=${logicReview.reason}`)
+      } else if (logicReview?.status === 'reject') {
         throw new Error(`主模型重写后仍未通过逻辑自检：${logicReview.reason || '未知原因'}`)
       }
     }
@@ -568,9 +588,16 @@ async function runAiTurn(
         const enrichedLocalTurn = parseRawPrivateDraft(rawText, turnMood || activeMood)
         if (rawPrivateDraftNeedsUtility(rawText, enrichedLocalTurn)) {
           conversionPrompt = buildJsonConversionPrompt(rawText)
-          jsonRaw = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.utilityModel, messages: [{ role: 'system', content: conversionPrompt }, { role: 'user', content: '请执行上述转换，并且只输出指定的 JSON 对象。' }], jsonMode: true, signal: controller.signal, purpose: proactiveContext ? 'proactive' : 'chat', automatic: !!proactiveContext, thinking: 'disabled', temperature: 0.1, maxTokens: 900, trace: { turnId: streamId, stage: 'other', conversationId } })
+          jsonRaw = await bestEffortUtilityCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.utilityModel, messages: [{ role: 'system', content: conversionPrompt }, { role: 'user', content: '请执行上述转换，并且只输出指定的 JSON 对象。' }], jsonMode: true, signal: controller.signal, purpose: proactiveContext ? 'proactive' : 'chat', automatic: !!proactiveContext, thinking: 'disabled', temperature: 0.1, maxTokens: 900, trace: { turnId: streamId, stage: 'other', conversationId } })
           finalRaw = jsonRaw
-          ;({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought } = parseAiResponse(finalRaw))
+          const converted = parseAiResponse(finalRaw)
+          if (converted.bubbles.length > 0) {
+            ;({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought } = converted)
+          } else {
+            jsonRaw = serializePrivateTurn(enrichedLocalTurn)
+            finalRaw = jsonRaw
+            ;({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought } = enrichedLocalTurn)
+          }
         } else {
           conversionPrompt = '联网补全后的回复使用本地草稿解析，无额外模型调用。'
           jsonRaw = serializePrivateTurn(enrichedLocalTurn)

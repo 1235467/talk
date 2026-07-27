@@ -473,6 +473,7 @@ export interface InventoryItem {
 }
 
 export interface AppSettings {
+  aiProvider: import('../lib/aiProviders').AiProviderId
   apiKey: string
   baseUrl: string
   model: string
@@ -572,7 +573,7 @@ export type PromptModuleSettings = Record<PromptModuleId, PromptModuleConfig>
 
 export interface AdminLogRecord { id: string; level: 'log' | 'info' | 'warn' | 'error'; message: string; createdAt: number }
 export type AdminAiTraceStage = 'first_chat' | 'first_quality' | 'second_chat' | 'other' | 'second_quality'
-export interface AdminAiTrace { id: string; purpose: AiUsagePurpose; model: string; messages: { role: string; content: string }[]; output?: string; error?: string; inputTokens: number; outputTokens: number; createdAt: number; turnId?: string; stage?: AdminAiTraceStage; conversationId?: string }
+export interface AdminAiTrace { id: string; purpose: AiUsagePurpose; model: string; messages: { role: string; content: string }[]; output?: string; error?: string; inputTokens: number; outputTokens: number; createdAt: number; turnId?: string; stage?: AdminAiTraceStage; conversationId?: string; diagnostics?: Record<string, unknown> }
 export interface SaveSlot { id: string; slot: number; name: string; createdAt: number; updatedAt: number; snapshot: unknown }
 
 export type WalletOwnerId = string

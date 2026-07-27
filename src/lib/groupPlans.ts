@@ -1,7 +1,7 @@
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
 import { recordSocialEvent } from './socialEvents'
-import { chatCompletion } from './deepseek'
+import { chatCompletionText as chatCompletion } from './deepseek'
 import type { AppSettings, Group, GroupPlan, GroupPlanStatus, Message } from '../types'
 import { getPromptTemplate, promptModuleEnabled } from './promptModules'
 

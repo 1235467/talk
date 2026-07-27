@@ -1,4 +1,4 @@
-import { chatCompletion, type ChatMessage } from './deepseek'
+import { chatCompletionText as chatCompletion, type ChatMessage } from './deepseek'
 import { displayName } from './contact'
 import type { AppSettings, Contact, GroupEnergyLevel, Message } from '../types'
 import { featureActive, getPromptTemplate } from './promptModules'

@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
-import { chatCompletion, coalesceConsecutiveRoles, type ChatMessage } from './deepseek'
+import { chatCompletion as chatCompletionResult, chatCompletionText as chatCompletion, coalesceConsecutiveRoles, type ChatCompletionOptions, type ChatMessage } from './deepseek'
 import {
   buildGroupJsonConversionPrompt,
   buildGroupRawChatPrompt,
@@ -59,6 +59,18 @@ async function loadSpeakerMemories(speakers: Contact[]): Promise<Map<string, str
  * updated per speaker, via maybeUpdateGroupMemory — see memory.ts.
  */
 const turns = createTurnController()
+
+async function bestEffortUtilityCompletion(opts: ChatCompletionOptions): Promise<string> {
+  try {
+    const result = await chatCompletionResult(opts)
+    if (result.status === 'ok' || (result.status === 'length' && result.content.trim())) return result.content
+    console.warn(`[group] 格式转换器不可用 status=${result.status}，保留本地草稿`)
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    console.warn('[group] 格式转换器调用失败，保留本地草稿', error)
+  }
+  return ''
+}
 
 function scheduleGroupAiTurn(
   conversationId: string,
@@ -437,7 +449,7 @@ async function runGroupAiTurn(
       draftFeedback = !localDraft.valid
         ? `格式已交给多功能模型修复：${localDraft.reason || '草稿格式不完整'}`
         : '本轮可能包含共同计划，交给多功能模型提取结构化动作。'
-      jsonRaw = await chatCompletion({
+      jsonRaw = await bestEffortUtilityCompletion({
         apiKey: settings.apiKey,
         baseUrl: settings.baseUrl,
         model: settings.utilityModel,
@@ -487,7 +499,11 @@ async function runGroupAiTurn(
     })
     let logicReview = bubbles.length > 0 ? await runLogicReview('first_quality') : undefined
     if (!turns.isCurrent(conversationId, streamId)) return
-    if (logicReview && !logicReview.valid) {
+    if (logicReview?.status === 'unavailable') {
+      draftFeedback = `审查降级：${logicReview.reason}`
+      console.warn(`[group] 逻辑审查不可用，放行已解析回复 群=${group.name} 原因=${logicReview.reason}`)
+    }
+    if (logicReview?.status === 'reject') {
       reviewFailure = logicReview.reason || '群聊回复存在客观逻辑问题'
       draftFeedback = reviewFailure
       console.warn(`[group] 逻辑自检要求主模型重写 群=${group.name} 原因=${reviewFailure}`)
@@ -515,7 +531,7 @@ async function runGroupAiTurn(
       localDraft = parseGroupRawDraft(rawText, speakers, stickers.map((sticker) => sticker.name), remoteStickerSearchEnabled)
       localDraft.groupVibe = group.vibe || '自然、轻松的日常群聊。'
       if (!localDraft.valid || localDraft.needsUtility) {
-        jsonRaw = await chatCompletion({
+        jsonRaw = await bestEffortUtilityCompletion({
           apiKey: settings.apiKey,
           baseUrl: settings.baseUrl,
           model: settings.utilityModel,
@@ -533,14 +549,23 @@ async function runGroupAiTurn(
           maxTokens: 900,
           trace: { turnId: streamId, stage: 'other', conversationId },
         })
-        ;({ bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = parseGroupAiResponse(jsonRaw, speakers.length))
+        const converted = parseGroupAiResponse(jsonRaw, speakers.length)
+        if (converted.bubbles.length > 0) {
+          ;({ bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = converted)
+        } else {
+          jsonRaw = serializeGroupTurn(localDraft)
+          ;({ bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = localDraft)
+        }
       } else {
         jsonRaw = serializeGroupTurn(localDraft)
         ;({ bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = localDraft)
       }
       finalRaw = jsonRaw
       logicReview = bubbles.length > 0 ? await runLogicReview('second_quality') : undefined
-      if (logicReview && !logicReview.valid) {
+      if (logicReview?.status === 'unavailable') {
+        draftFeedback = `二次审查降级：${logicReview.reason}`
+        console.warn(`[group] 二次逻辑审查不可用，放行重写回复 群=${group.name} 原因=${logicReview.reason}`)
+      } else if (logicReview?.status === 'reject') {
         throw new Error(`主模型重写后仍未通过群聊逻辑自检：${logicReview.reason || '未知原因'}`)
       }
     }
@@ -552,9 +577,11 @@ async function runGroupAiTurn(
         localDraft = parseGroupRawDraft(rawText, speakers, stickers.map((sticker) => sticker.name), remoteStickerSearchEnabled)
         localDraft.groupVibe = group.vibe || '自然、轻松的日常群聊。'
         if (!localDraft.valid || localDraft.needsUtility) {
-          jsonRaw = await chatCompletion({apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.utilityModel,messages:[{role:'system',content:buildGroupJsonConversionPrompt(rawText,speakers,stickers.map(s=>s.name),mediaPromptOptions)},{role:'user',content:'请执行上述转换，并且只输出指定的 JSON 对象。'}],jsonMode:true,signal:controller.signal,thinking:'disabled',temperature:0.1,maxTokens:1400,trace:{turnId:streamId,stage:'other',conversationId}})
+          jsonRaw = await bestEffortUtilityCompletion({apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.utilityModel,messages:[{role:'system',content:buildGroupJsonConversionPrompt(rawText,speakers,stickers.map(s=>s.name),mediaPromptOptions)},{role:'user',content:'请执行上述转换，并且只输出指定的 JSON 对象。'}],jsonMode:true,signal:controller.signal,thinking:'disabled',temperature:0.1,maxTokens:1400,trace:{turnId:streamId,stage:'other',conversationId}})
           finalRaw=jsonRaw
-          ;({bubbles,knowledgeQueries,turnSummary,groupVibe,planCandidates}=parseGroupAiResponse(finalRaw,speakers.length))
+          const converted=parseGroupAiResponse(finalRaw,speakers.length)
+          if(converted.bubbles.length>0){;({bubbles,knowledgeQueries,turnSummary,groupVibe,planCandidates}=converted)}
+          else{jsonRaw=serializeGroupTurn(localDraft);finalRaw=jsonRaw;({bubbles,knowledgeQueries,turnSummary,groupVibe,planCandidates}=localDraft)}
         } else {
           jsonRaw = serializeGroupTurn(localDraft)
           finalRaw = jsonRaw

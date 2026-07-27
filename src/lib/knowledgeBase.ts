@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
-import { chatCompletion } from './deepseek'
+import { chatCompletionText as chatCompletion } from './deepseek'
 import { tavilySearch, type WebSearchResult } from './webSearch'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { toDateKey } from './time'

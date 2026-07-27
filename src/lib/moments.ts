@@ -1,7 +1,7 @@
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
 import { parseJsonLoose } from './aiProtocol'
-import { chatCompletion } from './deepseek'
+import { chatCompletionText as chatCompletion } from './deepseek'
 import { momentReactionProbability, uniqueRelationPairs } from './contactRelations'
 import { describeCurrentSchedule, isPhoneAvailable } from './schedule'
 import { searchPexelsPhoto } from './photoSearch'
@@ -206,7 +206,10 @@ async function reviewMomentPayload(settings: AppSettings, raw: string, expectedS
       ],
     })
     const verdict = parseTurnLogicReview(judged)
-    if (verdict.valid) return raw
+    if (verdict.status !== 'reject') {
+      if (verdict.status === 'unavailable') console.warn(`[moments] 逻辑审查降级放行: ${verdict.reason}`)
+      return raw
+    }
 
     // The common path stays one small Flash call. Only a failed review pays
     // for a second call that mechanically repairs the required JSON shape.

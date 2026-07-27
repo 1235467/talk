@@ -1,6 +1,6 @@
 import { db } from '../db/db'
 import type { AppSettings, Contact, Group, Message } from '../types'
-import { chatCompletion } from './deepseek'
+import { chatCompletionText as chatCompletion } from './deepseek'
 import { describeCurrentSchedule, describeUpcomingScheduleText } from './schedule'
 import { recentSocialEventsText } from './socialEvents'
 import { retrieveWorldbookContext } from './worldbook'

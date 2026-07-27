@@ -3,7 +3,7 @@ import { isModuleEnabled } from '../features'
 import { useSettingsStore } from '../store/useSettingsStore'
 import type { AppSettings, Contact, Message } from '../types'
 import { parseJsonLoose } from './aiProtocol'
-import { chatCompletion, type ChatMessage } from './deepseek'
+import { chatCompletionText as chatCompletion, type ChatMessage } from './deepseek'
 import { displayName } from './contact'
 import { featureActive, getPromptTemplate } from './promptModules'
 

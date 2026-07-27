@@ -25,6 +25,11 @@ function envFile() {
 const fileEnv = envFile()
 const apiKey = process.env.VITE_DEEPSEEK_API_KEY || fileEnv.VITE_DEEPSEEK_API_KEY || ''
 const baseUrl = (process.env.VITE_DEEPSEEK_BASE_URL || fileEnv.VITE_DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/+$/, '')
+const chatUrl = /\/chat\/completions$/i.test(baseUrl)
+  ? baseUrl
+  : /\/(?:v\d+|v1beta\/openai|compatible-mode\/v1|api\/paas\/v4)$/i.test(baseUrl)
+    ? `${baseUrl}/chat/completions`
+    : `${baseUrl}/chat/completions`
 const proModel = args.get('pro') || 'deepseek-v4-pro'
 const flashModel = args.get('flash') || 'deepseek-v4-flash'
 const scenario = args.get('scenario') || 'all'
@@ -76,7 +81,7 @@ const scenarioPrompts = {
 
 async function request({ model, messages, jsonMode = false, maxTokens = 900, temperature = 0.9 }) {
   const started = performance.now()
-  const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+  const response = await fetch(chatUrl, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -101,12 +106,13 @@ async function request({ model, messages, jsonMode = false, maxTokens = 900, tem
 
 function parseVerdict(raw) {
   const match = raw.match(/\{[\s\S]*\}/)
-  if (!match) return { valid: false, reason: 'reviewer_invalid_json' }
+  if (!match) return { status: 'unavailable', reason: 'reviewer_invalid_json' }
   try {
     const parsed = JSON.parse(match[0])
-    return { valid: parsed.valid === true, reason: typeof parsed.reason === 'string' ? parsed.reason : '' }
+    if (parsed.valid !== true && parsed.valid !== false) return { status: 'unavailable', reason: 'reviewer_missing_valid' }
+    return { status: parsed.valid ? 'pass' : 'reject', reason: typeof parsed.reason === 'string' ? parsed.reason : '' }
   } catch {
-    return { valid: false, reason: 'reviewer_invalid_json' }
+    return { status: 'unavailable', reason: 'reviewer_invalid_json' }
   }
 }
 
@@ -125,13 +131,14 @@ async function oneTurn(kind) {
     temperature: 0,
   })
   const verdict = parseVerdict(review.content)
-  return { elapsedMs: main.elapsedMs + Math.round(performance.now() - reviewStarted), calls: 2, errors: verdict.valid ? 0 : 1, outputChars: main.content.length }
+  return { elapsedMs: main.elapsedMs + Math.round(performance.now() - reviewStarted), calls: 2, errors: verdict.status === 'reject' ? 1 : 0, reviewStatus: verdict.status, outputChars: main.content.length }
 }
 
 async function twentyTurns() {
   let history = ''
   const samples = []
   let finalErrors = 0
+  let reviewUnavailable = 0
   for (let turn = 1; turn <= rounds; turn += 1) {
     const user = ['我今天有点烦。', '你觉得我是不是想太多了？', '刚才那件事又有新进展。', '先不说这个，你最近在忙什么？'][turn % 4]
     const system = `你是林夏，27岁，毒舌但心软，和用户是熟悉的朋友。必须尊重已发生的事实，不得把计划说成已经发生。输出2行聊天草稿，每行用<thought>想法</thought>正文，末尾<mood>情绪</mood>。只输出草稿。\n历史：${history.slice(-2400)}`
@@ -140,18 +147,20 @@ async function twentyTurns() {
     let review = await request({ model: flashModel, messages: [{ role: 'system', content: compactReviewPrompt(user, main.content, system.slice(0, 1400), history.slice(-800)) }], jsonMode: true, maxTokens: 180, temperature: 0 })
     let verdict = parseVerdict(review.content)
     let repaired = false
-    if (!verdict.valid) {
+    if (verdict.status === 'unavailable') reviewUnavailable += 1
+    if (verdict.status === 'reject') {
       repaired = true
       main = await request({ model: proModel, messages: [{ role: 'system', content: system }, { role: 'user', content: user }, { role: 'assistant', content: main.content }, { role: 'user', content: `修正明确逻辑问题：${verdict.reason}。只输出修正后的聊天草稿，不要解释。` }], maxTokens: 500, temperature: 0.75 })
       review = await request({ model: flashModel, messages: [{ role: 'system', content: compactReviewPrompt(user, main.content, system.slice(0, 1400), history.slice(-800)) }], jsonMode: true, maxTokens: 180, temperature: 0 })
       verdict = parseVerdict(review.content)
+      if (verdict.status === 'unavailable') reviewUnavailable += 1
     }
-    if (!verdict.valid) finalErrors += 1
+    if (verdict.status === 'reject') finalErrors += 1
     history += `\n用户：${user}\n林夏：${main.content}`
-    samples.push({ turn, elapsedMs: Math.round(performance.now() - started), repaired, valid: verdict.valid })
+    samples.push({ turn, elapsedMs: Math.round(performance.now() - started), repaired, reviewStatus: verdict.status, released: verdict.status !== 'reject' })
     console.log(JSON.stringify({ type: 'logic20_progress', ...samples.at(-1) }))
   }
-  return { rounds, finalErrors, samples }
+  return { rounds, finalErrors, reviewUnavailable, samples }
 }
 
 const selected = scenario === 'all' ? ['persona', 'private', 'group', 'moments'] : scenario.split(',').filter((item) => scenarioPrompts[item])

@@ -281,7 +281,7 @@ export function shouldUpdateBase(dynamic: string, warmth: number): string | null
 // ---- cold-start warmth evaluation ----
 
 import { db } from '../db/db'
-import { chatCompletion } from './deepseek'
+import { chatCompletionText as chatCompletion } from './deepseek'
 import type { AppSettings, Contact } from '../types'
 import { featureActive, getPromptTemplate } from './promptModules'
 

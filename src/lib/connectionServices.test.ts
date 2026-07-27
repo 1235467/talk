@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { testConnection } from './deepseek'
-import { searchPexelsPhoto } from './photoSearch'
+import { searchPexelsPhoto, testPexelsConnection } from './photoSearch'
 import { tavilySearch } from './webSearch'
 import { friendlyConnectionError } from './connectionError'
 
@@ -60,6 +60,35 @@ describe('connection checks', () => {
 
     await expect(searchPexelsPhoto('Pexels Key：abc', 'cat')).rejects.toThrow('含有空格、中文或特殊字符')
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('only verifies Pexels after a real apple thumbnail is returned', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      photos: [{ src: { medium: 'https://images.example.com/apple.jpg' }, photographer: 'Test' }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await testPexelsConnection('pexels-test-1234')
+
+    expect(result.photo.url).toBe('https://images.example.com/apple.jpg')
+    expect(result.fingerprint).toContain('末4位=1234')
+    expect(String((fetchMock.mock.calls as unknown[][])[0]?.[0])).toContain('query=apple')
+  })
+
+  it('does not verify Pexels for an empty photos array', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ photos: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })))
+    await expect(testPexelsConnection('pexels-test-1234')).rejects.toThrow('空 photos 数组')
+  })
+
+  it('reports a distinct Pexels error when a photo has no usable URL', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ photos: [{ src: {} }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })))
+    await expect(testPexelsConnection('pexels-test-1234')).rejects.toThrow('没有可用的图片 URL')
   })
 
   it('rejects a Tavily success response with the wrong shape', async () => {

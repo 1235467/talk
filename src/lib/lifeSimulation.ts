@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
-import { chatCompletion } from './deepseek'
+import { chatCompletionText as chatCompletion } from './deepseek'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { retrieveWorldbookContext } from './worldbook'
 import type { AppSettings, Contact, ContactLifeState, LifeEvent } from '../types'

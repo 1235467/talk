@@ -11,16 +11,25 @@ export interface PhotoResult {
   photographerUrl?: string
 }
 
+export function apiKeyFingerprint(apiKey: string): string {
+  const key = apiKey.trim()
+  return `len=${key.length} 末4位=${key.slice(-4) || '无'}`
+}
+
 /** landscape/pet/person categories all go through Pexels, just with different search keywords and orientations. */
 export async function searchPexelsPhoto(
   apiKey: string,
   query: string,
   orientation: 'square' | 'landscape' = 'square',
+  signal?: AbortSignal,
+  strict = false,
 ): Promise<PhotoResult | null> {
   try {
     const key = requireApiKey(apiKey, 'Pexels')
     const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=1&orientation=${orientation}`
-    const res = await fetch(url, { headers: { Authorization: key } })
+    const fingerprint = apiKeyFingerprint(key)
+    console.info(`[photo] Pexels请求 query="${query}" key:${fingerprint}`)
+    const res = await fetch(url, { headers: { Authorization: key }, signal })
     const body = await res.text()
     let json: { photos?: unknown } & Record<string, unknown>
     try {
@@ -32,9 +41,8 @@ export async function searchPexelsPhoto(
     if (!res.ok) {
       // Don't log the full key (even to the user's own console), but its
       // length + last 4 chars is enough to tell truncated keys apart.
-      const keyHint = `len=${key.length} 末4位=${key.slice(-4)}`
       console.warn(
-        `[photo] Pexels搜索失败 query="${query}" HTTP ${res.status} key:${keyHint} body:${body.slice(0, 200)}`,
+        `[photo] Pexels搜索失败 query="${query}" HTTP ${res.status} key:${fingerprint} body:${body.slice(0, 200)}`,
       )
       throw new Error(httpFailureMessage('Pexels', res.status, json))
     }
@@ -49,10 +57,11 @@ export async function searchPexelsPhoto(
     const src = orientation === 'square' ? (sources.medium ?? sources.small) : (sources.large ?? sources.medium)
     if (typeof src !== 'string' || !src) {
       console.warn(`[photo] Pexels返回结果但没有可用图片链接 query="${query}"`)
+      if (strict) throw new Error('Pexels 返回了图片记录，但第一项没有可用的图片 URL')
       return null
     }
     const photographer = typeof record.photographer === 'string' ? record.photographer : undefined
-    console.log(`[photo] Pexels搜索成功 query="${query}" photographer=${photographer ?? '未知'}`)
+    console.log(`[photo] Pexels搜索成功 query="${query}" key:${fingerprint} photographer=${photographer ?? '未知'}`)
     return {
       url: String(src),
       photographer,
@@ -61,6 +70,26 @@ export async function searchPexelsPhoto(
   } catch (error) {
     throw new Error(friendlyConnectionError(error, 'Pexels'))
   }
+}
+
+export interface PexelsConnectionResult {
+  photo: PhotoResult
+  fingerprint: string
+  verifiedAt: number
+}
+
+/** A successful check must prove that this exact key can return a real image. */
+export async function testPexelsConnection(apiKey: string, signal?: AbortSignal): Promise<PexelsConnectionResult> {
+  const key = requireApiKey(apiKey, 'Pexels')
+  const photo = await searchPexelsPhoto(key, 'apple', 'square', signal, true)
+  if (!photo) throw new Error('Pexels 连接成功，但测试搜索返回了空 photos 数组')
+  try {
+    const url = new URL(photo.url)
+    if (!/^https?:$/.test(url.protocol)) throw new Error('protocol')
+  } catch {
+    throw new Error('Pexels 返回了图片记录，但第一项没有可用的图片 URL')
+  }
+  return { photo, fingerprint: apiKeyFingerprint(key), verifiedAt: Date.now() }
 }
 
 /** waifu.pics has no search — just returns one random image per category, no key needed. Anime avatars pick randomly between a couple of generic (not single-character) categories for variety. */

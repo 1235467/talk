@@ -1,4 +1,4 @@
-import { chatCompletion } from './deepseek'
+import { chatCompletionText as chatCompletion } from './deepseek'
 import type { AppSettings, JobListing } from '../types'
 import { featureActive, getPromptTemplate } from './promptModules'
 

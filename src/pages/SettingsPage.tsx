@@ -7,7 +7,7 @@ import { useSettingsStore } from '../store/useSettingsStore'
 import { listModels, testConnection } from '../lib/deepseek'
 import { DEFAULT_STYLE_PROMPT } from '../lib/prompt'
 import { tavilySearch } from '../lib/webSearch'
-import { searchPexelsPhoto } from '../lib/photoSearch'
+import { apiKeyFingerprint, testPexelsConnection } from '../lib/photoSearch'
 import { friendlyConnectionError } from '../lib/connectionError'
 import { imageProviderName, isImageProviderReady } from '../lib/mediaProviders'
 import { db } from '../db/db'
@@ -19,10 +19,12 @@ import { formatCurrency } from '../lib/wallet'
 import { CHAT_PAGE_SIZE_OPTIONS, normalizeChatPageSize } from '../lib/chatPagination'
 import { ModelPicker } from '../components/ModelPicker'
 import { ToggleSwitch } from '../components/ToggleSwitch'
+import { AI_PROVIDERS, AI_PROVIDER_OPTIONS, resolveChatCompletionsUrl, resolveModelsUrl, type AiProviderId } from '../lib/aiProviders'
 
 export function SettingsPage() {
   const navigate = useNavigate()
   const {
+    aiProvider,
     apiKey,
     baseUrl,
     model,
@@ -111,12 +113,16 @@ export function SettingsPage() {
   }
 
   const [apiKeyDraft, setApiKeyDraft] = useState(apiKey)
+  const [providerDraft, setProviderDraft] = useState<AiProviderId>(aiProvider ?? 'deepseek')
   const [baseUrlDraft, setBaseUrlDraft] = useState(baseUrl)
   const [modelDraft, setModelDraft] = useState(model)
   const [utilityModelDraft, setUtilityModelDraft] = useState(utilityModel)
   const [promptDraft, setPromptDraft] = useState(globalSystemPrompt)
   const [tavilyKeyDraft, setTavilyKeyDraft] = useState(tavilyApiKey)
   const [pexelsKeyDraft, setPexelsKeyDraft] = useState(pexelsApiKey)
+  const pexelsDraftRef = useRef(pexelsApiKey)
+  const pexelsRequestRef = useRef(0)
+  const pexelsAbortRef = useRef<AbortController | null>(null)
   const presetBackgrounds = ['#f4f4f6', '#f7f0e8', '#eef6f1', '#edf4ff', '#f5efff', '#fff3f0', '#f3f6e8', '#eef7f7']
   const currencyMode = currencyIconMode ?? 'coin'
 
@@ -129,17 +135,27 @@ export function SettingsPage() {
   const [tavilyTesting, setTavilyTesting] = useState(false)
   const [tavilyTestResult, setTavilyTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [pexelsTesting, setPexelsTesting] = useState(false)
-  const [pexelsTestResult, setPexelsTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [pexelsTestResult, setPexelsTestResult] = useState<{ ok: boolean; message: string; imageUrl?: string; fingerprint: string; verifiedAt?: number } | null>(null)
+
+  let chatEndpointPreview = ''
+  let modelsEndpointPreview: string | null = null
+  let endpointPreviewError = ''
+  try {
+    chatEndpointPreview = resolveChatCompletionsUrl(baseUrlDraft, providerDraft)
+    modelsEndpointPreview = resolveModelsUrl(baseUrlDraft, providerDraft)
+  } catch (error) {
+    endpointPreviewError = error instanceof Error ? error.message : String(error)
+  }
 
   function persistConnection() {
-    setSettings({ apiKey: apiKeyDraft.trim(), baseUrl: baseUrlDraft.trim(), model: modelDraft.trim() })
+    setSettings({ aiProvider: providerDraft, apiKey: apiKeyDraft.trim(), baseUrl: baseUrlDraft.trim(), model: modelDraft.trim() })
   }
 
   async function handlePullModels() {
     setPulling(true)
     setPullError('')
     try {
-      const list = await listModels(apiKeyDraft.trim(), baseUrlDraft.trim())
+      const list = await listModels(apiKeyDraft.trim(), baseUrlDraft.trim(), providerDraft)
       setModels(list)
       if (list.length > 0) {
         // Keep both saved choices valid when switching API providers. A
@@ -164,7 +180,7 @@ export function SettingsPage() {
     setTesting(true)
     setTestResult(null)
     persistConnection()
-    const result = await testConnection(apiKeyDraft.trim(), baseUrlDraft.trim(), modelDraft.trim())
+    const result = await testConnection(apiKeyDraft.trim(), baseUrlDraft.trim(), modelDraft.trim(), providerDraft)
     setTestResult(result)
     setTesting(false)
   }
@@ -184,18 +200,24 @@ export function SettingsPage() {
   }
 
   async function handlePexelsTest() {
+    const key = pexelsKeyDraft.trim()
+    const fingerprint = apiKeyFingerprint(key)
+    const requestId = ++pexelsRequestRef.current
+    pexelsAbortRef.current?.abort()
+    const controller = new AbortController()
+    pexelsAbortRef.current = controller
     setPexelsTesting(true)
     setPexelsTestResult(null)
-    setSettings({ pexelsApiKey: pexelsKeyDraft.trim() })
     try {
-      const photo = await searchPexelsPhoto(pexelsKeyDraft.trim(), 'cat', 'square')
-      setPexelsTestResult(
-        photo ? { ok: true, message: '连接成功，已搜到示例图片' } : { ok: true, message: '连接成功，但测试关键词暂时没有图片' },
-      )
+      const result = await testPexelsConnection(key, controller.signal)
+      if (requestId !== pexelsRequestRef.current || apiKeyFingerprint(pexelsDraftRef.current) !== fingerprint) return
+      setSettings({ pexelsApiKey: key })
+      setPexelsTestResult({ ok: true, message: '连接成功，已通过当前 Key 拉取测试图片', imageUrl: result.photo.url, fingerprint: result.fingerprint, verifiedAt: result.verifiedAt })
     } catch (err) {
-      setPexelsTestResult({ ok: false, message: friendlyConnectionError(err, 'Pexels') })
+      if (controller.signal.aborted || requestId !== pexelsRequestRef.current) return
+      setPexelsTestResult({ ok: false, message: friendlyConnectionError(err, 'Pexels'), fingerprint })
     } finally {
-      setPexelsTesting(false)
+      if (requestId === pexelsRequestRef.current) setPexelsTesting(false)
     }
   }
 
@@ -349,7 +371,33 @@ export function SettingsPage() {
       <section className="mt-3 bg-white px-4 py-3"><h2 className="mb-2 text-xs font-medium text-gray-400">AI 调用预算</h2><p className="mb-2 text-xs text-gray-500">后台自动任务达到上限后会跳过；手动聊天和手动生成不会受限。</p>{usage && <><div className="mb-2 grid grid-cols-2 gap-2 text-xs text-gray-600"><p>今日调用 <b>{usage.today.filter((r) => r.success).length}</b></p><p>近30天 <b>{usage.recent.filter((r) => r.success).length}</b></p><p>今日估算 tokens <b>{usage.today.reduce((n, r) => n + r.inputTokens + r.outputTokens, 0)}</b></p><p>自动调用 <b>{usage.today.filter((r) => r.automatic && r.success).length}</b></p></div><div className="mb-3 flex flex-wrap gap-1">{(['chat','proactive','memory','moments','worldbook','lifeSimulation','persona','quality','other'] as const).map((purpose) => <span key={purpose} className="rounded bg-gray-100 px-1.5 py-1 text-[10px] text-gray-500">{purpose} {usage.today.filter((r) => r.purpose === purpose && r.success).length}</span>)}</div></>}<label className="mb-1 block text-xs text-gray-500">自动任务每日调用上限（0 为不限）</label><input type="number" min="0" value={automaticAiDailyCap} onChange={(e) => setSettings({ automaticAiDailyCap: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"/></section>
 
       <section className="mt-3 bg-white px-4 py-3">
-        <h2 className="mb-2 text-xs font-medium text-gray-400">API 配置（DeepSeek）</h2>
+        <h2 className="mb-2 text-xs font-medium text-gray-400">AI 供应商与 API 配置</h2>
+
+        <label className="mb-1 block text-xs text-gray-500">供应商</label>
+        <select
+          value={providerDraft}
+          onChange={(event) => {
+            const next = event.target.value as AiProviderId
+            setProviderDraft(next)
+            setModels([])
+            setPullError('')
+            setTestResult(null)
+            if (next !== 'custom') setBaseUrlDraft(AI_PROVIDERS[next].defaultBaseUrl)
+            setSettings({ aiProvider: next, ...(next !== 'custom' ? { baseUrl: AI_PROVIDERS[next].defaultBaseUrl } : {}) })
+          }}
+          className="mb-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+        >
+          {AI_PROVIDER_OPTIONS.map((provider) => (
+            <option key={provider.id} value={provider.id}>{provider.label} · {provider.stability === 'stable' ? '稳定支持' : provider.stability === 'experimental' ? '实验性' : '自行兼容'}</option>
+          ))}
+        </select>
+        <p className={`mb-3 text-[11px] leading-relaxed ${providerDraft === 'deepseek' ? 'text-green-600' : 'text-amber-600'}`}>
+          {providerDraft === 'deepseek'
+            ? 'DeepSeek 已经过完整实测，属于稳定支持。'
+            : providerDraft === 'custom'
+              ? '自定义接口会按 OpenAI Chat Completions 协议尝试调用，不保证供应商行为。'
+              : '该供应商依据官方兼容协议完成适配，目前未使用对应真实 Key 做长期验证，属于实验性支持。'}
+        </p>
 
         <label className="mb-1 block text-xs text-gray-500">API Key</label>
         <input
@@ -363,6 +411,12 @@ export function SettingsPage() {
           placeholder="sk-..."
           className="mb-3 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
         />
+        <div className={`mb-3 rounded-lg px-3 py-2 text-[11px] leading-relaxed ${endpointPreviewError ? 'bg-red-50 text-red-500' : 'bg-gray-50 text-gray-500'}`}>
+          {endpointPreviewError ? endpointPreviewError : <>
+            <p className="break-all">实际聊天地址：{chatEndpointPreview}</p>
+            <p className="mt-1 break-all">模型列表地址：{modelsEndpointPreview ?? '该供应商未声明兼容的 Models 接口，请手动填写模型'}</p>
+          </>}
+        </div>
 
         <label className="mb-1 block text-xs text-gray-500">Base URL</label>
         <input
@@ -424,7 +478,7 @@ export function SettingsPage() {
         <div className="mt-2 flex gap-2">
           <button
             onClick={handlePullModels}
-            disabled={pulling || !apiKeyDraft}
+            disabled={pulling || !apiKeyDraft || !modelsEndpointPreview}
             className="flex-1 rounded-lg bg-gray-100 py-2 text-sm text-gray-700 disabled:opacity-50"
           >
             {pulling ? '拉取中…' : '拉取模型'}
@@ -484,6 +538,10 @@ export function SettingsPage() {
           value={pexelsKeyDraft}
           onChange={(e) => {
             setPexelsKeyDraft(e.target.value)
+            pexelsDraftRef.current = e.target.value
+            pexelsRequestRef.current += 1
+            pexelsAbortRef.current?.abort()
+            setPexelsTesting(false)
             setPexelsTestResult(null)
           }}
           onBlur={() => setSettings({ pexelsApiKey: pexelsKeyDraft.trim() })}
@@ -499,10 +557,16 @@ export function SettingsPage() {
           {pexelsTesting ? '测试中…' : '测试连接'}
         </button>
         {pexelsTestResult && (
-          <p className={`mt-2 text-xs ${pexelsTestResult.ok ? 'text-green-600' : 'text-red-500'}`}>
-            {pexelsTestResult.ok ? '✓ ' : '✗ '}
-            {pexelsTestResult.message}
-          </p>
+          <div className={`mt-2 rounded-lg p-2 text-xs ${pexelsTestResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-500'}`}>
+            <div className="flex items-center gap-3">
+              {pexelsTestResult.imageUrl && <img src={pexelsTestResult.imageUrl} alt="Pexels 测试图片" className="h-14 w-14 shrink-0 rounded-lg object-cover" />}
+              <div className="min-w-0">
+                <p>{pexelsTestResult.ok ? '✓ ' : '✗ '}{pexelsTestResult.message}</p>
+                <p className="mt-1 font-mono text-[10px] opacity-70">Key {pexelsTestResult.fingerprint}</p>
+                {pexelsTestResult.verifiedAt && <p className="mt-0.5 text-[10px] opacity-70">验证时间：{new Date(pexelsTestResult.verifiedAt).toLocaleString()}</p>}
+              </div>
+            </div>
+          </div>
         )}
         <p className="mt-2 text-[11px] text-gray-400">
           去 pexels.com/api 免费注册可以拿到一个key 用于创建联系人时自动配一张符合性格的头像照片、以及朋友圈动态偶尔配的插图 动漫风格头像走的是另一个不需要key的免费接口
