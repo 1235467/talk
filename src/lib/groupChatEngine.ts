@@ -21,8 +21,9 @@ import { displayName } from './contact'
 import { previewForMessage } from './messagePreview'
 import { buildUserProfileText, useChatEngineStore } from './chatEngine'
 import { reviewTurnLogic } from './turnLogicReviewer'
-import { searchPexelsPhoto } from './photoSearch'
-import { generateRemoteImage, searchRemoteStickers, trackRemoteStickerSend, type RemoteStickerResult } from './remoteMedia'
+import { trackRemoteStickerSend } from './remoteMedia'
+import { resolveBubbleMedia } from './bubbleMedia'
+import { createTurnController, revealSequentially } from './conversationRuntime'
 import { isImageProviderReady, isStickerProviderReady } from './mediaProviders'
 import { recentSocialEventsText, recordSocialEvent } from './socialEvents'
 import { recentSharedOriginalContext } from './sharedRecentContext'
@@ -57,15 +58,7 @@ async function loadSpeakerMemories(speakers: Contact[]): Promise<Map<string, str
  * assumptions harder to reason about. Memory (facts/style/plans) *is*
  * updated per speaker, via maybeUpdateGroupMemory — see memory.ts.
  */
-const streamByConversation = new Map<string, string>()
-const timersByConversation = new Map<string, ReturnType<typeof setTimeout>[]>()
-const abortByConversation = new Map<string, AbortController>()
-
-function clearPending(conversationId: string) {
-  timersByConversation.get(conversationId)?.forEach(clearTimeout)
-  timersByConversation.set(conversationId, [])
-  abortByConversation.get(conversationId)?.abort()
-}
+const turns = createTurnController()
 
 function scheduleGroupAiTurn(
   conversationId: string,
@@ -81,10 +74,10 @@ function scheduleGroupAiTurn(
     return
   }
   const timer = setTimeout(() => {
-    if (streamByConversation.get(conversationId) !== streamId) return
+    if (!turns.isCurrent(conversationId, streamId)) return
     void runGroupAiTurn(conversationId, group, members, settings, stickers, streamId)
   }, delay)
-  timersByConversation.set(conversationId, [...(timersByConversation.get(conversationId) ?? []), timer])
+  turns.addTimer(conversationId, timer)
 }
 
 function parseGroupTurnDebugPayload(
@@ -109,8 +102,7 @@ function parseGroupTurnDebugPayload(
 
 /** Admin-only safe stop for a group generation and its queued bubbles. */
 export function stopGroupAiTurn(conversationId: string): void {
-  streamByConversation.set(conversationId, uuid())
-  clearPending(conversationId)
+  turns.begin(conversationId, uuid())
   useChatEngineStore.getState().patch(conversationId, { aiTyping: false, typingLabel: undefined, error: '已由管理员停止本轮群聊生成' })
 }
 
@@ -248,8 +240,7 @@ export async function sendGroupMessage(
   }
 
   const streamId = uuid()
-  streamByConversation.set(conversationId, streamId)
-  clearPending(conversationId)
+  turns.begin(conversationId, streamId)
   useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: '群成员' })
 
   const msg: Message = {
@@ -300,8 +291,7 @@ export async function triggerGroupAiTurn(
     return
   }
   const streamId = uuid()
-  streamByConversation.set(conversationId, streamId)
-  clearPending(conversationId)
+  turns.begin(conversationId, streamId)
   useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: '群成员' })
   scheduleGroupAiTurn(conversationId, group, members, settings, stickers, streamId)
 }
@@ -320,8 +310,7 @@ export async function regenerateGroupAiTurn(
   }
 
   const streamId = uuid()
-  streamByConversation.set(conversationId, streamId)
-  clearPending(conversationId)
+  turns.begin(conversationId, streamId)
   useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: '群成员' })
 
   const turnMessages = await db.messages
@@ -409,7 +398,7 @@ async function runGroupAiTurn(
 
     const recentHistory = history.slice(-CONTEXT_WINDOW_SIZE)
     const controller = new AbortController()
-    abortByConversation.set(conversationId, controller)
+    turns.setAbortController(conversationId, controller)
 
     // ChatSLG retired per-turn pre-draft outlines because they add a complete
     // serial model request before every group reply. The main prompt already
@@ -436,7 +425,7 @@ async function runGroupAiTurn(
       trace: { turnId: streamId, stage: 'first_chat', conversationId },
     })
 
-    if (streamByConversation.get(conversationId) !== streamId) return
+    if (!turns.isCurrent(conversationId, streamId)) return
     console.log(`[group] 主模型群聊草稿(${rawText.length}字): ${rawText.slice(0, 160)}...`)
     let draftFeedback: string | undefined
     let localDraft = parseGroupRawDraft(rawText, speakers, stickers.map((sticker) => sticker.name), remoteStickerSearchEnabled)
@@ -465,7 +454,7 @@ async function runGroupAiTurn(
         maxTokens: 900,
         trace: { turnId: streamId, stage: 'other', conversationId },
       })
-      if (streamByConversation.get(conversationId) !== streamId) return
+      if (!turns.isCurrent(conversationId, streamId)) return
       const converted = parseGroupAiResponse(jsonRaw, speakers.length)
       if (converted.bubbles.length > 0) parsedTurn = { ...converted, valid: true, needsUtility: false }
       else jsonRaw = serializeGroupTurn(localDraft)
@@ -496,7 +485,7 @@ async function runGroupAiTurn(
       trace: { turnId: streamId, stage, conversationId },
     })
     let logicReview = bubbles.length > 0 ? await runLogicReview('first_quality') : undefined
-    if (streamByConversation.get(conversationId) !== streamId) return
+    if (!turns.isCurrent(conversationId, streamId)) return
     if (logicReview && !logicReview.valid) {
       reviewFailure = logicReview.reason || '群聊回复存在客观逻辑问题'
       draftFeedback = reviewFailure
@@ -521,7 +510,7 @@ async function runGroupAiTurn(
         maxTokens: 1000,
         trace: { turnId: streamId, stage: 'second_chat', conversationId },
       })
-      if (streamByConversation.get(conversationId) !== streamId) return
+      if (!turns.isCurrent(conversationId, streamId)) return
       localDraft = parseGroupRawDraft(rawText, speakers, stickers.map((sticker) => sticker.name), remoteStickerSearchEnabled)
       localDraft.groupVibe = group.vibe || '自然、轻松的日常群聊。'
       if (!localDraft.valid || localDraft.needsUtility) {
@@ -604,7 +593,7 @@ async function runGroupAiTurn(
     console.info(`[group-perf] 模型与自检完成=${Math.round(performance.now() - turnStartedAt)}ms 群=${group.name}`)
     revealGroupBubbles(conversationId, group, members, speakers, bubbles, streamId, settings, stickers, aiTurnId, turnSummary, turnStartedAt)
   } catch (err) {
-    if (streamByConversation.get(conversationId) !== streamId) return
+    if (!turns.isCurrent(conversationId, streamId)) return
     if (err instanceof DOMException && err.name === 'AbortError') return
     const message = err instanceof Error ? err.message : String(err)
     console.error(`[group] 生成回复出错 群=${group.name}:`, message)
@@ -625,49 +614,22 @@ function revealGroupBubbles(
   turnSummary: string,
   turnStartedAt = performance.now(),
 ): void {
-  const timers: ReturnType<typeof setTimeout>[] = []
-  let sequence = Promise.resolve()
-  bubbles.forEach((bubble, i) => {
-    sequence = sequence.then(() => new Promise<void>((resolve) => {
-      // Reveal the first completed message immediately. A later message only
-      // starts after the previous one, including image/sticker API work, has
-      // been persisted so mixed media can never overtake its intended slot.
-      const timer = setTimeout(async () => {
-        try {
-          if (streamByConversation.get(conversationId) !== streamId) return
-
+  revealSequentially({
+    conversationId,
+    streamId,
+    items: bubbles,
+    controller: turns,
+    // Reveal the first completed message immediately. A later message only
+    // starts after the previous one, including image/sticker API work, has
+    // been persisted so mixed media can never overtake its intended slot.
+    delayMs: (bubble, i) => i > 0 ? groupTypingDelayMs(bubble) : 0,
+    reveal: async (bubble, i) => {
       const speaker = speakers[bubble.speakerIndex - 1]
       useChatEngineStore.getState().patch(conversationId, {
         typingLabel: speaker ? displayName(speaker) : '群成员',
       })
-      let imagePayload: Message['image']
-      let imageFailed=false
-      if (bubble.type === 'image' && isImageProviderReady(settings)) {
-        try {
-          const generated = await generateRemoteImage(settings, bubble.query)
-          if (generated) imagePayload = { url: generated.url, caption: bubble.caption, query: bubble.query, provider: generated.provider }
-        } catch {
-          imageFailed = true
-        }
-      }
-      if (bubble.type === 'image' && !imagePayload && !imageFailed) {
-        if (!settings.pexelsApiKey) imageFailed=true
-        else try{const photo=await searchPexelsPhoto(settings.pexelsApiKey,bubble.query,'landscape');if(!photo)imageFailed=true;else imagePayload={url:photo.url,caption:bubble.caption,photographer:photo.photographer,photographerUrl:photo.photographerUrl,query:bubble.query}}catch{imageFailed=true}
-      }
-      let remoteSticker: RemoteStickerResult | undefined
-      let stickerFailed = false
-      if (bubble.type === 'sticker' && !stickers.some((sticker) => sticker.name === bubble.name)) {
-        if (!isStickerProviderReady(settings)) {
-          stickerFailed = true
-        } else {
-          try {
-            remoteSticker = (await searchRemoteStickers(settings, bubble.name))[0]
-            if (!remoteSticker) stickerFailed = true
-          } catch {
-            stickerFailed = true
-          }
-        }
-      }
+      const { imagePayload, imageFailed, remoteSticker, stickerFailed } =
+        await resolveBubbleMedia(bubble, settings, stickers)
       const content =
         bubble.type === 'text'
           ? stripSpeakerNamePrefix(
@@ -735,15 +697,7 @@ function revealGroupBubbles(
           })
         }
           }
-        } catch (error) {
-          console.error('[group] 气泡写入失败', error)
-        } finally {
-          resolve()
-        }
-      }, i > 0 ? groupTypingDelayMs(bubble) : 0)
-      timers.push(timer)
-    }))
+    },
+    onError: (error) => console.error('[group] 气泡写入失败', error),
   })
-  timersByConversation.set(conversationId, timers)
-  void sequence
 }

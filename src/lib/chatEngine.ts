@@ -27,8 +27,9 @@ import { recentSharedOriginalContext } from './sharedRecentContext'
 import { useChatUiStore } from '../store/useChatUiStore'
 import { enqueueSelfIterationTask } from './selfIteration'
 import { USER_WALLET_ID, getBalance, reserveRedPacket, transferFunds } from './finance'
-import { searchPexelsPhoto } from './photoSearch'
-import { generateRemoteImage, searchRemoteStickers, trackRemoteStickerSend, type RemoteStickerResult } from './remoteMedia'
+import { trackRemoteStickerSend } from './remoteMedia'
+import { resolveBubbleMedia } from './bubbleMedia'
+import { createTurnController, revealSequentially } from './conversationRuntime'
 import { isImageProviderReady, isStickerProviderReady } from './mediaProviders'
 import { promptModuleEnabled } from './promptModules'
 import { realisticReplyDelayMs } from './replyTiming'
@@ -82,20 +83,12 @@ export function getConversationRuntimeState(conversationId: string): Conversatio
 /** How long a mood lasts before expiring back to neutral. */
 // Mood expiry is now a user-configurable setting (see ProactiveSettingsPage → mood settings).
 // The default is 30 min, stored in AppSettings.moodExpiryMs.
-const streamByConversation = new Map<string, string>()
-const timersByConversation = new Map<string, ReturnType<typeof setTimeout>[]>()
-const abortByConversation = new Map<string, AbortController>()
+const turns = createTurnController()
 
 function getActiveMood(contact: Contact, now: number): string | undefined {
   if (!contact.mood || !contact.mood.text) return undefined
   if (now > contact.mood.expiresAt) return undefined
   return contact.mood.text
-}
-
-function clearPending(conversationId: string) {
-  timersByConversation.get(conversationId)?.forEach(clearTimeout)
-  timersByConversation.set(conversationId, [])
-  abortByConversation.get(conversationId)?.abort()
 }
 
 function scheduleAiTurn(
@@ -113,10 +106,10 @@ function scheduleAiTurn(
     return
   }
   const timer = setTimeout(() => {
-    if (streamByConversation.get(conversationId) !== streamId) return
+    if (!turns.isCurrent(conversationId, streamId)) return
     void runAiTurn(conversationId, contact, settings, stickers, streamId, triggeringUserText, proactiveContext)
   }, delay)
-  timersByConversation.set(conversationId, [...(timersByConversation.get(conversationId) ?? []), timer])
+  turns.addTimer(conversationId, timer)
 }
 
 export function formatStructuredHistoryEvent(
@@ -202,8 +195,7 @@ function parseAiTurnDebugPayload(opts: {
 
 /** Admin-only safe stop: cancels network work and unrevealed bubbles for one conversation. */
 export function stopAiTurn(conversationId: string): void {
-  streamByConversation.set(conversationId, uuid())
-  clearPending(conversationId)
+  turns.begin(conversationId, uuid())
   useChatEngineStore.getState().patch(conversationId, { aiTyping: false, typingLabel: undefined, error: '已由管理员停止本轮生成' })
 }
 
@@ -243,8 +235,7 @@ export async function sendMessage(
   }
 
   const streamId = uuid()
-  streamByConversation.set(conversationId, streamId)
-  clearPending(conversationId)
+  turns.begin(conversationId, streamId)
   useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: displayName(contact) })
 
   const msg: Message = {
@@ -277,8 +268,7 @@ export async function triggerAiTurn(
   proactiveContext = '',
 ): Promise<void> {
   const streamId = uuid()
-  streamByConversation.set(conversationId, streamId)
-  clearPending(conversationId)
+  turns.begin(conversationId, streamId)
   useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: displayName(contact) })
   scheduleAiTurn(conversationId, contact, settings, stickers, streamId, '', proactiveContext)
 }
@@ -296,8 +286,7 @@ export async function regenerateAiTurn(
   }
 
   const streamId = uuid()
-  streamByConversation.set(conversationId, streamId)
-  clearPending(conversationId)
+  turns.begin(conversationId, streamId)
   useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: displayName(contact) })
 
   const turnMessages = await db.messages
@@ -414,7 +403,7 @@ async function runAiTurn(
 
     const recentHistory = history.slice(-CONTEXT_WINDOW_SIZE)
     const controller = new AbortController()
-    abortByConversation.set(conversationId, controller)
+    turns.setAbortController(conversationId, controller)
     const chatMessages: ChatMessage[] = coalesceConsecutiveRoles([
       { role: 'system', content: [contextSections, socialMemories, sharedOriginalContext].filter(Boolean).join('\n\n') },
       ...recentHistory.map((m): ChatMessage => {
@@ -443,7 +432,7 @@ async function runAiTurn(
       trace: { turnId: streamId, stage: 'first_chat', conversationId },
     })
 
-    if (streamByConversation.get(conversationId) !== streamId) return
+    if (!turns.isCurrent(conversationId, streamId)) return
     console.log(`[chat] 主模型回复(${rawText.length}字): ${rawText.slice(0, 100)}...`)
 
     // ---- Step 2: parse ordinary drafts locally; use the utility model only
@@ -472,7 +461,7 @@ async function runAiTurn(
         maxTokens: 900,
         trace: { turnId: streamId, stage: 'other', conversationId },
       })
-      if (streamByConversation.get(conversationId) !== streamId) return
+      if (!turns.isCurrent(conversationId, streamId)) return
       const converted = parseAiResponse(jsonRaw)
       if (converted.bubbles.length > 0) parsedTurn = converted
       else jsonRaw = serializePrivateTurn(localTurn)
@@ -508,7 +497,7 @@ async function runAiTurn(
       trace: { turnId: streamId, stage, conversationId },
     })
     let logicReview = bubbles.length > 0 ? await runLogicReview('first_quality') : undefined
-    if (streamByConversation.get(conversationId) !== streamId) return
+    if (!turns.isCurrent(conversationId, streamId)) return
     if (logicReview && !logicReview.valid) {
       qualityCheckDebug.detectedInvalid = true
       qualityCheckDebug.reason = logicReview.reason
@@ -530,7 +519,7 @@ async function runAiTurn(
         temperature: 0.75,
         trace: { turnId: streamId, stage: 'second_chat', conversationId },
       })
-      if (streamByConversation.get(conversationId) !== streamId) return
+      if (!turns.isCurrent(conversationId, streamId)) return
       const rewrittenLocal = parseRawPrivateDraft(rawText, activeMood)
       parsedTurn = rewrittenLocal
       jsonRaw = serializePrivateTurn(rewrittenLocal)
@@ -634,7 +623,7 @@ async function runAiTurn(
     )
     console.info(`[chat-perf] first-bubble-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)}`)
     } catch (err) {
-    if (streamByConversation.get(conversationId) !== streamId) return
+    if (!turns.isCurrent(conversationId, streamId)) return
     if (err instanceof DOMException && err.name === 'AbortError') return
     const message = err instanceof Error ? err.message : String(err)
     console.error(`[chat] 生成回复出错 对方=${displayName(contact)}:`, message)
@@ -656,17 +645,16 @@ function revealBubbles(
   finalRaw?: string,
   injectedIntentIds: string[] = [],
 ): void {
-  const timers: ReturnType<typeof setTimeout>[] = []
-  let sequence = Promise.resolve()
-  bubbles.forEach((bubble, i) => {
-    sequence = sequence.then(() => new Promise<void>((resolve) => {
-      // Generation and quality review already made the user wait. Show the
-      // first completed bubble immediately; pace follow-ups only after the
-      // previous bubble (including remote media work) has actually landed.
-      const timer = setTimeout(async () => {
-        try {
-          if (streamByConversation.get(conversationId) !== streamId) return
-
+  revealSequentially({
+    conversationId,
+    streamId,
+    items: bubbles,
+    controller: turns,
+    // Generation and quality review already made the user wait. Show the
+    // first completed bubble immediately; pace follow-ups only after the
+    // previous bubble (including remote media work) has actually landed.
+    delayMs: (bubble, i) => i > 0 ? typingDelayMs(bubble) : 0,
+    reveal: async (bubble, i) => {
       if (bubble.type === 'scheduleChange') {
         // Re-fetch rather than reusing the `contact` this whole turn was
         // handed — that snapshot predates this write, and stashing a stale
@@ -690,37 +678,8 @@ function revealBubbles(
         // the generated weekly schedule remains the low-priority fallback.
         await db.contacts.update(contact.id, { scheduleOverrides: [...pruned.filter((item) => item.date !== override.date), override] })
       }
-      let imagePayload: Message['image']
-      let imageFailed = false
-      if (bubble.type === 'image' && isImageProviderReady(settings)) {
-        try {
-          const generated = await generateRemoteImage(settings, bubble.query)
-          if (generated) imagePayload = { url: generated.url, caption: bubble.caption, query: bubble.query, provider: generated.provider }
-        } catch (err) {
-          console.warn('[photo] 图片生成接口失败', err)
-          imageFailed = true
-        }
-      }
-      if (bubble.type === 'image' && !imagePayload && !imageFailed) {
-        if (!settings.pexelsApiKey) imageFailed = true
-        else try { const photo=await searchPexelsPhoto(settings.pexelsApiKey,bubble.query,'landscape'); if(!photo)imageFailed=true; else imagePayload={url:photo.url,caption:bubble.caption,photographer:photo.photographer,photographerUrl:photo.photographerUrl,query:bubble.query} } catch(err){console.warn('[photo] 聊天图片发送失败',err);imageFailed=true}
-      }
-
-      let remoteSticker: RemoteStickerResult | undefined
-      let stickerFailed = false
-      if (bubble.type === 'sticker' && !stickers.some((sticker) => sticker.name === bubble.name)) {
-        if (!isStickerProviderReady(settings)) {
-          stickerFailed = true
-        } else {
-        try {
-            remoteSticker = (await searchRemoteStickers(settings, bubble.name))[0]
-            if (!remoteSticker) stickerFailed = true
-        } catch (err) {
-          console.warn('[sticker] 远程表情包获取失败', err)
-            stickerFailed = true
-          }
-        }
-      }
+      const { imagePayload, imageFailed, remoteSticker, stickerFailed } =
+        await resolveBubbleMedia(bubble, settings, stickers)
 
       let finance: Message['finance']
       if (bubble.type === 'transfer') {
@@ -833,17 +792,9 @@ function revealBubbles(
           })
         }
           }
-        } catch (error) {
-          console.error('[chat] 气泡写入失败', error)
-        } finally {
-          resolve()
-        }
-      }, i > 0 ? typingDelayMs(bubble) : 0)
-      timers.push(timer)
-    }))
+    },
+    onError: (error) => console.error('[chat] 气泡写入失败', error),
   })
-  timersByConversation.set(conversationId, timers)
-  void sequence
 }
 
 
