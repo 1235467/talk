@@ -35,7 +35,7 @@ export function TopBar({ title, showBack, onBack, showSearch, onSearchClick, rig
         )}
       </div>
       <h1
-        className="pointer-events-none absolute max-w-[calc(100%-7rem)] truncate text-[16px] font-medium text-gray-900"
+        className="ui-font-display pointer-events-none absolute max-w-[calc(100%-7rem)] truncate text-[16px] font-medium text-gray-900"
         style={{ left: 'calc(50% - 6px)', transform: 'translateX(-50%)' }}
       >
         {title}

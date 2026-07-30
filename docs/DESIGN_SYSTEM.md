@@ -21,6 +21,26 @@
 | `nord` | 冷色工作台 | 蓝灰低饱和、窄圆角、理性桌面感 |
 | `wetalk` | 克制社交 | 高密度列表、小圆角、微信式绿色动作与熟悉的社交秩序 |
 
+## 主题字体系统
+
+字体与颜色、圆角一样属于主题令牌，不得在页面里判断 `sage`、`ink` 等主题 ID。六套主题的字体矩阵如下：
+
+| 主题 | 正文 `--ui-font-body` | 标题 `--ui-font-display` | 阅读内容 `--ui-font-reading` | 控件 `--ui-font-control` |
+| --- | --- | --- | --- | --- |
+| Sage | 系统黑体 | LXGW WenKai | LXGW WenKai | 系统黑体 |
+| Forge | 系统黑体 | 系统黑体 | 系统黑体 | 系统黑体 |
+| Fox | GenSen Rounded | GenSen Rounded | GenSen Rounded | GenSen Rounded |
+| Ink | Noto Serif CJK SC | Noto Serif CJK SC | Noto Serif CJK SC | Noto Serif CJK SC |
+| Nord | IBM Plex Sans SC | IBM Plex Sans SC | IBM Plex Sans SC | IBM Plex Sans SC |
+| WeTalk | 系统黑体 | 系统黑体 | 系统黑体 | 系统黑体 |
+
+- 普通正文继承 `--ui-font-body`；TopBar、页面标题、联系人名使用 `.ui-font-display`；聊天正文和朋友圈正文使用 `.ui-font-reading`。Sage 只在标题、姓名和阅读内容中体现文楷，按钮、输入框与高密度控件继续使用系统黑体。
+- 按钮、输入框、文本域和选择框统一消费 `--ui-font-control`。日志、代码、原始提示词、模板和 API Key 指纹必须使用 `font-mono`，其实际字体由 `--ui-font-mono` 提供。
+- 页面只能消费字体令牌或上述语义类，不得直接写字体家族，也不得通过主题 ID 分支布局。`font-sans` 不能用来绕过主题字体；技术内容应明确使用 `font-mono`。
+- 主题字体必须以本地 WOFF2 随应用打包，使用 `font-display: swap`，禁止 CDN、远程 `@import` 和运行时字体下载。Forge 与 WeTalk 必须保持系统字体，不增加主题字体差分。
+- 本地子集必须覆盖常用简体中文、ASCII/拉丁、数字和中英文标点，不能只覆盖固定界面文案。生僻字按字体栈回退至系统中文字体；Emoji 不收入主题字体，优先回退至系统彩色 Emoji 字体，避免单色或方框。
+- 新增或替换字体时必须附上可信上游、精确版本、SIL OFL 等可再分发许可证、子集方法、单文件大小以及 `dist`/APK/Windows 包体积变化。当前清单见 `public/fonts/NOTICE.md`，发布体积与验证记录见 `docs/FONT_ASSET_REPORT.md`。
+
 ## 唯一实现方式
 
 主题状态存放在 `useSettingsStore` 的 `uiTheme` 和 `themeMode`，由 `App.tsx` 同步到根节点的 `data-ui-theme` 与 `data-theme`。主题定义和显示名称位于 `src/lib/uiTheme.ts`，CSS 令牌与现有工具类映射位于 `src/index.css` 的 “Talk visual contract” 区域。
@@ -70,3 +90,4 @@
 - 选项刷新后仍保留；首次安装回退到 Sage 浅色。
 - 键盘操作有可见焦点，按钮保留 `aria-label` / `aria-pressed` / `role` 等语义。
 - `npm run check:theme`、构建与测试通过，并检查六套主题在手机/PC、浅色/深色下的关键页面。
+- `document.fonts.load/check` 与网络资源记录确认本地字体真实加载；中文、英文、数字、标点、Emoji 和生僻字回退均经过检查，不能只读取 `computedStyle.fontFamily`。

@@ -82,8 +82,8 @@ function ThemeChoice({
         <span className="min-w-0 flex-1">
           <span className="flex items-center justify-between gap-2">
             <span>
-              <strong className="block text-[15px] text-gray-900">{theme.name}</strong>
-              <small className="mt-0.5 block text-xs text-gray-500">{theme.tagline}</small>
+              <strong className="appearance-theme-font-preview block text-[15px] text-gray-900">{theme.name}</strong>
+              <small className="appearance-theme-font-preview mt-0.5 block text-xs text-gray-500">{theme.tagline} · 字体 Aa 123</small>
             </span>
             <span className={`appearance-check grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs ${selected ? '' : 'border border-gray-200 text-transparent'}`}><Check size={14} /></span>
           </span>

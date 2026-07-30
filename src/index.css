@@ -81,6 +81,67 @@
   --color-gray-950: #030712;
 }
 
+/* Local, redistributable theme fonts. The files are common-Simplified-Chinese
+   WOFF2 subsets; characters outside their cmap (including Emoji) continue
+   through the explicit system fallback stacks below. Medium is intentionally
+   reused for 600/700 so the UI never requests a synthetic missing face. */
+@font-face {
+  font-family: 'Talk LXGW WenKai';
+  src: url('/fonts/talk-sage-regular.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Talk LXGW WenKai';
+  src: url('/fonts/talk-sage-medium.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Talk GenSen Rounded';
+  src: url('/fonts/talk-fox-regular.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Talk GenSen Rounded';
+  src: url('/fonts/talk-fox-medium.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Talk Noto Serif CJK SC';
+  src: url('/fonts/talk-ink-regular.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Talk Noto Serif CJK SC';
+  src: url('/fonts/talk-ink-medium.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Talk IBM Plex Sans SC';
+  src: url('/fonts/talk-nord-regular.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Talk IBM Plex Sans SC';
+  src: url('/fonts/talk-nord-medium.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+}
+
 :root {
   color-scheme: light;
   /* Real viewport height in px, kept in sync by main.tsx via window.innerHeight.
@@ -91,6 +152,9 @@
      fallback for the first paint. */
   --app-height: 100dvh;
   --app-top-offset: 0px;
+  --ui-font-system: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  --ui-font-serif-fallback: 'Songti SC', STSong, SimSun, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', serif;
+  --ui-font-mono: ui-monospace, 'Cascadia Code', 'SFMono-Regular', Consolas, 'Liberation Mono', 'Microsoft YaHei', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', monospace;
 }
 
 :root[data-theme='dark'] {
@@ -501,7 +565,10 @@ body {
   --ui-radius-control: 9px;
   --ui-radius-card: 12px;
   --ui-shadow: 0 8px 28px rgba(31, 41, 34, .07);
-  --ui-font: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --ui-font-body: var(--ui-font-system);
+  --ui-font-display: 'Talk LXGW WenKai', var(--ui-font-system);
+  --ui-font-reading: 'Talk LXGW WenKai', var(--ui-font-system);
+  --ui-font-control: var(--ui-font-system);
   --ui-special: #27845a; --ui-special-soft: #e5f3eb; --ui-special-ink: #1d6d49; --ui-special-border: #b9d9c7;
   --ui-info: #2878b5; --ui-info-soft: #e7f2f9; --ui-info-ink: #205f8e;
   --ui-success: #27845a; --ui-success-soft: #e5f3eb; --ui-success-ink: #1d6d49;
@@ -518,7 +585,8 @@ body {
   --ui-action: #1f883d; --ui-on-action: #ffffff; --ui-message-mine: #ddf4ff;
   --ui-rail: #24292f; --ui-rail-text: #8c959f;
   --ui-radius-control: 6px; --ui-radius-card: 6px; --ui-shadow: none;
-  --ui-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --ui-font-body: var(--ui-font-system); --ui-font-display: var(--ui-font-system);
+  --ui-font-reading: var(--ui-font-system); --ui-font-control: var(--ui-font-system);
   --ui-special: #0969da; --ui-special-soft: #ddf4ff; --ui-special-ink: #0550ae; --ui-special-border: #b6d7f2;
   --ui-info: #0969da; --ui-info-soft: #ddf4ff; --ui-info-ink: #0550ae; --ui-success: #1f883d; --ui-success-soft: #dafbe1; --ui-success-ink: #116329;
   --ui-warning: #9a6700; --ui-warning-soft: #fff8c5; --ui-warning-ink: #7d4e00; --ui-danger: #cf222e; --ui-danger-soft: #ffebe9; --ui-danger-ink: #a40e26;
@@ -533,7 +601,10 @@ body {
   --ui-action: #7542e5; --ui-on-action: #ffffff; --ui-message-mine: #ebe4ff;
   --ui-rail: #2b153f; --ui-rail-text: #c0b3cb;
   --ui-radius-control: 12px; --ui-radius-card: 16px; --ui-shadow: 0 10px 30px rgba(65, 39, 90, .10);
-  --ui-font: 'Avenir Next', Avenir, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --ui-font-body: 'Talk GenSen Rounded', var(--ui-font-system);
+  --ui-font-display: 'Talk GenSen Rounded', var(--ui-font-system);
+  --ui-font-reading: 'Talk GenSen Rounded', var(--ui-font-system);
+  --ui-font-control: 'Talk GenSen Rounded', var(--ui-font-system);
   --ui-special: #7542e5; --ui-special-soft: #eee7ff; --ui-special-ink: #592acb; --ui-special-border: #d7c8fa;
   --ui-info: #5d62d5; --ui-info-soft: #ececff; --ui-info-ink: #464aa8; --ui-success: #3b9462; --ui-success-soft: #e4f5eb; --ui-success-ink: #287047;
   --ui-warning: #b66a20; --ui-warning-soft: #fff1df; --ui-warning-ink: #8f5017; --ui-danger: #d94a64; --ui-danger-soft: #fde9ee; --ui-danger-ink: #ac344b;
@@ -548,7 +619,10 @@ body {
   --ui-action: #111110; --ui-on-action: #fffefa; --ui-message-mine: #111110;
   --ui-rail: #fffefa; --ui-rail-text: #4e4e49;
   --ui-radius-control: 8px; --ui-radius-card: 12px; --ui-shadow: none;
-  --ui-font: Georgia, 'Songti SC', 'Noto Serif CJK SC', 'STSong', serif;
+  --ui-font-body: 'Talk Noto Serif CJK SC', var(--ui-font-serif-fallback);
+  --ui-font-display: 'Talk Noto Serif CJK SC', var(--ui-font-serif-fallback);
+  --ui-font-reading: 'Talk Noto Serif CJK SC', var(--ui-font-serif-fallback);
+  --ui-font-control: 'Talk Noto Serif CJK SC', var(--ui-font-serif-fallback);
   --ui-special: #111110; --ui-special-soft: #e4e3dc; --ui-special-ink: #111110; --ui-special-border: #a3a29a;
   --ui-info: #2f566f; --ui-info-soft: #e2eaee; --ui-info-ink: #203f53; --ui-success: #356449; --ui-success-soft: #e2ebe5; --ui-success-ink: #294d38;
   --ui-warning: #815d2d; --ui-warning-soft: #eee6d8; --ui-warning-ink: #60431e; --ui-danger: #8d3535; --ui-danger-soft: #efe1df; --ui-danger-ink: #6b2626;
@@ -563,7 +637,10 @@ body {
   --ui-action: #2e6f9e; --ui-on-action: #ffffff; --ui-message-mine: #d8e8f2;
   --ui-rail: #1e2d37; --ui-rail-text: #9daeb8;
   --ui-radius-control: 3px; --ui-radius-card: 5px; --ui-shadow: 0 4px 12px rgba(25, 40, 50, .08);
-  --ui-font: 'IBM Plex Sans', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --ui-font-body: 'Talk IBM Plex Sans SC', var(--ui-font-system);
+  --ui-font-display: 'Talk IBM Plex Sans SC', var(--ui-font-system);
+  --ui-font-reading: 'Talk IBM Plex Sans SC', var(--ui-font-system);
+  --ui-font-control: 'Talk IBM Plex Sans SC', var(--ui-font-system);
   --ui-special: #2e6f9e; --ui-special-soft: #dbe9f2; --ui-special-ink: #225a81; --ui-special-border: #aac7da;
   --ui-info: #2e6f9e; --ui-info-soft: #dbe9f2; --ui-info-ink: #225a81; --ui-success: #3d8062; --ui-success-soft: #dcebe3; --ui-success-ink: #2b6449;
   --ui-warning: #a36d2f; --ui-warning-soft: #f4e9d8; --ui-warning-ink: #7b5020; --ui-danger: #b94d53; --ui-danger-soft: #f2dfe1; --ui-danger-ink: #91373d;
@@ -578,7 +655,8 @@ body {
   --ui-action: #07c160; --ui-on-action: #ffffff; --ui-message-mine: #95ec69;
   --ui-rail: #2e2e2e; --ui-rail-text: #b9b9b9;
   --ui-radius-control: 5px; --ui-radius-card: 6px; --ui-shadow: none;
-  --ui-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --ui-font-body: var(--ui-font-system); --ui-font-display: var(--ui-font-system);
+  --ui-font-reading: var(--ui-font-system); --ui-font-control: var(--ui-font-system);
   --ui-special: #07c160; --ui-special-soft: #e6f7ee; --ui-special-ink: #059b4d; --ui-special-border: #a8ddc0;
   --ui-info: #576b95; --ui-info-soft: #e8edf5; --ui-info-ink: #405476; --ui-success: #07c160; --ui-success-soft: #e6f7ee; --ui-success-ink: #059b4d;
   --ui-warning: #c87d2f; --ui-warning-soft: #fff1df; --ui-warning-ink: #9d5e20; --ui-danger: #fa5151; --ui-danger-soft: #fde8e8; --ui-danger-ink: #c93c3c;
@@ -647,8 +725,23 @@ body {
   --ui-link: #7d90a9; --ui-cover-start: #4b625e; --ui-cover-end: #233a35;
 }
 
-html, body, #root { background: var(--ui-bg); font-family: var(--ui-font); }
-.app-shell { background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font); }
+html, body, #root { background: var(--ui-bg); font-family: var(--ui-font-body); }
+.app-shell { background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font-body); }
+.app-shell button, .app-shell input, .app-shell textarea, .app-shell select { font-family: var(--ui-font-control); }
+.app-shell .ui-font-display { font-family: var(--ui-font-display); }
+.app-shell .ui-font-reading { font-family: var(--ui-font-reading); }
+.app-shell .font-mono { font-family: var(--ui-font-mono) !important; }
+.app-shell .font-sans { font-family: var(--ui-font-body) !important; }
+.desktop-list-copy strong { font-family: var(--ui-font-display); }
+
+/* Theme cards preview their own typography before selection. This changes
+   only font rendering; the existing card structure and spacing stay intact. */
+.appearance-theme-card[data-preview-theme='sage'] .appearance-theme-font-preview { font-family: 'Talk LXGW WenKai', var(--ui-font-system); }
+.appearance-theme-card[data-preview-theme='forge'] .appearance-theme-font-preview { font-family: var(--ui-font-system); }
+.appearance-theme-card[data-preview-theme='fox'] .appearance-theme-font-preview { font-family: 'Talk GenSen Rounded', var(--ui-font-system); }
+.appearance-theme-card[data-preview-theme='ink'] .appearance-theme-font-preview { font-family: 'Talk Noto Serif CJK SC', var(--ui-font-serif-fallback); }
+.appearance-theme-card[data-preview-theme='nord'] .appearance-theme-font-preview { font-family: 'Talk IBM Plex Sans SC', var(--ui-font-system); }
+.appearance-theme-card[data-preview-theme='wetalk'] .appearance-theme-font-preview { font-family: var(--ui-font-system); }
 .app-shell .bg-white { background-color: var(--ui-surface) !important; }
 .app-shell .bg-gray-50, .app-shell .bg-gray-100,
 .app-shell .bg-\[\#f4f4f6\], .app-shell .bg-\[\#f4f5f6\], .app-shell .bg-\[\#f7f8fa\], .app-shell .bg-\[\#ededed\] { background-color: var(--ui-bg) !important; }

@@ -83,7 +83,7 @@ function RelationshipCard({
       <button onClick={onToggle} className="flex w-full items-center gap-3 text-left">
         <Avatar avatar={c.avatar} color={c.avatarColor} size={40} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-medium text-gray-900">{displayName(c)}</p>
+          <p className="ui-font-display truncate text-[15px] font-medium text-gray-900">{displayName(c)}</p>
           <p className="text-xs text-gray-400">{c.relationshipBase || '朋友'}{c.relationshipDynamic ? ` · ${c.relationshipDynamic}` : ''}</p>
         </div>
         <span className="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600">

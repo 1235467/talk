@@ -60,7 +60,7 @@ function AdminIntentList({ members }: { members: Contact[] }) {
           <div key={member.id} className="rounded-lg bg-gray-50 px-3 py-2.5">
             <div className="mb-2 flex items-center gap-2">
               <Avatar avatar={member.avatar} color={member.avatarColor} size={28} />
-              <p className="text-sm font-medium text-gray-800">{displayName(member)}</p>
+              <p className="ui-font-display text-sm font-medium text-gray-800">{displayName(member)}</p>
             </div>
             <div className="space-y-2 text-xs text-gray-600">
               <div>
@@ -247,7 +247,7 @@ export function GroupInfoPage() {
       <div className="flex-1 overflow-y-auto">
         <section className="mt-3 flex flex-col items-center gap-2 bg-white px-4 py-6">
           <Avatar avatar={group.avatar} color={group.avatarColor} size={64} />
-          <button onClick={group.kind === 'location' ? undefined : openNameEditor} className="text-[15px] font-medium text-gray-900 underline-offset-2 active:underline">
+          <button onClick={group.kind === 'location' ? undefined : openNameEditor} className="ui-font-display text-[15px] font-medium text-gray-900 underline-offset-2 active:underline">
             {group.kind === 'location' ? `${group.name} · ${groupLocation?.name ?? '未选择地点'}` : group.name}
           </button>
           <p className="text-xs text-gray-400">{members.length} 位成员</p>
@@ -470,7 +470,7 @@ export function GroupInfoPage() {
                       <span className="text-xs font-bold text-gray-800">发给主模型（{settings.model}）</span>
                       <span className="ml-2 text-[10px] text-gray-400">群聊纯文本草稿</span>
                     </div>
-                    <pre className="whitespace-pre-wrap break-words p-3 font-sans text-[11px] leading-relaxed text-gray-700">
+                    <pre className="whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-relaxed text-gray-700">
                       {promptPreview}
                     </pre>
                   </div>
@@ -480,7 +480,7 @@ export function GroupInfoPage() {
                       <span className="text-xs font-bold text-gray-800">发给多功能模型（{settings.utilityModel}）</span>
                       <span className="ml-2 text-[10px] text-gray-400">纯文本 → 群聊JSON</span>
                     </div>
-                    <pre className="whitespace-pre-wrap break-words p-3 font-sans text-[11px] leading-relaxed text-gray-700">
+                    <pre className="whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-relaxed text-gray-700">
                       {conversionPreview}
                     </pre>
                   </div>

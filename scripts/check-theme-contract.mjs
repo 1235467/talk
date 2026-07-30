@@ -35,6 +35,11 @@ for (const theme of ['sage', 'forge', 'fox', 'ink', 'nord', 'wetalk']) {
   if (!themeCss.includes(`data-ui-theme='${theme}'`)) failures.push(`src/index.css: missing ${theme} theme tokens`)
 }
 if (!themeCss.includes("data-ui-scope='special'")) failures.push('src/index.css: missing special-scope contract')
+for (const token of ['--ui-font-body', '--ui-font-display', '--ui-font-reading', '--ui-font-control', '--ui-font-mono']) {
+  if (!themeCss.includes(token)) failures.push(`src/index.css: missing font token ${token}`)
+}
+if (/--ui-font\s*:/.test(themeCss)) failures.push('src/index.css: legacy --ui-font token remains; use semantic font tokens')
+if (!themeCss.includes('@font-face') || !themeCss.includes('font-display: swap')) failures.push('src/index.css: local font-face contract is incomplete')
 
 const distAssets = path.join(root, 'dist/assets')
 if (process.argv.includes('--dist') && existsSync(distAssets)) {
@@ -42,6 +47,14 @@ if (process.argv.includes('--dist') && existsSync(distAssets)) {
     if (!entry.endsWith('.css')) continue
     const builtCss = await readFile(path.join(distAssets, entry), 'utf8')
     if (/okl(?:ch|ab)\(/i.test(builtCss)) failures.push(`dist/assets/${entry}: Chromium 99-incompatible OKLab color syntax remains`)
+  }
+  for (const font of [
+    'talk-sage-regular.woff2', 'talk-sage-medium.woff2',
+    'talk-fox-regular.woff2', 'talk-fox-medium.woff2',
+    'talk-ink-regular.woff2', 'talk-ink-medium.woff2',
+    'talk-nord-regular.woff2', 'talk-nord-medium.woff2',
+  ]) {
+    if (!existsSync(path.join(root, 'dist/fonts', font))) failures.push(`dist/fonts/${font}: bundled theme font is missing`)
   }
 }
 

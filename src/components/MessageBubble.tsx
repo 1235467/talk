@@ -82,7 +82,7 @@ export const MessageBubble = memo(function MessageBubble({
           <Check size={13} />
         </span>
       )}
-      {!isUser && showName && <p className="mb-1 pl-10 text-[11px] text-gray-400">{contactName}</p>}
+      {!isUser && showName && <p className="ui-font-display mb-1 pl-10 text-[11px] text-gray-400">{contactName}</p>}
       <div className={`flex items-start gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
         <button type="button" onClick={() => onAvatarClick?.(message)} aria-label={isUser ? '编辑个人信息' : `查看${contactName}资料`}>
           {isUser ? (
@@ -100,7 +100,7 @@ export const MessageBubble = memo(function MessageBubble({
           )}
           {message.type === 'text' && (
             <div
-              className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-[14.5px] leading-relaxed ${
+              className={`ui-font-reading whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-[14.5px] leading-relaxed ${
                 isUser ? 'bg-[#95ec69] text-gray-900' : 'bg-white text-gray-900'
               }`}
             >

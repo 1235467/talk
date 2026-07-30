@@ -105,7 +105,7 @@ export function ContactsPage() {
               className="flex w-full items-center gap-3 border-b border-gray-100 px-4 py-2.5 text-left active:bg-gray-50"
             >
               <Avatar avatar={c.avatar} color={c.avatarColor} size={44} />
-              <span className="text-[15px] text-gray-900">{displayName(c)}</span>
+              <span className="ui-font-display text-[15px] text-gray-900">{displayName(c)}</span>
             </button>
           ))
         )}
@@ -139,7 +139,7 @@ export function ContactsPage() {
                 >
                   <Avatar avatar={contact.avatar} color={contact.avatarColor} size={44} />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[15px] text-gray-900">{displayName(contact)}</p>
+                    <p className="ui-font-display truncate text-[15px] text-gray-900">{displayName(contact)}</p>
                     <p className="truncate text-xs text-gray-400">
                       {strawmanSourceId === contact.id ? '正在复制...' : `${contact.name}-稻草人-xx`}
                     </p>

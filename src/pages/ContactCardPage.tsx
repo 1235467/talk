@@ -262,7 +262,7 @@ export function ContactCardPage() {
         <button onClick={() => setPickingAvatar(true)}>
           <Avatar avatar={contact.avatar} color={contact.avatarColor} size={80} />
         </button>
-        <h2 className="mt-1 text-lg font-medium text-gray-900">{displayName(contact)}</h2>
+        <h2 className="ui-font-display mt-1 text-lg font-medium text-gray-900">{displayName(contact)}</h2>
         {contact.remark && <p className="text-xs text-gray-400">本名 {contact.name}</p>}
         {contact.avatarPhotographer && (
           <p className="text-[11px] text-gray-300">
@@ -594,7 +594,7 @@ export function ContactCardPage() {
                       <p className="text-xs font-bold text-gray-900">逻辑</p>
                       <p className="mt-0.5 text-[10px] text-gray-400">身份、记忆、地点、日程、心情、关系等硬前提，优先级最高</p>
                     </div>
-                    <pre className="whitespace-pre-wrap break-words p-3 font-sans text-[11px] leading-relaxed text-gray-700">
+                    <pre className="whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-relaxed text-gray-700">
                       {mainModelPromptParts?.logic}
                     </pre>
                   </div>
@@ -604,7 +604,7 @@ export function ContactCardPage() {
                       <p className="text-xs font-bold text-gray-700">感觉</p>
                       <p className="mt-0.5 text-[10px] text-gray-400">在逻辑正确后再优化文笔、节奏、情绪和聊天感</p>
                     </div>
-                    <pre className="whitespace-pre-wrap break-words p-3 font-sans text-[11px] leading-relaxed text-gray-600">
+                    <pre className="whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-relaxed text-gray-600">
                       {mainModelPromptParts?.feeling}
                     </pre>
                   </div>
@@ -619,7 +619,7 @@ export function ContactCardPage() {
                 <span className="ml-2 text-[10px] text-gray-400">原始文字 → JSON（提取mood/thought/表情包）</span>
               </div>
               <div className="p-3">
-                <pre className="whitespace-pre-wrap break-words font-sans text-[11px] leading-relaxed text-gray-700">
+                <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-gray-700">
                   {conversionPrompt}
                 </pre>
               </div>

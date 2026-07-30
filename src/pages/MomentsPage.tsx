@@ -284,8 +284,8 @@ export function MomentsPage() {
                     <Avatar avatar={posterAvatar} color={posterAvatarColor} size={40} />
                   </button>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[14px] font-medium text-[#576b95]">{posterName}</p>
-                    <p className="mt-1 whitespace-pre-wrap text-[14.5px] leading-relaxed text-gray-900">
+                    <p className="ui-font-display text-[14px] font-medium text-[#576b95]">{posterName}</p>
+                    <p className="ui-font-reading mt-1 whitespace-pre-wrap text-[14.5px] leading-relaxed text-gray-900">
                       {m.content}
                     </p>
                     {m.imageUrl && (

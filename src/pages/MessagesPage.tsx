@@ -174,7 +174,7 @@ const ConversationRow = memo(function ConversationRow(props: {
       </div>
       <div className="min-w-0 flex-1 border-b border-gray-100 pb-2.5 pt-0.5">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="truncate text-[15px] font-medium text-gray-900">{props.name}</span>
+          <span className="ui-font-display truncate text-[15px] font-medium text-gray-900">{props.name}</span>
           <span className="shrink-0 text-[11px] text-gray-400">{props.time}</span>
         </div>
         <p className="mt-0.5 truncate text-[13px] text-gray-400">{props.preview}</p>

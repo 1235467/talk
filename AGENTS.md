@@ -326,5 +326,11 @@ v1做过一套完整的地图+日程+一次性任务系统，后来**用户明�
 
 系统入口、导航、按钮、标题装饰与状态提示统一使用 `lucide-react`（复用 `src/components/UiIcon.tsx`，18–20px、1.8线宽、`currentColor`）。Emoji 只允许作为用户内容或业务数据，例如头像、心情、商品/礼物、地图地标和自定义货币；不得重新拿 Emoji 充当普通 UI 图标。桌面聊天输入区固定采用“大输入面板 + 左下内嵌工具栏 + 右下发送按钮”，不再恢复桌面加号展开按钮；手机端保留紧凑输入栏和加号面板。
 
+## 主题字体系统（本地 WOFF2，禁止页面直写字体）
+- 字体矩阵：Sage 的正文/控件用系统黑体，标题、联系人名和聊天等阅读内容用 LXGW WenKai；Forge 全部系统字体；Fox 全部 GenSen Rounded；Ink 除技术内容外全部 Noto Serif CJK SC；Nord 全部 IBM Plex Sans SC；WeTalk 全部系统字体。
+- 页面只消费 `--ui-font-body`、`--ui-font-display`、`--ui-font-reading`、`--ui-font-control`、`--ui-font-mono` 和对应语义类，不得判断主题 ID 或直接指定某个主题字体。原始提示词、日志、代码、模板和 API Key 指纹继续用 `font-mono`。
+- 字体必须离线打包在 `public/fonts/`，使用 `font-display: swap`，不得依赖 CDN 或运行时联网。Forge/WeTalk 不做字体差分。生僻字回退到系统中文字体，Emoji 回退到系统彩色 Emoji 字体。
+- 新字体必须附可信上游、精确版本、可再分发许可证、子集范围与体积评估。当前四套字体及文件大小、OFL 文本和子集说明见 `public/fonts/NOTICE.md` 与 `public/fonts/licenses/`。不能为了体积只覆盖固定文案，聊天和联系人名是动态内容。
+
 ## 浏览器自动化测试（Playwright，已作为devDependency装好）
 `playwright`已装好、`npx playwright install chromium`也跑过了，可以真的用无头浏览器点开这个app验证功能，不用只靠类型检查臆测。**注意路由是`HashRouter`**（`http://localhost:5173/#/xxx`），Playwright内置的`page.waitForURL()`/`page.goBack()`默认`waitUntil:'load'`对纯hash跳转的SPA不适用（不会再触发`load`事件，会一直等到超时）——测试脚本里必须自己手写一个轮询`page.url()`字符串的等价函数，不要用这两个内置API。写测试脚本时放在项目根目录内（比如`.pw-test.mjs`）才能解析到`node_modules/playwright`，用完记得删掉临时脚本和截图，别留在仓库里。IndexedDB相关的功能想快速验证/复现bug时，不必每次都走完整的问卷生成人设那套真实API流程——可以直接`page.evaluate`里`await import('/src/db/db.ts')`拿到`db`实例手动`db.contacts.add(...)`等直接种数据，跳过真实AI调用，排查UI/渲染类问题快得多（滚动到底部那个bug就是这么复现和验证修复的）。
