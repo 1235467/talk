@@ -40,67 +40,63 @@ export function BottomNav() {
             }`
           }
         >
-          {({ isActive }) => (
-            <>
-              <div className="relative">
-                <Icon active={isActive} />
-                {to === '/' && <UnreadBadge count={totalUnread} className="absolute -top-1 -right-2" />}
-                {to === '/discover' && <UnreadBadge count={momentsUnread} className="absolute -top-1 -right-2" />}
-              </div>
-              <span>{label}</span>
-            </>
-          )}
+          <div className="relative">
+            <Icon />
+            {to === '/' && <UnreadBadge count={totalUnread} className="absolute -top-1 -right-2" />}
+            {to === '/discover' && <UnreadBadge count={momentsUnread} className="absolute -top-1 -right-2" />}
+          </div>
+          <span>{label}</span>
         </NavLink>
       ))}
     </nav>
   )
 }
 
-function MessageIcon({ active }: { active: boolean }) {
+function MessageIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
       <path
         d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-4.4 3.3A.6.6 0 0 1 3 19.8V6a1 1 0 0 1 1-1Z"
-        stroke={active ? '#111827' : '#9ca3af'}
+        stroke="currentColor"
         strokeWidth="1.7"
         strokeLinejoin="round"
       />
     </svg>
   )
 }
-function ContactIcon({ active }: { active: boolean }) {
+function ContactIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="8" r="3.2" stroke={active ? '#111827' : '#9ca3af'} strokeWidth="1.7" />
+      <circle cx="12" cy="8" r="3.2" stroke="currentColor" strokeWidth="1.7" />
       <path
         d="M5 19c1.2-3.2 3.8-5 7-5s5.8 1.8 7 5"
-        stroke={active ? '#111827' : '#9ca3af'}
+        stroke="currentColor"
         strokeWidth="1.7"
         strokeLinecap="round"
       />
     </svg>
   )
 }
-function DiscoverIcon({ active }: { active: boolean }) {
+function DiscoverIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="8.5" stroke={active ? '#111827' : '#9ca3af'} strokeWidth="1.7" />
+      <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.7" />
       <path
         d="M15 9l-2 5-4 1.5L11 10l4-1Z"
-        stroke={active ? '#111827' : '#9ca3af'}
+        stroke="currentColor"
         strokeWidth="1.3"
         strokeLinejoin="round"
       />
     </svg>
   )
 }
-function MeIcon({ active }: { active: boolean }) {
+function MeIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="8" r="3.6" stroke={active ? '#111827' : '#9ca3af'} strokeWidth="1.7" />
+      <circle cx="12" cy="8" r="3.6" stroke="currentColor" strokeWidth="1.7" />
       <path
         d="M4.5 20c1.4-4 4.3-6.2 7.5-6.2s6.1 2.2 7.5 6.2"
-        stroke={active ? '#111827' : '#9ca3af'}
+        stroke="currentColor"
         strokeWidth="1.7"
         strokeLinecap="round"
       />

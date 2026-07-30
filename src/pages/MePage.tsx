@@ -11,6 +11,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
 import { USER_WALLET_ID } from '../lib/finance'
 import { useModuleEnabled } from '../features'
+import { uiThemeName } from '../lib/uiTheme'
 
 // The Android plugin does not expose a status query. Keep the state at module
 // scope so it survives navigating away from and back to the Me tab while the
@@ -122,6 +123,22 @@ export function MePage() {
           </svg>
         </button>
         {fullscreenError && <p className="bg-white px-4 pb-3 text-xs text-red-500">{fullscreenError}</p>}
+      </div>
+
+      <div className="mt-3">
+        <button
+          type="button"
+          onClick={() => navigate('/appearance')}
+          className="flex w-full items-center justify-between bg-white px-4 py-3.5 text-left active:bg-gray-50"
+        >
+          <span className="text-[15px] text-gray-900">软件风格切换</span>
+          <span className="flex items-center gap-2 text-xs text-gray-400">
+            {uiThemeName(settings.uiTheme)}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+        </button>
       </div>
 
       <div className="mt-3">

@@ -12,6 +12,7 @@ import { formatListTime } from '../lib/time'
 import { momentsUnreadCount } from '../lib/momentsUnread'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { ALL_MODULES } from '../features'
+import { uiThemeName } from '../lib/uiTheme'
 
 const EMPTY: never[] = []
 
@@ -20,7 +21,7 @@ type DesktopSection = 'messages' | 'contacts' | 'discover' | 'settings'
 function sectionForPath(path: string): DesktopSection {
   if (path === '/' || path.startsWith('/chat/')) return 'messages'
   if (path.startsWith('/contact') || path.startsWith('/group')) return 'contacts'
-  if (path === '/me' || path.startsWith('/settings') || path.startsWith('/profile') || path.startsWith('/stickers') || path === '/modules') return 'settings'
+  if (path === '/me' || path === '/appearance' || path.startsWith('/settings') || path.startsWith('/profile') || path.startsWith('/stickers') || path === '/modules') return 'settings'
   return 'discover'
 }
 
@@ -181,7 +182,8 @@ function SettingsList({ query }: { query: string }) {
   const settings = useSettingsStore()
   const entries = [
     { to: '/profile/edit', label: settings.userNickname, note: '编辑个人信息', avatar: settings.userAvatar },
-    { to: '/settings', label: '通用设置', note: '模型、外观、数据与隐私', icon: '⚙' },
+    { to: '/appearance', label: '软件风格切换', note: `${uiThemeName(settings.uiTheme)} · ${settings.themeMode === 'dark' ? '深色' : '浅色'}`, icon: '◐' },
+    { to: '/settings', label: '通用设置', note: '模型、数据与隐私', icon: '⚙' },
     { to: '/modules', label: '功能模块', note: '启用或关闭扩展功能', icon: '▦' },
     { to: '/stickers', label: '表情包', note: '管理本地和远程表情', icon: '☺' },
   ].filter((entry) => entry.label.toLowerCase().includes(query.trim().toLowerCase()))

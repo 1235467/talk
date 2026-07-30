@@ -36,6 +36,7 @@ const GroupAddPage = lazy(() => import('./pages/GroupAddPage').then((m) => ({ de
 const GroupInfoPage = lazy(() => import('./pages/GroupInfoPage').then((m) => ({ default: m.GroupInfoPage })))
 const MomentsPage = lazy(() => loadMomentsPage().then((m) => ({ default: m.MomentsPage })))
 const SettingsPage = lazy(() => loadSettingsPage().then((m) => ({ default: m.SettingsPage })))
+const AppearancePage = lazy(() => import('./pages/AppearancePage').then((m) => ({ default: m.AppearancePage })))
 const StickersPage = lazy(() => import('./pages/StickersPage').then((m) => ({ default: m.StickersPage })))
 const StickerProviderListPage = lazy(() => import('./pages/StickerProviderListPage').then((m) => ({ default: m.StickerProviderListPage })))
 const StickerProviderSettingsPage = lazy(() => import('./pages/StickerProviderSettingsPage').then((m) => ({ default: m.StickerProviderSettingsPage })))
@@ -130,6 +131,7 @@ function App() {
   useAndroidBackButton()
   useLocationResumeSync()
   const themeMode = useSettingsStore((s) => s.themeMode ?? 'light')
+  const uiTheme = useSettingsStore((s) => s.uiTheme ?? 'sage')
   const animationsEnabled = useSettingsStore((s) => s.animationsEnabled ?? true)
   const adminModeEnabled = useSettingsStore((s) => s.adminModeEnabled)
   const enabledModules = useSettingsStore((s) => s.enabledModules)
@@ -180,6 +182,9 @@ function App() {
     document.documentElement.dataset.theme = themeMode
   }, [themeMode])
   useEffect(() => {
+    document.documentElement.dataset.uiTheme = uiTheme
+  }, [uiTheme])
+  useEffect(() => {
     document.documentElement.dataset.animations = animationsEnabled ? 'on' : 'off'
   }, [animationsEnabled])
   useEffect(() => {
@@ -209,6 +214,7 @@ function App() {
         <Route path="/moments" element={<MomentsPage />} />
         <Route path="/social-inbox" element={<SocialInboxPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/appearance" element={<AppearancePage />} />
         <Route path="/settings/image-generation" element={<ImageProviderListPage />} />
         <Route path="/settings/image-generation/:providerId" element={<ImageProviderSettingsPage />} />
         <Route path="/stickers" element={<StickersPage />} />
@@ -228,7 +234,7 @@ function App() {
 
   return (
     <AppErrorBoundary resetKey={location.pathname}>
-      <div className={`app-shell ${themeMode === 'dark' ? 'theme-dark' : ''}`} data-desktop={desktop ? 'true' : undefined}>
+      <div className={`app-shell ${themeMode === 'dark' ? 'theme-dark' : ''}`} data-ui-theme={uiTheme} data-desktop={desktop ? 'true' : undefined}>
         <NotificationBanner />
         <WebPrivacyNotice />
         {desktop ? <DesktopLayout>{routeContent}</DesktopLayout> : routeContent}

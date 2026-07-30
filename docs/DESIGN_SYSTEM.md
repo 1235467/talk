@@ -1,0 +1,57 @@
+# Talk 视觉规范
+
+这份文件是 Talk 所有新页面、组件和视觉修改的强制入口。目标是：功能布局保持稳定，通过一套组件规范和语义令牌统一手机、浏览器与 Electron 桌面端。
+
+## 主题与默认值
+
+- 默认主题：`Sage`；默认模式：浅色。
+- 可选主题：`Sage`、`Forge`、`Fox`、`Ink`、`Nord`。
+- 每套主题必须同时维护浅色和深色令牌。
+- `Paper` 已被明确移除，不得重新加入。
+- `Ink` 使用圆角版本：控件 8px、卡片 12px，并保留纸墨感衬线字体。
+
+主题定位：
+
+| ID | 定位 | 关键特征 |
+| --- | --- | --- |
+| `sage` | 安静陪伴 | 柔和绿、低对比、轻阴影，默认主题 |
+| `forge` | Primer 工具感 | GitHub 式清晰边界、紧凑圆角、蓝色链接与绿色动作 |
+| `fox` | 柔和活力 | 紫色强调、更饱满圆角、轻快但不花哨 |
+| `ink` | 圆角编辑黑白 | 衬线字体、强边界、黑白纸墨质感 |
+| `nord` | 冷色工作台 | 蓝灰低饱和、窄圆角、理性桌面感 |
+
+## 唯一实现方式
+
+主题状态存放在 `useSettingsStore` 的 `uiTheme` 和 `themeMode`，由 `App.tsx` 同步到根节点的 `data-ui-theme` 与 `data-theme`。主题定义和显示名称位于 `src/lib/uiTheme.ts`，CSS 令牌与现有工具类映射位于 `src/index.css` 的 “Talk visual contract” 区域。
+
+页面和业务组件不得判断具体主题 ID，也不得为某个主题复制一套页面结构。需要新增视觉属性时：
+
+1. 先定义通用语义，例如 surface、text、border、accent、action、radius、shadow。
+2. 为五套主题的浅色/深色值补齐。
+3. 让组件只消费语义令牌，不消费 `sage`、`forge` 等具体值。
+
+## 组件规范
+
+- 页面：沿用既有信息架构；主题不能移动入口、重排功能或改变交互流程。
+- 按钮：主动作使用 `--ui-action` / `--ui-on-action`；次动作使用 surface 与 border；不要新写品牌色硬编码。
+- 输入框：使用 `--ui-surface-2`、`--ui-border`、`--ui-text`、`--ui-text-3`。
+- 文本：正文 `--ui-text`，说明 `--ui-text-2`，弱提示 `--ui-text-3`。
+- 卡片：使用 `--ui-surface`、`--ui-border`、`--ui-radius-card`、`--ui-shadow`。
+- 控件：使用 `--ui-radius-control`；圆形头像、徽标和开关滑块可以继续使用全圆角。
+- 图标：SVG 默认使用 `currentColor`，禁止把灰色/黑色直接写进 `stroke` 或 `fill`。
+- 桌面端：与手机端消费同一组令牌；只能改变外壳布局，不能维护第二套独立色板。
+- 动效：短、轻、可关闭；不添加大幅位移、持续漂浮、玻璃模糊或装饰性粒子。
+
+## 兼容性底线
+
+项目需要兼容 Chromium 99 的 Android WebView。主题颜色必须写为 hex 或 `rgb/rgba`，不得使用 `oklch()`、`color-mix()` 等旧内核无法解析的颜色语法。避免把关键界面建立在 `backdrop-filter` 等可能失效的合成特性上。
+
+新增独立整页路由必须使用：根容器 `h-[var(--app-height)] flex flex-col overflow-hidden`，内部滚动区 `flex-1 overflow-y-auto`。不要改回 `min-h-full`。
+
+## 验收清单
+
+- 五套主题 × 浅色/深色均可读，无透明文字、错误继承色或低对比主按钮。
+- 手机 390px 宽无横向溢出；PC 布局侧栏、主区与弹层均正确换肤。
+- 选项刷新后仍保留；首次安装回退到 Sage 浅色。
+- 键盘操作有可见焦点，按钮保留 `aria-label` / `aria-pressed` / `role` 等语义。
+- 构建通过，并至少人工检查 Sage、Forge、Ink 的浅色与深色关键页面。

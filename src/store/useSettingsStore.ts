@@ -12,6 +12,7 @@ import type { AppSettings } from '../types'
 import { createDefaultPromptModules, normalizePromptModules } from '../lib/promptModules'
 import { normalizeChatPageSize } from '../lib/chatPagination'
 import type { AiProviderId } from '../lib/aiProviders'
+import { normalizeUiTheme } from '../lib/uiTheme'
 
 interface SettingsState extends AppSettings {
   setSettings: (patch: Partial<AppSettings>) => void
@@ -77,6 +78,7 @@ export const useSettingsStore = create<SettingsState>()(
       imageApiUrl: '',
       imageApiKey: '',
       imageApiResponsePath: 'url',
+      uiTheme: 'sage',
       themeMode: 'light',
       topInsetAdjustmentPx: 0,
       chatBackground: '',
@@ -92,7 +94,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'talk-settings',
-      version: 16,
+      version: 17,
       migrate: (persisted, version) => {
         const next = persisted as Partial<SettingsState>
         if (!['deepseek', 'openai', 'gemini', 'anthropic', 'xai', 'qwen', 'glm', 'minimax', 'kimi', 'custom'].includes(String(next.aiProvider))) {
@@ -153,6 +155,7 @@ export const useSettingsStore = create<SettingsState>()(
         if (!['none', 'atlas', 'novelai', 'comfyui', 'stable-diffusion', 'custom'].includes(String(next.imageProvider))) next.imageProvider = 'none'
         if (Array.isArray(next.enabledModules)) next.enabledModules = next.enabledModules.filter((id) => id !== 'mood')
         if (version < 16 && Array.isArray(next.enabledModules) && !next.enabledModules.includes('location')) next.enabledModules = [...next.enabledModules, 'location']
+        next.uiTheme = normalizeUiTheme(next.uiTheme)
         next.promptModules = normalizePromptModules(next.promptModules, next.globalSystemPrompt)
         return next
       },

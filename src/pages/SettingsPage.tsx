@@ -35,7 +35,6 @@ export function SettingsPage() {
     pexelsApiKey,
     imageProvider,
     imageProviders,
-    themeMode,
     animationsEnabled,
     chatBackground,
     chatPageSize,
@@ -244,19 +243,6 @@ export function SettingsPage() {
           </div>
           <input aria-label="顶部显示区域微调" type="range" min="0" max="80" step="1" value={topInsetAdjustmentPx ?? 0} onChange={(e) => setSettings({ topInsetAdjustmentPx: Number(e.target.value) })} className="w-full accent-gray-900" />
           <button type="button" onClick={() => setSettings({ topInsetAdjustmentPx: 0 })} className="mt-1 text-xs text-gray-500">恢复默认</button>
-        </div>
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <p className="text-sm text-gray-800">暗色模式</p>
-            <p className="mt-0.5 text-[11px] text-gray-400">适合晚上聊天，聊天页和设置页会一起变暗</p>
-          </div>
-          <ToggleSwitch
-            checked={(themeMode ?? 'light') === 'dark'}
-            onChange={(checked) => setSettings({ themeMode: checked ? 'dark' : 'light' })}
-            ariaLabel="切换暗色模式"
-            size="sm"
-            activeTone="dark"
-          />
         </div>
         <div className="mb-3 flex items-center justify-between border-t border-gray-100 pt-3">
           <div>

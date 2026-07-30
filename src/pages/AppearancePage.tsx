@@ -1,0 +1,97 @@
+import { TopBar } from '../components/TopBar'
+import { UI_THEMES } from '../lib/uiTheme'
+import { useSettingsStore } from '../store/useSettingsStore'
+
+export function AppearancePage() {
+  const uiTheme = useSettingsStore((state) => state.uiTheme ?? 'sage')
+  const themeMode = useSettingsStore((state) => state.themeMode ?? 'light')
+  const setSettings = useSettingsStore((state) => state.setSettings)
+
+  return (
+    <div className="appearance-page flex h-[var(--app-height)] flex-col overflow-hidden bg-[#f4f4f6]">
+      <TopBar title="软件风格切换" showBack />
+      <div className="appearance-scroll flex-1 overflow-y-auto px-4 py-5">
+        <section className="appearance-panel mx-auto max-w-3xl bg-white p-4">
+          <div className="mb-3">
+            <h2 className="text-[15px] font-semibold text-gray-900">明暗模式</h2>
+            <p className="mt-1 text-xs leading-5 text-gray-500">每套风格都包含完整的浅色与深色方案。</p>
+          </div>
+          <div className="appearance-mode-switch grid grid-cols-2 gap-2 bg-gray-100 p-1">
+            {(['light', 'dark'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={themeMode === mode}
+                onClick={() => setSettings({ themeMode: mode })}
+                className={`appearance-mode-option px-3 py-2 text-sm ${themeMode === mode ? 'is-active bg-white font-medium text-gray-900 shadow-sm' : 'text-gray-500'}`}
+              >
+                {mode === 'light' ? '☀ 浅色' : '◐ 深色'}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <div className="mx-auto mt-5 max-w-3xl">
+          <div className="mb-3 px-1">
+            <h2 className="text-[15px] font-semibold text-gray-900">界面风格</h2>
+            <p className="mt-1 text-xs leading-5 text-gray-500">只改变颜色、字体、圆角与质感，不重新安排功能和页面结构。</p>
+          </div>
+          <div className="appearance-theme-grid grid gap-3 md:grid-cols-2">
+            {UI_THEMES.map((theme) => (
+              <ThemeChoice
+                key={theme.id}
+                theme={theme}
+                selected={uiTheme === theme.id}
+                onSelect={() => setSettings({ uiTheme: theme.id })}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ThemeChoice({
+  theme,
+  selected,
+  onSelect,
+}: {
+  theme: (typeof UI_THEMES)[number]
+  selected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      data-preview-theme={theme.id}
+      onClick={onSelect}
+      className={`appearance-theme-card w-full border bg-white p-4 text-left ${selected ? 'is-selected' : 'border-gray-200'}`}
+    >
+      <span className="flex items-start gap-3">
+        <span className="appearance-mini-preview" aria-hidden="true">
+          <span className="appearance-mini-rail" />
+          <span className="appearance-mini-content">
+            <span className="appearance-mini-line wide" />
+            <span className="appearance-mini-line" />
+            <span className="appearance-mini-bubble" />
+          </span>
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center justify-between gap-2">
+            <span>
+              <strong className="block text-[15px] text-gray-900">{theme.name}</strong>
+              <small className="mt-0.5 block text-xs text-gray-500">{theme.tagline}</small>
+            </span>
+            <span className={`appearance-check grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs ${selected ? '' : 'border border-gray-200 text-transparent'}`}>✓</span>
+          </span>
+          <span className="mt-3 block text-xs leading-5 text-gray-500">{theme.description}</span>
+          <span className="mt-3 flex gap-1.5" aria-hidden="true">
+            {theme.swatches.map((color) => <span key={color} className="h-3.5 w-3.5 rounded-full border border-black/10" style={{ backgroundColor: color }} />)}
+          </span>
+        </span>
+      </span>
+    </button>
+  )
+}

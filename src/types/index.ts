@@ -592,6 +592,7 @@ export interface AppSettings {
   // ---- admin/dev tooling (see lib/consoleCapture.ts + SkyEyePage) ----
   adminModeEnabled: boolean
   // ---- appearance ----
+  uiTheme?: 'sage' | 'forge' | 'fox' | 'ink' | 'nord'
   themeMode?: 'light' | 'dark'
   topInsetAdjustmentPx: number
   chatBackground?: string // empty = default; otherwise a CSS color or data URL used behind chat messages
