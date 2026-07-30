@@ -603,9 +603,9 @@ export function ChatPage() {
         </button>
       )}
       {showLongPressHint && (
-        <div data-testid="long-press-hint" className="flex shrink-0 items-center gap-2 border-b border-purple-100 bg-purple-50 px-4 py-2 text-[11px] text-purple-700">
+        <div data-testid="long-press-hint" className="flex shrink-0 items-center gap-2 border-b border-[var(--ui-special-border)] bg-[var(--ui-special-soft)] px-4 py-2 text-[11px] text-[var(--ui-special-ink)]">
           <span className="min-w-0 flex-1">提示：长按消息可以重新生成、反馈、复制或删除。</span>
-          <button type="button" onClick={dismissLongPressHint} className="shrink-0 rounded px-1.5 py-1 text-purple-500">知道了</button>
+          <button type="button" onClick={dismissLongPressHint} className="shrink-0 rounded px-1.5 py-1 text-[var(--ui-special-ink)]">知道了</button>
         </div>
       )}
 
@@ -662,8 +662,8 @@ export function ChatPage() {
                 {msgBubble}
                 <div className="flex justify-start px-3">
                   <div className="ml-10 max-w-[85%]">
-                    <div className="rounded-2xl rounded-tl-md border border-purple-200 bg-purple-50 px-3.5 py-2">
-                      <p className="text-[11px] leading-relaxed text-purple-600">
+                    <div className="rounded-2xl rounded-tl-md border border-[var(--ui-special-border)] bg-[var(--ui-special-soft)] px-3.5 py-2">
+                      <p className="text-[11px] leading-relaxed text-[var(--ui-special-ink)]">
                         <span className="font-medium">🔮 </span>
                         {m.thought}
                       </p>
@@ -729,7 +729,7 @@ export function ChatPage() {
             )}
             <div className="flex items-end gap-2">
               <button onClick={()=>setAppsOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-2xl text-gray-600">＋</button>
-              {replyAssistEnabled && <button type="button" onClick={() => void generateAssist()} disabled={assistBusy} aria-label="AI代写" aria-busy={assistBusy} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg transition duration-150 active:scale-90 disabled:cursor-wait ${assistBusy ? 'animate-pulse bg-purple-600 text-white shadow-inner' : 'bg-purple-100 text-purple-600 active:bg-purple-200'}`}>{assistBusy ? '✦' : '✨'}</button>}
+              {replyAssistEnabled && <button type="button" onClick={() => void generateAssist()} disabled={assistBusy} aria-label="AI代写" aria-busy={assistBusy} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg transition duration-150 active:scale-90 disabled:cursor-wait ${assistBusy ? 'animate-pulse bg-[var(--ui-special)] text-white shadow-inner' : 'bg-[var(--ui-special-soft)] text-[var(--ui-special-ink)] active:bg-[var(--ui-special-border)]'}`}>{assistBusy ? '✦' : '✨'}</button>}
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}

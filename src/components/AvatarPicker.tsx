@@ -75,7 +75,7 @@ export function AvatarPicker({ onSelect, onClose, pexelsApiKey }: AvatarPickerPr
           onClick={() => fileInput.current?.click()}
           className="mb-3 flex w-full items-center gap-3 rounded-xl bg-gray-50 px-3 py-2.5 text-left active:bg-gray-100"
         >
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#aa3bff]/10 text-lg">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--ui-special-soft)] text-lg">
             🖼️
           </div>
           <span className="text-sm text-gray-800">从相册导入图片</span>

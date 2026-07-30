@@ -3,7 +3,7 @@
   "description": "A local-first AI companion app for Android, Windows and the web.",
   "author": "Entropy2077-axe",
   "private": true,
-  "version": "0.1.38",
+  "version": "0.1.39",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
@@ -12,6 +12,8 @@
     "build": "tsc -b && vite build",
     "build:pages": "cross-env VITE_DEPLOY_TARGET=github-pages vite build",
     "check:dist-secrets": "node scripts/check-dist-secrets.mjs",
+    "check:theme": "node scripts/check-theme-contract.mjs",
+    "check:theme:dist": "node scripts/check-theme-contract.mjs --dist",
     "lint": "oxlint --type-aware",
     "test:e2e": "node scripts/run-e2e.mjs",
     "test:unit": "vitest run",

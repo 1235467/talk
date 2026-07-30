@@ -94,7 +94,7 @@ function RelationshipCard({
       {/* Single warmth bar: gradient from red (cold) through gray (neutral) to green (warm) */}
       <div className="mt-2 mb-1 flex items-center gap-2">
         <span className="text-[10px] text-gray-400">-100</span>
-        <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
+        <div data-ui-scope="special" className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
           <div
             className="h-full rounded-full transition-all"
             style={{

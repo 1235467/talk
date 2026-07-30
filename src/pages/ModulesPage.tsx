@@ -73,7 +73,7 @@ export function ModulesPage() {
                     fill="none"
                     className={`transition-transform ${open ? 'rotate-90' : ''}`}
                   >
-                    <path d="M9 5l7 7-7 7" stroke="#c7c7cc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </button>
 

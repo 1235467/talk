@@ -118,7 +118,7 @@ export function ShopPage() {
                 <p className="truncate text-sm font-medium text-gray-900">{p.name}</p>
                 <p className="mt-0.5 line-clamp-2 text-xs text-gray-400">{p.description}</p>
                 <div className="mt-2 flex items-center justify-between">
-                  <span className="text-xs font-medium text-[#aa3bff]">{formatCurrency(p.price, settings)}</span>
+                  <span className="text-xs font-medium text-[var(--ui-special-ink)]">{formatCurrency(p.price, settings)}</span>
                   <button
                     onClick={() => handleBuy(p)}
                     className="rounded-lg bg-gray-900 px-2.5 py-1 text-xs text-white"

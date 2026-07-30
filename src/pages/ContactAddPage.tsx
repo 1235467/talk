@@ -676,18 +676,18 @@ issues 要用简短中文列出具体错误。` },
         <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-1" role="group" aria-label="创建模式">
           <div className="grid grid-cols-2 gap-1">
             <button type="button" aria-pressed={!isNuwaMode} onClick={() => { setIsNuwaMode(false); setPersonaDraft(null); setError('') }} className={`rounded-lg py-2.5 text-sm ${!isNuwaMode ? 'bg-white font-medium text-gray-900 shadow-sm' : 'text-gray-500'}`}>常规模式</button>
-            <button type="button" aria-pressed={isNuwaMode} onClick={() => { setIsNuwaMode(true); setPersonaDraft(null); setError('') }} className={`rounded-lg py-2.5 text-sm ${isNuwaMode ? 'bg-purple-600 font-medium text-white shadow-sm' : 'text-gray-500'}`}>女娲模式</button>
+            <button type="button" aria-pressed={isNuwaMode} onClick={() => { setIsNuwaMode(true); setPersonaDraft(null); setError('') }} className={`rounded-lg py-2.5 text-sm ${isNuwaMode ? 'bg-[var(--ui-special)] font-medium text-white shadow-sm' : 'text-gray-500'}`}>女娲模式</button>
           </div>
           <p className="px-2 pb-1 pt-2 text-[11px] leading-relaxed text-gray-400">女娲模式会先生成一份完整人设初稿，你可以逐项修改，确认后才会创建联系人。</p>
         </div>
         {!isNuwaMode && <button type="button" onClick={completelyRandom} disabled={generating} className="mb-4 w-full rounded-lg bg-gray-900 py-3 text-sm font-medium text-white transition active:scale-[.98] disabled:opacity-50">🎲 完全随机创建</button>}
-        {isNuwaMode && <p className="mb-2 text-xs text-purple-600">女娲模式：先写初稿建议和你确定的设定，AI只补全仍为空的内容。</p>}
+        {isNuwaMode && <p className="mb-2 text-xs text-[var(--ui-special-ink)]">女娲模式：先写初稿建议和你确定的设定，AI只补全仍为空的内容。</p>}
         <p className="mb-4 text-xs text-gray-400">
           描述一下你想认识的这个人 名字会由对方自己来定 确认添加后就正式加上了 之后不能再改TA的性格设定
         </p>
 
         {isNuwaMode && <div className="mb-4 grid grid-cols-2 gap-2"><button type="button" onClick={() => void saveCurrentPersona()} className="rounded-lg bg-gray-900 py-2.5 text-sm text-white">保存当前人设</button><button type="button" onClick={() => { setPersonaPage(0); setPersonaPickerOpen(true) }} className="rounded-lg border border-gray-300 bg-white py-2.5 text-sm text-gray-800">使用已保存的人设</button></div>}
-        {isNuwaMode && <button type="button" onClick={() => setCreationPickerOpen(true)} className="mb-4 w-full rounded-lg border border-purple-200 bg-purple-50 py-2.5 text-sm text-purple-700">调用以前创建过的人设（{creationRecords.length}）</button>}
+        {isNuwaMode && <button type="button" onClick={() => setCreationPickerOpen(true)} className="mb-4 w-full rounded-lg border border-[var(--ui-special-border)] bg-[var(--ui-special-soft)] py-2.5 text-sm text-[var(--ui-special-ink)]">调用以前创建过的人设（{creationRecords.length}）</button>}
         {!draftMode && <>
         <label className="mb-1 block text-xs text-gray-400">头像</label>
         <button
@@ -838,10 +838,10 @@ issues 要用简短中文列出具体错误。` },
               </div>
             </div>
             {initialWarmthMode === 'auto' ? (
-              <p className="mt-3 text-center text-lg font-semibold text-[#aa3bff]">{initialWarmthForBase(relationship || '朋友', personalityTrait)}</p>
+              <p className="mt-3 text-center text-lg font-semibold text-[var(--ui-special-ink)]">{initialWarmthForBase(relationship || '朋友', personalityTrait)}</p>
             ) : (
               <div className="mt-3 flex items-center gap-3">
-                <input type="range" min="-100" max="100" value={customInitialWarmth} onChange={(event) => setCustomInitialWarmth(Number(event.target.value))} className="min-w-0 flex-1 accent-[#aa3bff]" aria-label="初始好感度" />
+                <input type="range" min="-100" max="100" value={customInitialWarmth} onChange={(event) => setCustomInitialWarmth(Number(event.target.value))} className="min-w-0 flex-1 accent-[var(--ui-special)]" aria-label="初始好感度" />
                 <input type="number" min="-100" max="100" value={customInitialWarmth} onChange={(event) => setCustomInitialWarmth(Math.max(-100, Math.min(100, Number(event.target.value) || 0)))} className="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-center text-sm" />
               </div>
             )}
@@ -879,7 +879,7 @@ issues 要用简短中文列出具体错误。` },
 
         {!draftMode && isNuwaMode && <div className="mb-4 space-y-3"><div><label className="mb-1 block text-xs font-medium text-gray-400">性格倾向</label><input value={customTendencies} onChange={(e) => setCustomTendencies(e.target.value)} placeholder="例如：慢热、敏感、有主见（顿号分隔）" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"/></div><div className="grid grid-cols-2 gap-2"><div><label className="mb-1 block text-xs text-gray-400">年龄</label><input value={customAge} onChange={(e) => setCustomAge(e.target.value)} placeholder="例如：24岁" className="w-full rounded-lg border px-3 py-2 text-sm"/></div><div><label className="mb-1 block text-xs text-gray-400">性别</label><input value={customGender} onChange={(e) => setCustomGender(e.target.value)} placeholder="自由填写" className="w-full rounded-lg border px-3 py-2 text-sm"/></div></div><div><label className="mb-1 block text-xs text-gray-400">关系定位</label><input value={customRelationship} onChange={(e) => setCustomRelationship(e.target.value)} placeholder="与用户是什么关系" className="w-full rounded-lg border px-3 py-2 text-sm"/></div>{careerEnabled && <div><label className="mb-1 block text-xs text-gray-400">职业</label><input value={customOccupation} onChange={(e) => setCustomOccupation(e.target.value)} placeholder="自由填写职业" className="w-full rounded-lg border px-3 py-2 text-sm"/></div>}<div><label className="mb-1 block text-xs text-gray-400">兴趣爱好</label><input value={customHobbies} onChange={(e) => setCustomHobbies(e.target.value)} placeholder="多个兴趣用顿号分隔" className="w-full rounded-lg border px-3 py-2 text-sm"/></div></div>}
 
-        {!draftMode && isNuwaMode && <section className="mb-4"><div className="mb-2 flex items-center justify-between"><label className="text-xs font-medium text-gray-500">自定义性格特质</label><button type="button" onClick={addCustomTrait} className="text-xs text-purple-600">+ 添加特质</button></div><div className="space-y-3">{customTraits.map((trait, traitIndex) => <div key={trait.id} className="rounded-xl border border-gray-200 p-3"><div className="mb-2 flex items-center justify-end gap-2 text-xs"><button onClick={() => moveCustomTrait(traitIndex, -1)} disabled={traitIndex === 0}>↑</button><button onClick={() => moveCustomTrait(traitIndex, 1)} disabled={traitIndex === customTraits.length - 1}>↓</button><button onClick={() => setCustomTraits((x) => x.filter((t) => t.id !== trait.id))} className="text-red-500">删除特质</button></div><div className="flex gap-2"><input value={trait.name} onChange={(e) => updateCustomTrait(trait.id, { name: e.target.value })} placeholder="特质名称" className="w-1/3 rounded-lg border px-2 py-1.5 text-sm"/><input value={trait.meaning} onChange={(e) => updateCustomTrait(trait.id, { meaning: e.target.value })} placeholder="特质含义" className="flex-1 rounded-lg border px-2 py-1.5 text-sm"/></div>{trait.rules.map((rule) => <div key={rule.id} className="mt-2 rounded-lg bg-gray-50 p-2"><div className="grid grid-cols-4 gap-1"><input type="number" value={rule.minWarmth} onChange={(e) => updateCustomTrait(trait.id, { rules: trait.rules.map((r) => r.id === rule.id ? { ...r, minWarmth: Number(e.target.value) } : r) })} title="最低好感" className="rounded border px-1 py-1 text-xs"/><input type="number" value={rule.maxWarmth} onChange={(e) => updateCustomTrait(trait.id, { rules: trait.rules.map((r) => r.id === rule.id ? { ...r, maxWarmth: Number(e.target.value) } : r) })} title="最高好感" className="rounded border px-1 py-1 text-xs"/><input type="number" min="0" max="10" step="0.1" value={rule.positiveMultiplier} onChange={(e) => updateCustomTrait(trait.id, { rules: trait.rules.map((r) => r.id === rule.id ? { ...r, positiveMultiplier: Number(e.target.value) } : r) })} title="上升倍率" className="rounded border px-1 py-1 text-xs"/><input type="number" min="0" max="10" step="0.1" value={rule.negativeMultiplier} onChange={(e) => updateCustomTrait(trait.id, { rules: trait.rules.map((r) => r.id === rule.id ? { ...r, negativeMultiplier: Number(e.target.value) } : r) })} title="下降倍率" className="rounded border px-1 py-1 text-xs"/></div><div className="mt-1 flex gap-1"><input value={rule.prompt} onChange={(e) => updateCustomTrait(trait.id, { rules: trait.rules.map((r) => r.id === rule.id ? { ...r, prompt: e.target.value } : r) })} placeholder="命中区间时给予的提示词" className="flex-1 rounded border px-2 py-1 text-xs"/><button onClick={() => updateCustomTrait(trait.id, { rules: trait.rules.filter((r) => r.id !== rule.id) })} className="text-xs text-red-500">删规则</button></div></div>)}<button type="button" onClick={() => updateCustomTrait(trait.id, { rules: [...trait.rules, { id: uuid(), minWarmth: -100, maxWarmth: 100, positiveMultiplier: 1, negativeMultiplier: 1, prompt: '' }] })} className="mt-2 text-xs text-purple-600">+ 添加区间规则</button><span className="ml-2 text-[10px] text-gray-400">优先级 {traitIndex + 1}</span></div>)}</div></section>}
+        {!draftMode && isNuwaMode && <section className="mb-4"><div className="mb-2 flex items-center justify-between"><label className="text-xs font-medium text-gray-500">自定义性格特质</label><button type="button" onClick={addCustomTrait} className="text-xs text-[var(--ui-special-ink)]">+ 添加特质</button></div><div className="space-y-3">{customTraits.map((trait, traitIndex) => <div key={trait.id} className="rounded-xl border border-gray-200 p-3"><div className="mb-2 flex items-center justify-end gap-2 text-xs"><button onClick={() => moveCustomTrait(traitIndex, -1)} disabled={traitIndex === 0}>↑</button><button onClick={() => moveCustomTrait(traitIndex, 1)} disabled={traitIndex === customTraits.length - 1}>↓</button><button onClick={() => setCustomTraits((x) => x.filter((t) => t.id !== trait.id))} className="text-red-500">删除特质</button></div><div className="flex gap-2"><input value={trait.name} onChange={(e) => updateCustomTrait(trait.id, { name: e.target.value })} placeholder="特质名称" className="w-1/3 rounded-lg border px-2 py-1.5 text-sm"/><input value={trait.meaning} onChange={(e) => updateCustomTrait(trait.id, { meaning: e.target.value })} placeholder="特质含义" className="flex-1 rounded-lg border px-2 py-1.5 text-sm"/></div>{trait.rules.map((rule) => <div key={rule.id} className="mt-2 rounded-lg bg-gray-50 p-2"><div className="grid grid-cols-4 gap-1"><input type="number" value={rule.minWarmth} onChange={(e) => updateCustomTrait(trait.id, { rules: trait.rules.map((r) => r.id === rule.id ? { ...r, minWarmth: Number(e.target.value) } : r) })} title="最低好感" className="rounded border px-1 py-1 text-xs"/><input type="number" value={rule.maxWarmth} onChange={(e) => updateCustomTrait(trait.id, { rules: trait.rules.map((r) => r.id === rule.id ? { ...r, maxWarmth: Number(e.target.value) } : r) })} title="最高好感" className="rounded border px-1 py-1 text-xs"/><input type="number" min="0" max="10" step="0.1" value={rule.positiveMultiplier} onChange={(e) => updateCustomTrait(trait.id, { rules: trait.rules.map((r) => r.id === rule.id ? { ...r, positiveMultiplier: Number(e.target.value) } : r) })} title="上升倍率" className="rounded border px-1 py-1 text-xs"/><input type="number" min="0" max="10" step="0.1" value={rule.negativeMultiplier} onChange={(e) => updateCustomTrait(trait.id, { rules: trait.rules.map((r) => r.id === rule.id ? { ...r, negativeMultiplier: Number(e.target.value) } : r) })} title="下降倍率" className="rounded border px-1 py-1 text-xs"/></div><div className="mt-1 flex gap-1"><input value={rule.prompt} onChange={(e) => updateCustomTrait(trait.id, { rules: trait.rules.map((r) => r.id === rule.id ? { ...r, prompt: e.target.value } : r) })} placeholder="命中区间时给予的提示词" className="flex-1 rounded border px-2 py-1 text-xs"/><button onClick={() => updateCustomTrait(trait.id, { rules: trait.rules.filter((r) => r.id !== rule.id) })} className="text-xs text-red-500">删规则</button></div></div>)}<button type="button" onClick={() => updateCustomTrait(trait.id, { rules: [...trait.rules, { id: uuid(), minWarmth: -100, maxWarmth: 100, positiveMultiplier: 1, negativeMultiplier: 1, prompt: '' }] })} className="mt-2 text-xs text-[var(--ui-special-ink)]">+ 添加区间规则</button><span className="ml-2 text-[10px] text-gray-400">优先级 {traitIndex + 1}</span></div>)}</div></section>}
 
         {isNuwaMode && customTraits.some(hasOverlappingCustomTraitRules) && <p className="-mt-3 mb-4 text-xs text-amber-600">存在重叠区间；命中时倍率会相乘、提示词会合并。</p>}
 
@@ -890,7 +890,7 @@ issues 要用简短中文列出具体错误。` },
               <button
                 onClick={addRelationRow}
                 disabled={relationRows.length >= existingContacts.length}
-                className="text-xs text-[#aa3bff] disabled:opacity-40"
+                className="text-xs text-[var(--ui-special-ink)] disabled:opacity-40"
               >
                 + 添加关系
               </button>
@@ -944,12 +944,12 @@ issues 要用简短中文列出具体错误。` },
             className="mb-4 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
           />
         </>}
-        <section className="mb-4 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
+        <section className="mb-4 rounded-xl border border-[var(--ui-special-border)] bg-[var(--ui-special-soft)] p-3">
           <div className="flex items-center justify-between gap-3">
-            <div><p className="text-sm font-medium text-purple-900">本次生成的额外世界观</p><p className="mt-1 text-[11px] leading-relaxed text-purple-600">从任意世界书集合选择条目，作为本次角色生成的最高优先级正史；不会修改运行时开关。</p></div>
-            <button type="button" onClick={() => setWorldbookSelectorOpen(true)} className="shrink-0 rounded-lg bg-purple-600 px-3 py-2 text-xs text-white">选择条目</button>
+            <div><p className="text-sm font-medium text-[var(--ui-special-ink)]">本次生成的额外世界观</p><p className="mt-1 text-[11px] leading-relaxed text-[var(--ui-special-ink)]">从任意世界书集合选择条目，作为本次角色生成的最高优先级正史；不会修改运行时开关。</p></div>
+            <button type="button" onClick={() => setWorldbookSelectorOpen(true)} className="shrink-0 rounded-lg bg-[var(--ui-special)] px-3 py-2 text-xs text-white">选择条目</button>
           </div>
-          <p className="mt-2 text-xs text-purple-700">{selectedWorldbookEntryIds.length ? `已选择 ${selectedWorldbookEntryIds.length} 个条目` : '暂未额外选择，将使用启用中的底层世界观和自动命中的条目'}</p>
+          <p className="mt-2 text-xs text-[var(--ui-special-ink)]">{selectedWorldbookEntryIds.length ? `已选择 ${selectedWorldbookEntryIds.length} 个条目` : '暂未额外选择，将使用启用中的底层世界观和自动命中的条目'}</p>
         </section>
         <label className="mb-2 block text-xs font-medium text-gray-400">{draftMode ? '角色说明 / 初稿建议' : '补充说明（可选）'}</label>
         <textarea
@@ -963,53 +963,53 @@ issues 要用简短中文列出具体错误。` },
         {isNuwaMode && (
           <div className="mt-2">
             <p className="mb-2 text-[11px] leading-relaxed text-gray-500">这里告诉 AI 你希望补全的方向、重点和边界。AI 会结合初稿建议、下方已填设定和启用中的世界书，只补空白项，不改动你已经填写的内容。</p>
-            <button type="button" onClick={() => void polishNuwaPersona()} disabled={polishingPersona || generating} className="w-full rounded-lg bg-purple-600 px-3 py-2 text-xs text-white disabled:opacity-50">{polishingPersona ? 'AI补全中…' : 'AI补全'}</button>
+            <button type="button" onClick={() => void polishNuwaPersona()} disabled={polishingPersona || generating} className="w-full rounded-lg bg-[var(--ui-special)] px-3 py-2 text-xs text-white disabled:opacity-50">{polishingPersona ? 'AI补全中…' : 'AI补全'}</button>
             {error && <p className="mt-2 text-xs leading-relaxed text-red-500">{error}</p>}
           </div>
         )}
 
         {isNuwaMode && (
-          <section className="mt-4 rounded-xl border border-purple-200 bg-purple-50/40 p-3" data-testid="nuwa-persona-setting">
-            <label className="block text-sm font-medium text-purple-900">角色设定</label>
-            <p className="mt-1 text-[11px] leading-relaxed text-purple-600">逐项填写你已经确定的内容，空白项可交给 AI 补全。性格特质和角色关系既可选用建议，也可完全自定义。</p>
+          <section className="mt-4 rounded-xl border border-[var(--ui-special-border)] bg-[var(--ui-special-soft)] p-3" data-testid="nuwa-persona-setting">
+            <label className="block text-sm font-medium text-[var(--ui-special-ink)]">角色设定</label>
+            <p className="mt-1 text-[11px] leading-relaxed text-[var(--ui-special-ink)]">逐项填写你已经确定的内容，空白项可交给 AI 补全。性格特质和角色关系既可选用建议，也可完全自定义。</p>
             <div className="mt-3 space-y-3">
               <div className="grid grid-cols-2 gap-2">
-                <label className="block text-xs font-medium text-purple-800">真名<input value={customRealName} onChange={(event) => setCustomRealName(event.target.value)} placeholder="可选" className="mt-1 w-full rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm" /></label>
-                <label className="block text-xs font-medium text-purple-800">网名/昵称<input value={customNickname} onChange={(event) => setCustomNickname(event.target.value)} placeholder="可选" className="mt-1 w-full rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm" /></label>
-                <label className="col-span-2 block text-xs font-medium text-purple-800">出生日期<input value={customBirthday} onChange={(event) => setCustomBirthday(event.target.value)} placeholder="例如：2000-06-15，可留空" className="mt-1 w-full rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm" /></label>
+                <label className="block text-xs font-medium text-[var(--ui-special-ink)]">真名<input value={customRealName} onChange={(event) => setCustomRealName(event.target.value)} placeholder="可选" className="mt-1 w-full rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm" /></label>
+                <label className="block text-xs font-medium text-[var(--ui-special-ink)]">网名/昵称<input value={customNickname} onChange={(event) => setCustomNickname(event.target.value)} placeholder="可选" className="mt-1 w-full rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm" /></label>
+                <label className="col-span-2 block text-xs font-medium text-[var(--ui-special-ink)]">出生日期<input value={customBirthday} onChange={(event) => setCustomBirthday(event.target.value)} placeholder="例如：2000-06-15，可留空" className="mt-1 w-full rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm" /></label>
               </div>
-              <label className="block text-xs font-medium text-purple-800">性格倾向<input value={customTendencies} onChange={(event) => setCustomTendencies(event.target.value)} placeholder="例如：慢热、敏感、有主见；完全自由填写" className="mt-1 w-full rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm" /></label>
+              <label className="block text-xs font-medium text-[var(--ui-special-ink)]">性格倾向<input value={customTendencies} onChange={(event) => setCustomTendencies(event.target.value)} placeholder="例如：慢热、敏感、有主见；完全自由填写" className="mt-1 w-full rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm" /></label>
               <div className="grid grid-cols-2 gap-2">
-                <label className="block text-xs font-medium text-purple-800">年龄<input value={customAge} onChange={(event) => setCustomAge(event.target.value)} placeholder="例如：24岁" className="mt-1 w-full rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm" /></label>
-                <label className="block text-xs font-medium text-purple-800">性别<input value={customGender} onChange={(event) => setCustomGender(event.target.value)} placeholder="例如：女性、非二元" className="mt-1 w-full rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm" /></label>
+                <label className="block text-xs font-medium text-[var(--ui-special-ink)]">年龄<input value={customAge} onChange={(event) => setCustomAge(event.target.value)} placeholder="例如：24岁" className="mt-1 w-full rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm" /></label>
+                <label className="block text-xs font-medium text-[var(--ui-special-ink)]">性别<input value={customGender} onChange={(event) => setCustomGender(event.target.value)} placeholder="例如：女性、非二元" className="mt-1 w-full rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm" /></label>
               </div>
-              <label className="block text-xs font-medium text-purple-800">关系定位<input value={customRelationship} onChange={(event) => setCustomRelationship(event.target.value)} placeholder="例如：青梅竹马、同事、暧昧对象" className="mt-1 w-full rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm" /></label>
-              <label className="block text-xs font-medium text-purple-800">职业<input value={customOccupation} onChange={(event) => setCustomOccupation(event.target.value)} placeholder="完全自由填写职业" className="mt-1 w-full rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm" /></label>
-              <label className="block text-xs font-medium text-purple-800">兴趣爱好<input value={customHobbies} onChange={(event) => setCustomHobbies(event.target.value)} placeholder="例如：摄影、烘焙、深夜散步" className="mt-1 w-full rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm" /></label>
+              <label className="block text-xs font-medium text-[var(--ui-special-ink)]">关系定位<input value={customRelationship} onChange={(event) => setCustomRelationship(event.target.value)} placeholder="例如：青梅竹马、同事、暧昧对象" className="mt-1 w-full rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm" /></label>
+              <label className="block text-xs font-medium text-[var(--ui-special-ink)]">职业<input value={customOccupation} onChange={(event) => setCustomOccupation(event.target.value)} placeholder="完全自由填写职业" className="mt-1 w-full rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm" /></label>
+              <label className="block text-xs font-medium text-[var(--ui-special-ink)]">兴趣爱好<input value={customHobbies} onChange={(event) => setCustomHobbies(event.target.value)} placeholder="例如：摄影、烘焙、深夜散步" className="mt-1 w-full rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm" /></label>
               <div>
                 <div className="grid grid-cols-2 gap-2">
-                  <label className="block text-xs font-medium text-purple-800">性格特质名称<input value={personalityTrait} onChange={(event) => setPersonalityTrait(event.target.value)} placeholder="例如：嘴硬心软" className="mt-1 w-full rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm" /></label>
+                  <label className="block text-xs font-medium text-[var(--ui-special-ink)]">性格特质名称<input value={personalityTrait} onChange={(event) => setPersonalityTrait(event.target.value)} placeholder="例如：嘴硬心软" className="mt-1 w-full rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm" /></label>
                   <div className="flex items-end">
-                    <button type="button" aria-expanded={traitPickerOpen} onClick={() => setTraitPickerOpen((open) => !open)} className="w-full rounded-lg border border-purple-200 bg-white px-3 py-2 text-sm text-purple-700">{traitPickerOpen ? '收起特质选项' : '展开特质选项'}</button>
+                    <button type="button" aria-expanded={traitPickerOpen} onClick={() => setTraitPickerOpen((open) => !open)} className="w-full rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm text-[var(--ui-special-ink)]">{traitPickerOpen ? '收起特质选项' : '展开特质选项'}</button>
                   </div>
                 </div>
                 {traitPickerOpen && (
-                  <div className="mt-2 rounded-xl border border-purple-100 bg-white p-3">
-                    <p className="mb-2 text-[11px] font-medium text-purple-700">系统性格特质</p>
+                  <div className="mt-2 rounded-xl border border-[var(--ui-special-border)] bg-white p-3">
+                    <p className="mb-2 text-[11px] font-medium text-[var(--ui-special-ink)]">系统性格特质</p>
                     <div className="flex flex-wrap gap-2">
-                      {PERSONALITY_TRAIT_OPTIONS.filter((option) => option.value !== '无').map((option) => <button key={option.value} type="button" onClick={() => choosePersonalityTrait(option.value, option.description)} className="rounded-full bg-purple-50 px-3 py-1.5 text-xs text-purple-700">{option.value}</button>)}
+                      {PERSONALITY_TRAIT_OPTIONS.filter((option) => option.value !== '无').map((option) => <button key={option.value} type="button" onClick={() => choosePersonalityTrait(option.value, option.description)} className="rounded-full bg-[var(--ui-special-soft)] px-3 py-1.5 text-xs text-[var(--ui-special-ink)]">{option.value}</button>)}
                     </div>
-                    <p className="mb-2 mt-3 text-[11px] font-medium text-purple-700">曾使用过的自定义特质</p>
+                    <p className="mb-2 mt-3 text-[11px] font-medium text-[var(--ui-special-ink)]">曾使用过的自定义特质</p>
                     {previouslyUsedTraits.length > 0 ? <div className="space-y-2">{previouslyUsedTraits.map((trait) => <button key={`${trait.name}:${trait.meaning}`} type="button" onClick={() => choosePersonalityTrait(trait.name, trait.meaning)} className="block w-full rounded-lg bg-gray-50 px-3 py-2 text-left"><span className="block text-xs font-medium text-gray-800">{trait.name}</span><span className="mt-0.5 block text-[11px] leading-relaxed text-gray-500">{trait.meaning}</span></button>)}</div> : <p className="text-[11px] text-gray-400">还没有使用过自定义性格特质</p>}
                   </div>
                 )}
-                <label className="mt-2 block text-xs font-medium text-purple-800">性格特质内容<textarea value={personalityTraitContent} onChange={(event) => setPersonalityTraitContent(event.target.value)} rows={3} placeholder="描述这个特质会怎样影响TA的行为、情绪反应和相处方式" className="mt-1 w-full resize-y rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm leading-relaxed" /></label>
+                <label className="mt-2 block text-xs font-medium text-[var(--ui-special-ink)]">性格特质内容<textarea value={personalityTraitContent} onChange={(event) => setPersonalityTraitContent(event.target.value)} rows={3} placeholder="描述这个特质会怎样影响TA的行为、情绪反应和相处方式" className="mt-1 w-full resize-y rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm leading-relaxed" /></label>
               </div>
               {existingContacts.length > 0 && (
-                <div className="rounded-xl border border-purple-100 bg-white p-3">
+                <div className="rounded-xl border border-[var(--ui-special-border)] bg-white p-3">
                   <div className="flex items-center justify-between gap-3">
-                    <div><p className="text-xs font-medium text-purple-800">与其他角色的关系</p><p className="mt-0.5 text-[10px] text-gray-400">从已有角色中选择，关系名称可自定义</p></div>
-                    <button type="button" onClick={addRelationRow} disabled={relationRows.length >= existingContacts.length} className="shrink-0 text-xs text-purple-600 disabled:opacity-40">+ 添加关系</button>
+                    <div><p className="text-xs font-medium text-[var(--ui-special-ink)]">与其他角色的关系</p><p className="mt-0.5 text-[10px] text-gray-400">从已有角色中选择，关系名称可自定义</p></div>
+                    <button type="button" onClick={addRelationRow} disabled={relationRows.length >= existingContacts.length} className="shrink-0 text-xs text-[var(--ui-special-ink)] disabled:opacity-40">+ 添加关系</button>
                   </div>
                   <div className="mt-2 space-y-2">
                     {relationRows.map((row) => <div key={row.key} className="flex items-center gap-2"><select value={row.targetContactId} onChange={(event) => updateRelationRow(row.key, { targetContactId: event.target.value })} className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2 py-2 text-xs">{existingContacts.map((contact) => <option key={contact.id} value={contact.id} disabled={relationRows.some((other) => other.key !== row.key && other.targetContactId === contact.id)}>{displayName(contact)}</option>)}</select><input value={row.label} onChange={(event) => updateRelationRow(row.key, { label: event.target.value })} placeholder="自定义关系" className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2 py-2 text-xs"/><button type="button" onClick={() => removeRelationRow(row.key)} className="shrink-0 text-xs text-gray-400">删除</button></div>)}
@@ -1017,27 +1017,27 @@ issues 要用简短中文列出具体错误。` },
                   </div>
                 </div>
               )}
-              <label className="block text-xs font-medium text-purple-800">其他角色设定（可选）</label>
-              <textarea value={nuwaPersonaSetting} onChange={(event) => setNuwaPersonaSetting(event.target.value)} rows={6} placeholder="补充经历、边界、习惯、生活细节、说话方式、关系表现等……" className="w-full resize-y rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm leading-relaxed" />
+              <label className="block text-xs font-medium text-[var(--ui-special-ink)]">其他角色设定（可选）</label>
+              <textarea value={nuwaPersonaSetting} onChange={(event) => setNuwaPersonaSetting(event.target.value)} rows={6} placeholder="补充经历、边界、习惯、生活细节、说话方式、关系表现等……" className="w-full resize-y rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm leading-relaxed" />
             </div>
           </section>
         )}
 
         {isNuwaMode && personaDraft && (
-          <section className="mt-4 rounded-xl border border-purple-200 bg-purple-50/40 p-3" data-testid="nuwa-persona-draft">
+          <section className="mt-4 rounded-xl border border-[var(--ui-special-border)] bg-[var(--ui-special-soft)] p-3" data-testid="nuwa-persona-draft">
             <div className="mb-3 flex items-start justify-between gap-3">
-              <div><h3 className="text-sm font-medium text-purple-900">AI人设初稿</h3><p className="mt-0.5 text-[11px] text-purple-600">直接检查和修改完整人设，确认后将用于创建联系人。</p></div>
-              <button type="button" onClick={() => setPersonaDraft(null)} className="text-xs text-purple-600 underline">重新生成</button>
+              <div><h3 className="text-sm font-medium text-[var(--ui-special-ink)]">AI人设初稿</h3><p className="mt-0.5 text-[11px] text-[var(--ui-special-ink)]">直接检查和修改完整人设，确认后将用于创建联系人。</p></div>
+              <button type="button" onClick={() => setPersonaDraft(null)} className="text-xs text-[var(--ui-special-ink)] underline">重新生成</button>
             </div>
             <div className="mb-3 space-y-3">
-              <label className="block text-xs font-medium text-purple-800">MBTI<input value={personaDraft.mbti ?? ''} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, mbti: event.target.value } : draft)} placeholder="例如 INFP" className="mt-1 w-full rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm" /></label>
-              <label className="block text-xs font-medium text-purple-800">头像关键词<input value={personaDraft.avatarKeyword ?? ''} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, avatarKeyword: event.target.value } : draft)} placeholder="用于头像搜索的英文关键词" className="mt-1 w-full rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm" /></label>
+              <label className="block text-xs font-medium text-[var(--ui-special-ink)]">MBTI<input value={personaDraft.mbti ?? ''} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, mbti: event.target.value } : draft)} placeholder="例如 INFP" className="mt-1 w-full rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm" /></label>
+              <label className="block text-xs font-medium text-[var(--ui-special-ink)]">头像关键词<input value={personaDraft.avatarKeyword ?? ''} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, avatarKeyword: event.target.value } : draft)} placeholder="用于头像搜索的英文关键词" className="mt-1 w-full rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm" /></label>
             </div>
-            {relEnabled && <div className="mb-3 rounded-lg border border-purple-100 bg-white px-3 py-2"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-medium text-purple-800">初始好感度</p><p className="mt-0.5 text-[10px] text-purple-500">AI已根据完整人设生成，你可以在创建前修改</p></div><input aria-label="女娲初始好感度数值" type="number" min="-100" max="100" value={personaDraft.initialWarmth ?? 0} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, initialWarmth: Math.max(-100, Math.min(100, Number(event.target.value) || 0)) } : draft)} className="w-20 rounded-lg border border-purple-100 px-2 py-1.5 text-center text-sm font-semibold text-purple-700" /></div><input aria-label="女娲初始好感度" type="range" min="-100" max="100" value={personaDraft.initialWarmth ?? 0} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, initialWarmth: Number(event.target.value) } : draft)} className="mt-2 w-full accent-purple-600" /></div>}
-            <label className="block text-xs font-medium text-purple-800">完整人设</label>
-            <textarea value={personaDraft.persona} onChange={(e) => setPersonaDraft((draft) => draft ? { ...draft, persona: e.target.value } : draft)} rows={8} className="mt-1 w-full resize-y rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm leading-relaxed" />
-            <label className="mt-3 block text-xs font-medium text-purple-800">说话样例（每行一条）</label>
-            <textarea value={(personaDraft.speechSamples ?? []).join('\n')} onChange={(e) => setPersonaDraft((draft) => draft ? { ...draft, speechSamples: e.target.value.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 8) } : draft)} rows={5} className="mt-1 w-full resize-y rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm leading-relaxed" />
+            {relEnabled && <div className="mb-3 rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-medium text-[var(--ui-special-ink)]">初始好感度</p><p className="mt-0.5 text-[10px] text-[var(--ui-special-ink)]">AI已根据完整人设生成，你可以在创建前修改</p></div><input aria-label="女娲初始好感度数值" type="number" min="-100" max="100" value={personaDraft.initialWarmth ?? 0} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, initialWarmth: Math.max(-100, Math.min(100, Number(event.target.value) || 0)) } : draft)} className="w-20 rounded-lg border border-[var(--ui-special-border)] px-2 py-1.5 text-center text-sm font-semibold text-[var(--ui-special-ink)]" /></div><input aria-label="女娲初始好感度" type="range" min="-100" max="100" value={personaDraft.initialWarmth ?? 0} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, initialWarmth: Number(event.target.value) } : draft)} className="mt-2 w-full accent-[var(--ui-special)]" /></div>}
+            <label className="block text-xs font-medium text-[var(--ui-special-ink)]">完整人设</label>
+            <textarea value={personaDraft.persona} onChange={(e) => setPersonaDraft((draft) => draft ? { ...draft, persona: e.target.value } : draft)} rows={8} className="mt-1 w-full resize-y rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm leading-relaxed" />
+            <label className="mt-3 block text-xs font-medium text-[var(--ui-special-ink)]">说话样例（每行一条）</label>
+            <textarea value={(personaDraft.speechSamples ?? []).join('\n')} onChange={(e) => setPersonaDraft((draft) => draft ? { ...draft, speechSamples: e.target.value.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 8) } : draft)} rows={5} className="mt-1 w-full resize-y rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm leading-relaxed" />
           </section>
         )}
 

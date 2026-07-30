@@ -87,7 +87,7 @@ export function WorldSettingsPage() {
                 <span className="shrink-0 text-sm text-gray-300">›</span>
               </div>
               <p className="mt-3 text-xs text-gray-500">{collectionEntries.length} 个条目 · 已启用 {enabledCount} 个{foundationalCount ? ` · 底层世界观 ${foundationalCount} 个` : ''}</p>
-              <p className="mt-1 text-xs text-purple-600">总内容 {formatEstimatedTokens(totalTokens)}（估算）</p>
+              <p className="mt-1 text-xs text-[var(--ui-special-ink)]">总内容 {formatEstimatedTokens(totalTokens)}（估算）</p>
             </button>
             <div className="mt-3 flex items-center justify-between border-t border-gray-100 pt-3">
               <span className="text-xs text-gray-400">集合启用</span>

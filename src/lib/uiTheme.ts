@@ -16,6 +16,7 @@ export const UI_THEMES: readonly UiThemeDefinition[] = [
   { id: 'fox', name: 'Fox', tagline: '柔和活力', description: '更轻快的紫色强调与饱满圆角，保留简洁但更有亲和力。', swatches: ['#f7f7fb', '#7542e5', '#1d1133'] },
   { id: 'ink', name: 'Ink', tagline: '圆角编辑黑白', description: '纸墨感衬线字体、强对比线条与克制圆角，最有内容气质。', swatches: ['#f1f0eb', '#111110', '#777770'] },
   { id: 'nord', name: 'Nord', tagline: '冷色工作台', description: '低饱和蓝灰与窄圆角，理性、稳定，适合桌面端。', swatches: ['#e9eef2', '#2e6f9e', '#192832'] },
+  { id: 'wetalk', name: 'WeTalk', tagline: '克制社交', description: '高密度列表、小圆角与克制绿色，参考微信成熟的社交界面秩序。', swatches: ['#ededed', '#07c160', '#95ec69'] },
 ] as const
 
 const UI_THEME_IDS = new Set<UiThemeId>(UI_THEMES.map((theme) => theme.id))

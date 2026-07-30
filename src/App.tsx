@@ -234,7 +234,7 @@ function App() {
 
   return (
     <AppErrorBoundary resetKey={location.pathname}>
-      <div className={`app-shell ${themeMode === 'dark' ? 'theme-dark' : ''}`} data-ui-theme={uiTheme} data-desktop={desktop ? 'true' : undefined}>
+      <div className={`app-shell ${themeMode === 'dark' ? 'theme-dark' : ''}`} data-ui-theme={uiTheme} data-ui-scope="standard" data-desktop={desktop ? 'true' : undefined}>
         <NotificationBanner />
         <WebPrivacyNotice />
         {desktop ? <DesktopLayout>{routeContent}</DesktopLayout> : routeContent}

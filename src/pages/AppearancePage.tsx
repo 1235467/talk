@@ -70,7 +70,7 @@ function ThemeChoice({
       className={`appearance-theme-card w-full border bg-white p-4 text-left ${selected ? 'is-selected' : 'border-gray-200'}`}
     >
       <span className="flex items-start gap-3">
-        <span className="appearance-mini-preview" aria-hidden="true">
+        <span data-ui-scope="special" className="appearance-mini-preview" aria-hidden="true">
           <span className="appearance-mini-rail" />
           <span className="appearance-mini-content">
             <span className="appearance-mini-line wide" />

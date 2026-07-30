@@ -81,7 +81,7 @@ export function LocationMapCanvas({ map, locations, activeLocationId, counts, on
     setOffset(clamp({ x: focal.x - worldX * next, y: focal.y - worldY * next }, next))
   }
 
-  return <div ref={hostRef} className="relative h-full touch-none overflow-hidden bg-slate-200"
+  return <div ref={hostRef} data-ui-scope="special" className="relative h-full touch-none overflow-hidden bg-slate-200"
     onWheel={(event) => { event.preventDefault(); zoom(scale * (event.deltaY > 0 ? 0.9 : 1.1), local(event.clientX, event.clientY)) }}
     onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); const point = local(event.clientX, event.clientY); pointers.current.set(event.pointerId, point); gesture.current = { start: point, offset, moved: false } }}
     onPointerMove={(event) => {
@@ -106,7 +106,7 @@ export function LocationMapCanvas({ map, locations, activeLocationId, counts, on
         const binding = location.mapBinding!
         const current = activeRoot?.id === location.id
         return <button key={location.id} type="button" onPointerDown={(event) => event.stopPropagation()} onClick={() => onBuildingClick(location)} className="pointer-events-auto absolute z-10 -translate-x-1/2 -translate-y-1/2" style={{ left: offset.x + (binding.x + 0.5) * CELL * scale, top: offset.y + (binding.y + 0.5) * CELL * scale }}>
-          <span className={`flex h-10 w-10 items-center justify-center rounded-full border-2 border-white text-xl shadow-lg ${current ? 'bg-violet-600 ring-2 ring-violet-200' : 'bg-slate-800'}`}>{ICONS[binding.buildingCategory] ?? '📍'}</span>
+          <span className={`flex h-10 w-10 items-center justify-center rounded-full border-2 border-white text-xl shadow-lg ${current ? 'bg-[var(--ui-special)] ring-2 ring-[var(--ui-special-border)]' : 'bg-slate-800'}`}>{ICONS[binding.buildingCategory] ?? '📍'}</span>
           <span className="mt-0.5 block max-w-24 truncate rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-medium text-white">{location.name} · {counts?.get(location.id) ?? 0}人</span>
         </button>
       })}

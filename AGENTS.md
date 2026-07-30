@@ -322,7 +322,7 @@ v1做过一套完整的地图+日程+一次性任务系统，后来**用户明�
 - `npm run lint` — oxlint
 
 ## 软件视觉规范（修改 UI 前必读）
-任何新增页面、组件或视觉调整都必须先阅读 `docs/DESIGN_SYSTEM.md`。统一使用其中的语义主题令牌和组件规则；不得按具体主题复制布局，不得新增脱离主题系统的结构性色值。五套正式主题为 Sage（默认）、Forge、Fox、Ink（圆角）、Nord，并且必须同时支持浅色和深色。
+任何新增页面、组件或视觉调整都必须先阅读 `docs/DESIGN_SYSTEM.md`。统一使用其中的语义主题令牌和组件规则；不得按具体主题复制布局，不得新增脱离主题系统的结构性色值。六套正式主题为 Sage（默认）、Forge、Fox、Ink（圆角）、Nord、WeTalk，并且必须同时支持浅色和深色。普通组件继承应用根节点的 `data-ui-scope="standard"`；只有视觉本身承载业务信息或用户内容的最小范围才能显式标记 `data-ui-scope="special"`，允许范围和新增条件以视觉规范为准。
 
 ## 浏览器自动化测试（Playwright，已作为devDependency装好）
 `playwright`已装好、`npx playwright install chromium`也跑过了，可以真的用无头浏览器点开这个app验证功能，不用只靠类型检查臆测。**注意路由是`HashRouter`**（`http://localhost:5173/#/xxx`），Playwright内置的`page.waitForURL()`/`page.goBack()`默认`waitUntil:'load'`对纯hash跳转的SPA不适用（不会再触发`load`事件，会一直等到超时）——测试脚本里必须自己手写一个轮询`page.url()`字符串的等价函数，不要用这两个内置API。写测试脚本时放在项目根目录内（比如`.pw-test.mjs`）才能解析到`node_modules/playwright`，用完记得删掉临时脚本和截图，别留在仓库里。IndexedDB相关的功能想快速验证/复现bug时，不必每次都走完整的问卷生成人设那套真实API流程——可以直接`page.evaluate`里`await import('/src/db/db.ts')`拿到`db`实例手动`db.contacts.add(...)`等直接种数据，跳过真实AI调用，排查UI/渲染类问题快得多（滚动到底部那个bug就是这么复现和验证修复的）。

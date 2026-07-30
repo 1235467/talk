@@ -73,7 +73,7 @@ export const MessageBubble = memo(function MessageBubble({
       {selecting && (
         <span
           className={`absolute left-4 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full border text-[12px] ${
-            selected ? 'border-[#1296db] bg-[#1296db] text-white' : 'border-gray-300 bg-white text-transparent'
+            selected ? 'border-[var(--ui-info)] bg-[var(--ui-info)] text-white' : 'border-gray-300 bg-white text-transparent'
           }`}
           aria-hidden="true"
         >
@@ -121,7 +121,7 @@ export const MessageBubble = memo(function MessageBubble({
               onClick={() => onLinkClick?.(message)}
               className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-left"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#aa3bff]/10 text-sm">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--ui-special-soft)] text-sm">
                 🔗
               </span>
               <span className="text-[13.5px] text-gray-800">{message.link?.label ?? message.content}</span>
@@ -151,15 +151,15 @@ export const MessageBubble = memo(function MessageBubble({
             </div>
           )}
           {message.type === 'groupPlan' && (
-            <div className="w-56 rounded-xl border border-[#07c160]/30 bg-[#f0fff5] p-3">
+            <div className="w-56 rounded-xl border border-[var(--ui-success)] bg-[#f0fff5] p-3">
               <p className="text-xs text-[#07a651]">📅 共同计划 · 待确认</p>
               <p className="mt-1 text-[14px] font-medium text-gray-900">{message.content}</p>
               <p className="mt-1 text-[11px] text-gray-500">可在群聊信息中确认、取消或标记成行</p>
             </div>
           )}
-          {message.type === 'image' && message.image && <div className="max-w-[240px] overflow-hidden rounded-xl bg-white"><img src={message.image.url} alt={message.image.caption||'聊天图片'} className="max-h-72 w-full object-cover"/>{message.image.caption&&<p className="px-3 py-2 text-xs text-gray-600">{message.image.caption}</p>}{message.image.photographer&&<p className="px-3 pb-2 text-[10px] text-gray-300">Photo: {message.image.photographer}</p>}</div>}
+          {message.type === 'image' && message.image && <div data-ui-scope="special" className="max-w-[240px] overflow-hidden rounded-xl bg-white"><img src={message.image.url} alt={message.image.caption||'聊天图片'} className="max-h-72 w-full object-cover"/>{message.image.caption&&<p className="px-3 py-2 text-xs text-gray-600">{message.image.caption}</p>}{message.image.photographer&&<p className="px-3 pb-2 text-[10px] text-gray-300">Photo: {message.image.photographer}</p>}</div>}
           {['transfer','redPacket','loanRequest','loanResult','repayment'].includes(message.type) && message.finance && (
-            <button onClick={()=>onFinanceClick?.(message)} className="w-56 rounded-xl border border-orange-200 bg-gradient-to-br from-orange-400 to-red-500 p-3 text-left text-white">
+            <button data-ui-scope="special" onClick={()=>onFinanceClick?.(message)} className="finance-card w-56 rounded-xl border border-orange-200 p-3 text-left text-white">
               <p className="text-sm font-medium">{message.type==='transfer'?'💸 转账':message.type==='redPacket'?'🧧 红包':message.type==='loanRequest'?'🤝 借款申请':message.type==='repayment'?'✅ 已还款':'📋 借款结果'}</p>
               <p className="mt-2 text-xl font-bold">{message.type==='redPacket'&&message.finance.status==='pending'?'点击领取':message.finance.amount}</p>
               <p className="mt-1 text-xs text-white/80">{message.finance.note || message.finance.status}</p>

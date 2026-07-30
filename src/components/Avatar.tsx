@@ -10,6 +10,7 @@ export function Avatar({ avatar, color = '#eef0f3', size = 48, rounded = 'lg' }:
   const radiusClass = rounded === 'full' ? 'rounded-full' : 'rounded-xl'
   return (
     <div
+      data-ui-scope="special"
       className={`flex shrink-0 items-center justify-center overflow-hidden ${radiusClass}`}
       style={{ width: size, height: size, background: isImage ? undefined : color }}
     >

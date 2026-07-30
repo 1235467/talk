@@ -73,8 +73,8 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-gray-100 px-3">
         <div className="flex flex-1 items-center gap-2 rounded-lg bg-gray-100 px-3 py-1.5">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-            <circle cx="11" cy="11" r="7" stroke="#9ca3af" strokeWidth="1.8" />
-            <path d="M20 20l-4-4" stroke="#9ca3af" strokeWidth="1.8" strokeLinecap="round" />
+            <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+            <path d="M20 20l-4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
           <input
             autoFocus
@@ -108,7 +108,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
                   <Avatar avatar={contact.avatar} color={contact.avatarColor} size={38} />
                   <span className="text-[15px] text-gray-900">
                     {highlightSegments(displayName(contact), q).map((seg, i) => (
-                      <span key={i} className={seg.matched ? 'text-[#aa3bff]' : ''}>
+                      <span key={i} className={seg.matched ? 'text-[var(--ui-special-ink)]' : ''}>
                         {seg.text}
                       </span>
                     ))}
@@ -135,7 +135,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
                   <Avatar avatar={group.avatar} color={group.avatarColor} size={38} />
                   <span className="text-[15px] text-gray-900">
                     {highlightSegments(group.name, q).map((seg, i) => (
-                      <span key={i} className={seg.matched ? 'text-[#aa3bff]' : ''}>
+                      <span key={i} className={seg.matched ? 'text-[var(--ui-special-ink)]' : ''}>
                         {seg.text}
                       </span>
                     ))}
@@ -161,7 +161,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
                 >
                   <span className="flex-1 truncate text-sm text-gray-700">
                     {highlightSegments(excerptAround(message.content, q), q).map((seg, i) => (
-                      <span key={i} className={seg.matched ? 'text-[#aa3bff]' : ''}>
+                      <span key={i} className={seg.matched ? 'text-[var(--ui-special-ink)]' : ''}>
                         {seg.text}
                       </span>
                     ))}

@@ -116,9 +116,9 @@ export function MePage() {
           <span className="text-[15px] text-gray-900">{isFullscreen ? '退出全屏' : '进入全屏'}</span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             {isFullscreen ? (
-              <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" stroke="#9ca3af" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             ) : (
-              <path d="M4 9V4h5M15 4h5v5M4 15v5h5M20 15v5h-5" stroke="#9ca3af" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M4 9V4h5M15 4h5v5M4 15v5h5M20 15v5h-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             )}
           </svg>
         </button>
@@ -148,7 +148,7 @@ export function MePage() {
         >
           <span className="text-[15px] text-gray-900">设置</span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M9 5l7 7-7 7" stroke="#c7c7cc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
         <button
@@ -157,7 +157,7 @@ export function MePage() {
         >
           <span className="text-[15px] text-gray-900">模组</span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M9 5l7 7-7 7" stroke="#c7c7cc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
         <button
@@ -166,7 +166,7 @@ export function MePage() {
         >
           <span className="text-[15px] text-gray-900">表情包管理</span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M9 5l7 7-7 7" stroke="#c7c7cc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
         {saveLoadEnabled && <button onClick={() => navigate('/save-load')} className="flex w-full items-center justify-between border-b border-gray-100 bg-white px-4 py-3.5 text-left active:bg-gray-50"><span className="text-[15px] text-gray-900">存档与回档</span><span>›</span></button>}

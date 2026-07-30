@@ -206,7 +206,7 @@ export function MomentsPage() {
         {settings.momentsCoverPhoto ? (
           <img src={settings.momentsCoverPhoto} alt="" className="h-full w-full object-cover" />
         ) : (
-          <div className="h-full w-full bg-gradient-to-br from-[#aa3bff]/25 to-[#3b82f6]/25" />
+          <div className="ui-cover-gradient h-full w-full" />
         )}
         <div className="absolute bottom-3 right-3 flex items-center gap-2">
           <span className="text-[15px] font-medium text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.4)]">
@@ -273,7 +273,7 @@ export function MomentsPage() {
             const momentComments = commentsByMoment.get(m.id) ?? []
             const userLiked = momentLikes.some((l) => l.likerId === 'user')
             return (
-              <div key={m.id} className={`border-b border-gray-100 bg-white px-4 py-3 ${m.id === focusMomentId ? 'ring-2 ring-inset ring-[#07c160]' : ''}`}>
+              <div key={m.id} className={`border-b border-gray-100 bg-white px-4 py-3 ${m.id === focusMomentId ? 'ring-2 ring-inset ring-[var(--ui-success)]' : ''}`}>
                 <div className="flex gap-3">
                   <button
                     type="button"

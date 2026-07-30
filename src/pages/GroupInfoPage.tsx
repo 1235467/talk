@@ -267,7 +267,7 @@ export function GroupInfoPage() {
           <section className="mt-3 bg-white px-4 py-4">
             <div className="flex items-center justify-between gap-3">
               <div><h3 className="text-xs font-medium text-gray-400">当前地点</h3><p className="mt-1 text-sm text-gray-900">{groupLocation?.name ?? '未选择地点'}</p><p className="mt-1 text-xs leading-relaxed text-gray-400">{groupLocation?.description ?? '请从地点地图选择一个具体地点。'}</p></div>
-              <button type="button" onClick={() => navigate('/locations')} className="shrink-0 rounded-full bg-violet-50 px-3 py-1.5 text-xs text-violet-600">打开地图</button>
+              <button type="button" onClick={() => navigate('/locations')} className="shrink-0 rounded-full bg-[var(--ui-special-soft)] px-3 py-1.5 text-xs text-[var(--ui-special-ink)]">打开地图</button>
             </div>
           </section>
         )}

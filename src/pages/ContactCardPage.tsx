@@ -336,13 +336,13 @@ export function ContactCardPage() {
 
       <section className="mt-3 bg-white px-4 py-4">
         <h3 className="mb-2 text-xs font-medium text-gray-400">最近社交动态</h3>
-        {socialTimeline.length === 0 ? <p className="text-sm text-gray-400">暂时还没有公开互动。</p> : <div className="space-y-2">{socialTimeline.map((event) => <button key={event.id} type="button" onClick={() => event.groupId ? navigate(`/group/${event.groupId}`) : event.momentId ? navigate(`/moments?focus=${event.momentId}`) : event.conversationId ? navigate(`/chat/${event.conversationId}`) : undefined} className="block w-full border-l-2 border-[#07c160] pl-2 text-left"><p className="text-sm text-gray-700">{event.summary}</p><p className="mt-0.5 text-[10px] text-gray-400">{new Date(event.createdAt).toLocaleString()}</p></button>)}</div>}
+        {socialTimeline.length === 0 ? <p className="text-sm text-gray-400">暂时还没有公开互动。</p> : <div className="space-y-2">{socialTimeline.map((event) => <button key={event.id} type="button" onClick={() => event.groupId ? navigate(`/group/${event.groupId}`) : event.momentId ? navigate(`/moments?focus=${event.momentId}`) : event.conversationId ? navigate(`/chat/${event.conversationId}`) : undefined} className="block w-full border-l-2 border-[var(--ui-success)] pl-2 text-left"><p className="text-sm text-gray-700">{event.summary}</p><p className="mt-0.5 text-[10px] text-gray-400">{new Date(event.createdAt).toLocaleString()}</p></button>)}</div>}
       </section>
 
       <section className="mt-3 bg-white px-4 py-4">
         <div className="mb-2 flex items-center justify-between">
           <div><h3 className="text-xs font-medium text-gray-400">AI之间的关系</h3><p className="mt-1 text-[11px] text-gray-400">关系会影响朋友圈点赞、评论和群聊互动，可随时自定义。</p></div>
-          <button type="button" onClick={openRelationEditor} className="text-xs text-purple-600">编辑关系</button>
+          <button type="button" onClick={openRelationEditor} className="text-xs text-[var(--ui-special-ink)]">编辑关系</button>
         </div>
         {relationLinks.length === 0 ? <p className="text-sm text-gray-400">还没有设置与其他联系人的关系</p> : <div className="space-y-1.5">{relationLinks.map((link) => <div key={link.id} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm"><span>{link.name}</span><span className="text-xs text-gray-500">{link.label}</span></div>)}</div>}
       </section>
@@ -638,7 +638,7 @@ export function ContactCardPage() {
                   <button type="button" onClick={() => setRelationDrafts((rows) => rows.filter((_, rowIndex) => rowIndex !== index))} className="shrink-0 text-xs text-red-500">删除</button>
                 </div>
               ))}
-              <button type="button" onClick={() => { const candidate = allContacts.find((item) => item.id !== contactId && !relationDrafts.some((draft) => draft.targetContactId === item.id)); if (candidate) setRelationDrafts((rows) => [...rows, { targetContactId: candidate.id, label: CONTACT_RELATION_LABELS[0] }]) }} className="text-xs text-purple-600">+ 添加关系</button>
+              <button type="button" onClick={() => { const candidate = allContacts.find((item) => item.id !== contactId && !relationDrafts.some((draft) => draft.targetContactId === item.id)); if (candidate) setRelationDrafts((rows) => [...rows, { targetContactId: candidate.id, label: CONTACT_RELATION_LABELS[0] }]) }} className="text-xs text-[var(--ui-special-ink)]">+ 添加关系</button>
             </div>
             <button type="button" onClick={() => void saveRelationEditor()} className="mt-4 w-full rounded-xl bg-gray-900 py-2.5 text-sm text-white">保存关系</button>
           </div>

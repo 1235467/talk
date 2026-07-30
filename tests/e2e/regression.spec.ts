@@ -427,10 +427,10 @@ test('group info page can add and remove members after creation', async ({ page 
 })
 
 test('appearance settings enable dark mode and custom chat background', async ({ page }) => {
-  await page.goto('/#/settings')
+  await page.goto('/#/appearance')
   await clearDatabase(page)
 
-  await page.getByLabel('切换暗色模式').click()
+  await page.getByRole('button', { name: '◐ 深色' }).click()
   await expect(page.locator('.app-shell')).toHaveClass(/theme-dark/)
 
   await page.evaluate(async () => {

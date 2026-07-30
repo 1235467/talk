@@ -42,7 +42,7 @@ function SliderRow({
         step={step}
         value={value > max ? max : value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="mt-2 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-[#aa3bff]"
+        className="mt-2 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-[var(--ui-special)]"
       />
     </div>
   )

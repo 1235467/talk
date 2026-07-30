@@ -258,6 +258,7 @@ function FrameCropper({
     <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/75 p-4">
       <p className="mb-3 text-sm font-medium text-white">{title}</p>
       <div
+        data-ui-scope="special"
         className="relative overflow-hidden rounded-2xl bg-black/40 touch-none"
         data-testid="frame-cropper-stage"
         style={{ width: FRAME_STAGE_W, height: FRAME_STAGE_H }}
@@ -293,7 +294,7 @@ function FrameCropper({
               key={corner}
               data-crop-handle={corner}
               aria-label={`调整裁剪框 ${corner}`}
-              className={`absolute h-5 w-5 rounded-full border-2 border-white bg-[#aa3bff] ${
+              className={`absolute h-5 w-5 rounded-full border-2 border-white bg-[var(--ui-special)] ${
                 corner.includes('n') ? '-top-2.5' : '-bottom-2.5'
               } ${corner.includes('w') ? '-left-2.5' : '-right-2.5'}`}
               onPointerDown={(e) => {
