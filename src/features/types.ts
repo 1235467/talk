@@ -3,7 +3,7 @@ import type { ElementType } from 'react'
 export interface FeatureModule {
   id: string
   name: string
-  icon: string // emoji
+  icon: string // semantic key rendered through UiIcon; legacy emoji keys are supported
   description: string
   /** Parent module id — sub-modules are grouped under a parent in the UI */
   parentId?: string

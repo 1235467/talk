@@ -1,6 +1,7 @@
 import { TopBar } from '../components/TopBar'
 import { UI_THEMES } from '../lib/uiTheme'
 import { useSettingsStore } from '../store/useSettingsStore'
+import { Check, Moon, Sun } from 'lucide-react'
 
 export function AppearancePage() {
   const uiTheme = useSettingsStore((state) => state.uiTheme ?? 'sage')
@@ -25,7 +26,7 @@ export function AppearancePage() {
                 onClick={() => setSettings({ themeMode: mode })}
                 className={`appearance-mode-option px-3 py-2 text-sm ${themeMode === mode ? 'is-active bg-white font-medium text-gray-900 shadow-sm' : 'text-gray-500'}`}
               >
-                {mode === 'light' ? '☀ 浅色' : '◐ 深色'}
+                <span className="flex items-center justify-center gap-1.5">{mode === 'light' ? <Sun size={15} /> : <Moon size={15} />}{mode === 'light' ? '浅色' : '深色'}</span>
               </button>
             ))}
           </div>
@@ -84,7 +85,7 @@ function ThemeChoice({
               <strong className="block text-[15px] text-gray-900">{theme.name}</strong>
               <small className="mt-0.5 block text-xs text-gray-500">{theme.tagline}</small>
             </span>
-            <span className={`appearance-check grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs ${selected ? '' : 'border border-gray-200 text-transparent'}`}>✓</span>
+            <span className={`appearance-check grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs ${selected ? '' : 'border border-gray-200 text-transparent'}`}><Check size={14} /></span>
           </span>
           <span className="mt-3 block text-xs leading-5 text-gray-500">{theme.description}</span>
           <span className="mt-3 flex gap-1.5" aria-hidden="true">

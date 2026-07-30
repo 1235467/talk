@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
 import { TopBar } from '../components/TopBar'
+import { Globe } from 'lucide-react'
 import { ActionSheet } from '../components/ActionSheet'
 import { resizeImageDataUrl } from '../lib/image'
 import { isStickerProviderReady, stickerProviderName } from '../lib/mediaProviders'
@@ -74,7 +75,7 @@ export function StickersPage() {
 
       <section className="mt-3 bg-white">
         <button type="button" onClick={() => navigate('/stickers/remote')} className="flex w-full items-center gap-3 px-4 py-4 text-left">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-lg">🌐</div>
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-[var(--ui-special-ink)]"><Globe size={20} /></div>
           <div className="min-w-0 flex-1">
             <p className="text-sm text-gray-900">远程表情包</p>
             <p className={`mt-0.5 text-xs ${remoteReady ? 'text-green-600' : 'text-gray-400'}`}>

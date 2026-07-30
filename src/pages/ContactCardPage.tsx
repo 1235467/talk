@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
 import { TopBar } from '../components/TopBar'
+import { UiIcon } from '../components/UiIcon'
 import { Avatar } from '../components/Avatar'
 import { AvatarPicker } from '../components/AvatarPicker'
 import { ActionSheet } from '../components/ActionSheet'
@@ -29,6 +30,7 @@ import { formatCurrency } from '../lib/wallet'
 import { setWalletBalance } from '../lib/finance'
 import { createDefaultPromptModules, PROMPT_MODULE_DEFINITIONS, unknownPromptPlaceholders } from '../lib/promptModules'
 import type { PromptModuleId } from '../types'
+import { ArrowDownToLine, ArrowUpFromLine, ClipboardList, Phone, PhoneOff } from 'lucide-react'
 
 function LatestAiTurnJson({ contactId }: { contactId: string }) {
   const latestTurn = useLiveQuery(async () => {
@@ -41,7 +43,7 @@ function LatestAiTurnJson({ contactId }: { contactId: string }) {
   if (!latestTurn?.raw) return null
   return (
     <section className="mt-3 bg-white px-4 py-4">
-      <h3 className="mb-2 text-xs font-medium text-gray-400">📋 最新AI原始JSON</h3>
+      <h3 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-gray-400"><ClipboardList size={14} />最新AI原始JSON</h3>
       <pre className="whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-2.5 font-mono text-[10px] leading-relaxed text-gray-600">
         {latestTurn.raw}
       </pre>
@@ -276,7 +278,27 @@ export function ContactCardPage() {
         )}
       </section>
 
-      {lifeSimulationEnabled && <section className="mt-3 bg-white px-4 py-4"><h3 className="mb-2 text-xs font-medium text-gray-400">🌙 生活回顾</h3>{lifeState && <p className="mb-2 text-xs text-gray-500">此刻：{lifeState.location} · {lifeState.activity} · 精力 {lifeState.energy}</p>}{lifeEvents.filter((event) => event.visibility !== 'private').length === 0 ? <p className="text-sm text-gray-400">最近没有适合分享的生活动态</p> : <div className="space-y-2">{lifeEvents.filter((event) => event.visibility !== 'private').slice(0, 10).map((event) => <div key={event.id} className="rounded-lg bg-gray-50 px-3 py-2"><p className="text-sm text-gray-700">{event.summary}</p><p className="mt-0.5 text-[10px] text-gray-400">{new Date(event.occurredAt).toLocaleString()} · {event.type === 'summary' ? '阶段回顾' : '生活事件'}</p></div>)}</div>}</section>}
+      {lifeSimulationEnabled && (
+        <section className="mt-3 bg-white px-4 py-4">
+          <h3 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-gray-400">
+            <UiIcon name="🌙" size={14} />
+            生活回顾
+          </h3>
+          {lifeState && <p className="mb-2 text-xs text-gray-500">此刻：{lifeState.location} · {lifeState.activity} · 精力 {lifeState.energy}</p>}
+          {lifeEvents.filter((event) => event.visibility !== 'private').length === 0 ? (
+            <p className="text-sm text-gray-400">最近没有适合分享的生活动态</p>
+          ) : (
+            <div className="space-y-2">
+              {lifeEvents.filter((event) => event.visibility !== 'private').slice(0, 10).map((event) => (
+                <div key={event.id} className="rounded-lg bg-gray-50 px-3 py-2">
+                  <p className="text-sm text-gray-700">{event.summary}</p>
+                  <p className="mt-0.5 text-[10px] text-gray-400">{new Date(event.occurredAt).toLocaleString()} · {event.type === 'summary' ? '阶段回顾' : '生活事件'}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="mt-3 bg-white">
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 border-b border-gray-100 px-4 py-3 text-xs text-gray-500"><p>性别：{contact.gender || contact.creatorProfile?.gender || '未填写'}</p><p>真名：{contact.realName || contact.name}</p><p>网名：{contact.nickname || contact.name}</p><p>生日：{contact.birthday || '未填写'}</p></div>
@@ -316,8 +338,8 @@ export function ContactCardPage() {
         )}
         <div className="flex w-full items-center justify-between px-4 py-3.5">
           <span className="text-[15px] text-gray-900">状态</span>
-          <span className="text-sm text-gray-400">
-            {(isPhoneAvailable(contact, new Date()) ? '📱 ' : '🔕 ') + (describeCurrentSchedule(contact, new Date()).replace(/^现在在/, '') || '空闲')}
+          <span className="flex items-center gap-1.5 text-sm text-gray-400">
+            {isPhoneAvailable(contact, new Date()) ? <Phone size={14} /> : <PhoneOff size={14} />}{describeCurrentSchedule(contact, new Date()).replace(/^现在在/, '') || '空闲'}
           </span>
         </div>
         {relEnabled && (
@@ -445,7 +467,7 @@ export function ContactCardPage() {
                       return (
                         <td key={day} className="px-0.5 py-0.5 text-center">
                           <span className={b.phoneAccess === 'unavailable' ? 'text-red-400' : 'text-green-500'}>
-                            {b.phoneAccess === 'unavailable' ? '📵' : '📱'}
+                            {b.phoneAccess === 'unavailable' ? <PhoneOff size={13} className="mx-auto" /> : <Phone size={13} className="mx-auto" />}
                           </span>
                           <div className="text-[10px] text-gray-600 leading-tight">{b.activity}</div>
                         </td>
@@ -535,7 +557,7 @@ export function ContactCardPage() {
             return (
               <div key={definition.id} className={`overflow-hidden rounded-xl border ${config.enabled ? 'border-gray-200 bg-white' : 'border-gray-950 bg-black text-white'}`}>
                 <div className="flex items-start gap-2.5 px-3 py-3">
-                  <span className="text-lg">{definition.icon}</span>
+                  <UiIcon name={definition.icon} size={19} className="mt-0.5 shrink-0" />
                   <button className="min-w-0 flex-1 text-left" onClick={() => { setEditingPromptModule(definition.id); setPromptDrafts({ ...config.templates }); setPromptValidationError('') }}>
                     <p className={`text-sm font-medium ${config.enabled ? 'text-gray-900' : 'text-white'}`}>{definition.name}</p>
                     <p className={`mt-0.5 text-[10px] ${config.enabled ? 'text-gray-400' : 'text-gray-400'}`}>{definition.description}</p>
@@ -562,7 +584,7 @@ export function ContactCardPage() {
             {/* Step 1: main model */}
             <div className="rounded-lg border-2 border-gray-800">
               <div className="border-b border-gray-200 bg-gray-100 px-3 py-1.5">
-                <span className="text-xs font-bold text-gray-800">{`📤 发给主模型（${settings.model}）`}</span>
+                <span className="flex items-center gap-1.5 text-xs font-bold text-gray-800"><ArrowUpFromLine size={14} />{`发给主模型（${settings.model}）`}</span>
                 <span className="ml-2 text-[10px] text-gray-400">生成自然语言回复 + 括号想法</span>
               </div>
               <div className="p-3">
@@ -593,7 +615,7 @@ export function ContactCardPage() {
             {/* Step 2: utility model */}
             <div className="rounded-lg border-2 border-gray-800">
               <div className="border-b border-gray-200 bg-gray-100 px-3 py-1.5">
-                <span className="text-xs font-bold text-gray-800">{`📥 发给多功能模型（${settings.utilityModel}）`}</span>
+                <span className="flex items-center gap-1.5 text-xs font-bold text-gray-800"><ArrowDownToLine size={14} />{`发给多功能模型（${settings.utilityModel}）`}</span>
                 <span className="ml-2 text-[10px] text-gray-400">原始文字 → JSON（提取mood/thought/表情包）</span>
               </div>
               <div className="p-3">
@@ -650,7 +672,7 @@ export function ContactCardPage() {
         const current = settings.promptModules?.[editingPromptModule] ?? createDefaultPromptModules()[editingPromptModule]
         return <div className="absolute inset-0 z-50 flex items-end bg-black/40" onClick={() => setEditingPromptModule(null)}>
           <div className="max-h-[88%] w-full overflow-y-auto rounded-t-2xl bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]" onClick={(event) => event.stopPropagation()}>
-            <h3 className="text-base font-medium text-gray-900">{definition.icon} {definition.name}</h3>
+            <h3 className="flex items-center gap-2 text-base font-medium text-gray-900"><UiIcon name={definition.icon} size={19} />{definition.name}</h3>
             <p className="mt-1 text-xs text-gray-400">这是该模块实际使用的原始模板；双花括号是运行时动态数据。</p>
             <div className="mt-3 space-y-4">
               {definition.templates.map((item) => (

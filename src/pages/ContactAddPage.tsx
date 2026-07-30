@@ -16,6 +16,7 @@ import { pickRandomTrait } from '../lib/randomTraits'
 import { initialWarmthForBase } from '../lib/relationship'
 import { setPairedContactRelation } from '../lib/contactRelations'
 import { rememberInitialContactRelation } from '../lib/memory'
+import { Dice5 } from 'lucide-react'
 import { displayName } from '../lib/contact'
 import { pickAvatarCategory } from '../lib/avatarCategory'
 import { OCCUPATION_OPTIONS, employmentPatch } from '../lib/career'
@@ -680,7 +681,7 @@ issues 要用简短中文列出具体错误。` },
           </div>
           <p className="px-2 pb-1 pt-2 text-[11px] leading-relaxed text-gray-400">女娲模式会先生成一份完整人设初稿，你可以逐项修改，确认后才会创建联系人。</p>
         </div>
-        {!isNuwaMode && <button type="button" onClick={completelyRandom} disabled={generating} className="mb-4 w-full rounded-lg bg-gray-900 py-3 text-sm font-medium text-white transition active:scale-[.98] disabled:opacity-50">🎲 完全随机创建</button>}
+        {!isNuwaMode && <button type="button" onClick={completelyRandom} disabled={generating} className="mb-4 flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 py-3 text-sm font-medium text-white transition active:scale-[.98] disabled:opacity-50"><Dice5 size={17} />完全随机创建</button>}
         {isNuwaMode && <p className="mb-2 text-xs text-[var(--ui-special-ink)]">女娲模式：先写初稿建议和你确定的设定，AI只补全仍为空的内容。</p>}
         <p className="mb-4 text-xs text-gray-400">
           描述一下你想认识的这个人 名字会由对方自己来定 确认添加后就正式加上了 之后不能再改TA的性格设定
@@ -743,8 +744,8 @@ issues 要用简短中文列出具体错误。` },
           <button onClick={addCustomTag} className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs text-gray-600">
             添加
           </button>
-          <button onClick={addRandomTrait} className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs text-gray-600">
-            🎲 随机词条
+          <button onClick={addRandomTrait} className="flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-1.5 text-xs text-gray-600">
+            <Dice5 size={14} />随机词条
           </button>
         </div>
 
@@ -804,9 +805,9 @@ issues 要用简短中文列出具体错误。` },
                   const pick = traits[Math.floor(Math.random() * traits.length)]
                   setPersonalityTrait(pick.value)
                 }}
-                className="rounded-full bg-gray-100 px-3 py-1.5 text-xs text-gray-600"
+                className="flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1.5 text-xs text-gray-600"
               >
-                🎲 随机
+                <Dice5 size={13} />随机
               </button>
               {PERSONALITY_TRAIT_OPTIONS.map((opt) => (
                 <button
@@ -848,7 +849,7 @@ issues 要用简短中文列出具体错误。` },
           </section>
         )}
 
-        {careerEnabled && <div className="mb-4"><label className="mb-2 block text-xs font-medium text-gray-400">职业（必选）</label><div className="flex flex-wrap gap-2"><button type="button" onClick={()=>setOccupation(OCCUPATION_OPTIONS[Math.floor(Math.random()*OCCUPATION_OPTIONS.length)])} className="rounded-full bg-gray-100 px-3 py-1.5 text-xs text-gray-600">🎲 随机</button>{[...OCCUPATION_OPTIONS,'自定义'].map(v=><button key={v} type="button" onClick={()=>setOccupation(v)} className={`rounded-full px-3 py-1.5 text-xs ${occupation===v?'bg-gray-900 text-white':'bg-gray-100 text-gray-600'}`}>{v}</button>)}</div>{occupation==='自定义'&&<input value={customOccupation} onChange={e=>setCustomOccupation(e.target.value)} placeholder="输入职业" className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"/>}</div>}
+        {careerEnabled && <div className="mb-4"><label className="mb-2 block text-xs font-medium text-gray-400">职业（必选）</label><div className="flex flex-wrap gap-2"><button type="button" onClick={()=>setOccupation(OCCUPATION_OPTIONS[Math.floor(Math.random()*OCCUPATION_OPTIONS.length)])} className="flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1.5 text-xs text-gray-600"><Dice5 size={13} />随机</button>{[...OCCUPATION_OPTIONS,'自定义'].map(v=><button key={v} type="button" onClick={()=>setOccupation(v)} className={`rounded-full px-3 py-1.5 text-xs ${occupation===v?'bg-gray-900 text-white':'bg-gray-100 text-gray-600'}`}>{v}</button>)}</div>{occupation==='自定义'&&<input value={customOccupation} onChange={e=>setCustomOccupation(e.target.value)} placeholder="输入职业" className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"/>}</div>}
 
         {/* 兴趣爱好（可选） */}
         <div className="mb-4">

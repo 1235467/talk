@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Check } from 'lucide-react'
 
 interface ModelPickerProps {
   title: string
@@ -49,7 +50,7 @@ export function ModelPicker({ title, models, value, onSelect, onClose }: ModelPi
             className="flex w-full items-center gap-3 border-b border-gray-100 px-4 py-3 text-left active:bg-gray-50"
           >
             <span className="min-w-0 flex-1 break-all text-sm text-gray-800">{model}</span>
-            {model === value && <span className="shrink-0 text-sm text-green-600" aria-label="当前模型">✓</span>}
+            {model === value && <span className="shrink-0 text-green-600" aria-label="当前模型"><Check size={16} /></span>}
           </button>
         ))}
         {filteredModels.length === 0 && (

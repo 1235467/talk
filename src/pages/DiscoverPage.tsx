@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { TopBar } from '../components/TopBar'
 import { SearchOverlay } from '../components/SearchOverlay'
 import { UnreadBadge } from '../components/UnreadBadge'
+import { UiIcon } from '../components/UiIcon'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { ALL_MODULES } from '../features'
 import { db } from '../db/db'
@@ -63,7 +64,7 @@ export function DiscoverPage() {
           >
             <div className="flex items-center gap-3">
               <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--ui-special-soft)] text-lg">
-                {entry.icon}
+                <UiIcon name={entry.icon} size={19} />
                 {entry.to === '/moments' && <UnreadBadge count={momentsUnread} className="absolute -top-1 -right-1" />}
               </div>
               <span className="text-[15px] text-gray-900">{entry.label}</span>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { TopBar } from '../components/TopBar'
 import { ToggleSwitch } from '../components/ToggleSwitch'
+import { UiIcon } from '../components/UiIcon'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { ALL_MODULES, PARENT_MODULES, STANDALONE_MODULES, DEFAULT_ENABLED_MODULES } from '../features'
 
@@ -51,7 +52,7 @@ export function ModulesPage() {
                   className="flex w-full items-center justify-between px-4 py-3.5"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="text-lg">{parent.icon}</span>
+                    <UiIcon name={parent.icon} size={20} className="text-[var(--ui-special-ink)]" />
                     <div className="text-left">
                       <div className="flex items-center gap-2">
                         <p className="text-[15px] font-medium text-gray-900">{parent.name}</p>
@@ -87,7 +88,7 @@ export function ModulesPage() {
                           className="flex items-center justify-between border-b border-gray-50 px-4 py-3 last:border-b-0"
                         >
                           <div className="flex items-center gap-3 pl-8">
-                            <span className="text-base">{mod.icon}</span>
+                            <UiIcon name={mod.icon} size={18} className="text-[var(--ui-special-ink)]" />
                             <div>
                               <p className="text-[14px] text-gray-800">{mod.name}</p>
                               <p className="mt-0.5 text-[11px] text-gray-400">{mod.description}</p>
@@ -116,7 +117,7 @@ export function ModulesPage() {
                 className="flex items-center justify-between rounded-xl bg-white px-4 py-3.5"
               >
                 <div className="flex items-center gap-3">
-                  <span className="text-lg">{mod.icon}</span>
+                  <UiIcon name={mod.icon} size={20} className="text-[var(--ui-special-ink)]" />
                   <div>
                     <p className="text-[15px] font-medium text-gray-900">{mod.name}</p>
                     <p className="mt-0.5 text-xs text-gray-400">{mod.description}</p>

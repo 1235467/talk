@@ -13,6 +13,7 @@ import { momentsUnreadCount } from '../lib/momentsUnread'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { ALL_MODULES } from '../features'
 import { uiThemeName } from '../lib/uiTheme'
+import { UiIcon } from './UiIcon'
 
 const EMPTY: never[] = []
 
@@ -156,7 +157,7 @@ function ContactList({ query }: { query: string }) {
   const contacts = useLiveQuery(() => db.contacts.orderBy('createdAt').reverse().toArray(), []) ?? EMPTY
   const filtered = contacts.filter((contact) => displayName(contact).toLowerCase().includes(query.trim().toLowerCase()))
   return <>
-    <button type="button" className="desktop-list-row" onClick={() => navigate('/contact/new')}><span className="desktop-add-avatar">＋</span><span className="desktop-list-copy"><strong>添加联系人</strong><small>创建一位新的 AI 联系人</small></span></button>
+    <button type="button" className="desktop-list-row" onClick={() => navigate('/contact/new')}><span className="desktop-add-avatar"><UiIcon name="users" size={21} /></span><span className="desktop-list-copy"><strong>添加联系人</strong><small>创建一位新的 AI 联系人</small></span></button>
     {filtered.map((contact) => <button type="button" key={contact.id} className={`desktop-list-row ${location.pathname === `/contact/${contact.id}` ? 'active' : ''}`} onClick={() => navigate(`/contact/${contact.id}`)}><Avatar avatar={contact.avatar} color={contact.avatarColor} size={48} /><span className="desktop-list-copy"><strong>{displayName(contact)}</strong><small>{contact.relationshipBase || '朋友'} · 认识于 {formatListTime(contact.createdAt)}</small></span></button>)}
   </>
 }
@@ -173,7 +174,7 @@ function DiscoverList({ query }: { query: string }) {
     }
     return [...new Map(result.map((entry) => [entry.to, entry])).values()].filter((entry) => entry.label.includes(query.trim()))
   }, [enabledModules, query])
-  return <>{entries.map((entry) => <button type="button" key={entry.to} className={`desktop-list-row ${location.pathname === entry.to ? 'active' : ''}`} onClick={() => navigate(entry.to)}><span className="desktop-menu-avatar">{entry.icon}</span><span className="desktop-list-copy"><strong>{entry.label}</strong><small>{entry.note}</small></span></button>)}</>
+  return <>{entries.map((entry) => <button type="button" key={entry.to} className={`desktop-list-row ${location.pathname === entry.to ? 'active' : ''}`} onClick={() => navigate(entry.to)}><span className="desktop-menu-avatar"><UiIcon name={entry.icon} size={20} /></span><span className="desktop-list-copy"><strong>{entry.label}</strong><small>{entry.note}</small></span></button>)}</>
 }
 
 function SettingsList({ query }: { query: string }) {
@@ -187,7 +188,7 @@ function SettingsList({ query }: { query: string }) {
     { to: '/modules', label: '功能模块', note: '启用或关闭扩展功能', icon: '▦' },
     { to: '/stickers', label: '表情包', note: '管理本地和远程表情', icon: '☺' },
   ].filter((entry) => entry.label.toLowerCase().includes(query.trim().toLowerCase()))
-  return <>{entries.map((entry) => <button type="button" key={entry.to} className={`desktop-list-row ${location.pathname === entry.to ? 'active' : ''}`} onClick={() => navigate(entry.to)}>{entry.avatar ? <Avatar avatar={entry.avatar} size={48} /> : <span className="desktop-menu-avatar">{entry.icon}</span>}<span className="desktop-list-copy"><strong>{entry.label}</strong><small>{entry.note}</small></span></button>)}</>
+  return <>{entries.map((entry) => <button type="button" key={entry.to} className={`desktop-list-row ${location.pathname === entry.to ? 'active' : ''}`} onClick={() => navigate(entry.to)}>{entry.avatar ? <Avatar avatar={entry.avatar} size={48} /> : <span className="desktop-menu-avatar"><UiIcon name={entry.icon ?? 'settings'} size={20} /></span>}<span className="desktop-list-copy"><strong>{entry.label}</strong><small>{entry.note}</small></span></button>)}</>
 }
 
 function DesktopSidebarEmpty({ text }: { text: string }) {

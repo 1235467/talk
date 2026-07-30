@@ -313,7 +313,7 @@ body {
 .desktop-titlebar-brand img { width: 21px; height: 21px; border-radius: 6px; }
 .desktop-titlebar-drag { flex: 1; height: 100%; }
 .desktop-window-controls { -webkit-app-region: no-drag; display: flex; height: 100%; }
-.desktop-window-controls button { width: 46px; background: transparent; color: #555b63; font-size: 13px; }
+.desktop-window-controls button { display: grid; width: 46px; place-items: center; background: transparent; color: #555b63; font-size: 13px; }
 .desktop-window-controls button:hover { background: #e9eaec; }
 .desktop-window-controls .desktop-close:hover { color: white; background: #e81123; }
 
@@ -426,6 +426,21 @@ body {
 .desktop-profile-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 18px 28px; border-top: 1px solid #e8e9eb; background: #fafbfb; }
 .desktop-profile-actions button { height: 38px; padding: 0 24px; border-radius: 8px; background: #eceeef; color: #596069; }
 .desktop-profile-actions button.primary { background: #07c160; color: white; }
+.desktop-chat-composer-shell { padding: 12px 14px 14px; border-top: 1px solid var(--ui-border-soft); background: var(--ui-bg) !important; }
+.desktop-chat-composer { display: flex; height: 168px; flex-direction: column; overflow: hidden; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-card); background: var(--ui-surface); }
+.app-shell .desktop-chat-textarea { min-height: 0; flex: 1; resize: none; border: 0; outline: 0; padding: 15px 16px 8px; background: transparent; color: var(--ui-text); font: inherit; font-size: 14px; line-height: 1.65; }
+.desktop-chat-tools { display: flex; min-height: 46px; align-items: center; justify-content: space-between; gap: 16px; padding: 5px 9px 8px 11px; }
+.desktop-chat-tool-group { display: flex; min-width: 0; align-items: center; gap: 2px; color: var(--ui-text-2); }
+.desktop-chat-tool-group button { display: grid; width: 32px; height: 32px; flex: 0 0 32px; place-items: center; border-radius: var(--ui-radius-control); color: inherit; }
+.desktop-chat-tool-group button:hover { background: var(--ui-surface-2); color: var(--ui-text); }
+.desktop-chat-tool-group button:disabled { cursor: wait; opacity: .45; }
+.desktop-chat-tool-divider { width: 1px; height: 18px; margin: 0 5px; background: var(--ui-border-soft); }
+.desktop-chat-send { height: 32px; min-width: 66px; flex: 0 0 auto; border-radius: var(--ui-radius-control); background: var(--ui-action); color: var(--ui-on-action); font-size: 13px; }
+.desktop-chat-send:disabled { background: var(--ui-surface-3); color: var(--ui-text-3); }
+@media (max-height: 650px) {
+  .desktop-chat-composer { height: 128px; }
+  .app-shell .desktop-chat-textarea { padding-top: 10px; }
+}
 .app-shell[data-desktop='true'] .desktop-profile-page > .absolute.inset-0 { position: absolute; inset: 38px 0 0 72px; align-items: center; justify-content: center; }
 .app-shell[data-desktop='true'] .desktop-profile-page > .absolute.inset-0 > div { width: min(560px, calc(100% - 48px)); border-radius: 16px; padding: 20px; box-shadow: 0 24px 70px rgba(0,0,0,.25); }
 

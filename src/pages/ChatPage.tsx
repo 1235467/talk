@@ -24,6 +24,8 @@ import { searchRemoteStickers, trackRemoteStickerSend, type RemoteStickerResult 
 import { isStickerProviderReady, stickerProviderName } from '../lib/mediaProviders'
 import { normalizeChatPageSize } from '../lib/chatPagination'
 import { resolveLocationParticipants, syncContactLocationsAt } from '../lib/locations'
+import { ArrowLeftRight, BriefcaseBusiness, CircleDollarSign, Gift, HandCoins, LoaderCircle, Package, Plus, ShoppingBag, Sparkles, Sticker as StickerIcon } from 'lucide-react'
+import { UiIcon } from '../components/UiIcon'
 
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_STICKERS: Sticker[] = []
@@ -40,6 +42,9 @@ export function ChatPage() {
   const mindReadingEnabled = useModuleEnabled('mindReading')
   const careerEnabled = useModuleEnabled('career')
   const replyAssistEnabled = useModuleEnabled('aiReplyAssist')
+  const shopEnabled = useModuleEnabled('shop')
+  const warehouseEnabled = useModuleEnabled('warehouse')
+  const desktop = Boolean(window.talkDesktop)
 
   const conversation = useLiveQuery(
     () => (conversationId ? db.conversations.get(conversationId) : undefined),
@@ -663,8 +668,8 @@ export function ChatPage() {
                 <div className="flex justify-start px-3">
                   <div className="ml-10 max-w-[85%]">
                     <div className="rounded-2xl rounded-tl-md border border-[var(--ui-special-border)] bg-[var(--ui-special-soft)] px-3.5 py-2">
-                      <p className="text-[11px] leading-relaxed text-[var(--ui-special-ink)]">
-                        <span className="font-medium">🔮 </span>
+                      <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-[var(--ui-special-ink)]">
+                        <UiIcon name="🔮" size={13} className="mt-0.5 shrink-0" />
                         {m.thought}
                       </p>
                     </div>
@@ -684,7 +689,7 @@ export function ChatPage() {
         </p>
       )}
 
-      <div className="shrink-0 border-t border-gray-200 bg-white p-2 pb-[env(safe-area-inset-bottom)]">
+      <div className={desktop ? 'desktop-chat-composer-shell shrink-0 bg-white' : 'shrink-0 border-t border-gray-200 bg-white p-2 pb-[env(safe-area-inset-bottom)]'}>
         {selectingMessages ? (
           <div className="flex items-center gap-2">
             <button
@@ -727,31 +732,60 @@ export function ChatPage() {
                 ))}
               </div>
             )}
-            <div className="flex items-end gap-2">
-              <button onClick={()=>setAppsOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-2xl text-gray-600">＋</button>
-              {replyAssistEnabled && <button type="button" onClick={() => void generateAssist()} disabled={assistBusy} aria-label="AI代写" aria-busy={assistBusy} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg transition duration-150 active:scale-90 disabled:cursor-wait ${assistBusy ? 'animate-pulse bg-[var(--ui-special)] text-white shadow-inner' : 'bg-[var(--ui-special-soft)] text-[var(--ui-special-ink)] active:bg-[var(--ui-special-border)]'}`}>{assistBusy ? '✦' : '✨'}</button>}
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (!assistBusy && e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    void handleSend()
-                  }
-                }}
-                disabled={assistBusy}
-                placeholder={assistBusy ? 'AI代写中...' : aiTyping ? '对方正在输入 你可以直接插话打断' : '发消息…'}
-                rows={1}
-                className="max-h-24 flex-1 resize-none rounded-xl border border-gray-200 px-3 py-2 text-[14.5px] outline-none disabled:cursor-wait disabled:bg-gray-50 disabled:text-gray-400"
-              />
-              <button
-                onClick={handleSend}
-                disabled={assistBusy || !input.trim()}
-                className="shrink-0 rounded-xl bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-40"
-              >
-                发送
-              </button>
-            </div>
+            {desktop ? (
+              <div className="desktop-chat-composer">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (!assistBusy && e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      void handleSend()
+                    }
+                  }}
+                  disabled={assistBusy}
+                  placeholder={assistBusy ? 'AI代写中...' : aiTyping ? '对方正在输入，你可以直接插话打断' : '输入消息…'}
+                  rows={4}
+                  className="desktop-chat-textarea"
+                />
+                <div className="desktop-chat-tools">
+                  <div className="desktop-chat-tool-group">
+                    <button type="button" onClick={() => { setStickerPickerOpen(true); setStickerQuery(''); setStickerResults([]) }} aria-label="搜索表情包" title="表情包"><StickerIcon size={18} /></button>
+                    {replyAssistEnabled && <button type="button" onClick={() => void generateAssist()} disabled={assistBusy} aria-label="AI代写" aria-busy={assistBusy} title="AI代写">{assistBusy ? <LoaderCircle size={18} className="animate-spin" /> : <Sparkles size={18} />}</button>}
+                    {!isGroupConv && careerEnabled && <span className="desktop-chat-tool-divider" />}
+                    {!isGroupConv && careerEnabled && <button type="button" onClick={() => setFinanceMode('transfer')} aria-label="转账" title="转账"><ArrowLeftRight size={18} /></button>}
+                    {!isGroupConv && careerEnabled && <button type="button" onClick={() => setFinanceMode('redPacket')} aria-label="红包" title="红包"><Gift size={18} /></button>}
+                    {!isGroupConv && careerEnabled && <button type="button" onClick={() => setFinanceMode('loan')} aria-label="借款" title="借款"><HandCoins size={18} /></button>}
+                    {!isGroupConv && careerEnabled && <button type="button" onClick={() => void repayLoan()} aria-label="归还借款" title="归还借款"><CircleDollarSign size={18} /></button>}
+                    {(careerEnabled || shopEnabled || warehouseEnabled) && <span className="desktop-chat-tool-divider" />}
+                    {careerEnabled && <button type="button" onClick={() => navigate('/work')} aria-label="工作" title="工作"><BriefcaseBusiness size={18} /></button>}
+                    {shopEnabled && <button type="button" onClick={() => navigate('/shop')} aria-label="商城" title="商城"><ShoppingBag size={18} /></button>}
+                    {warehouseEnabled && <button type="button" onClick={() => navigate('/warehouse')} aria-label="仓库" title="仓库"><Package size={18} /></button>}
+                  </div>
+                  <button type="button" onClick={handleSend} disabled={assistBusy || !input.trim()} aria-label="发送消息" className="desktop-chat-send">发送</button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-end gap-2">
+                <button onClick={()=>setAppsOpen(true)} aria-label="更多聊天功能" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-600"><Plus size={20} /></button>
+                {replyAssistEnabled && <button type="button" onClick={() => void generateAssist()} disabled={assistBusy} aria-label="AI代写" aria-busy={assistBusy} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition duration-150 active:scale-90 disabled:cursor-wait ${assistBusy ? 'animate-pulse bg-[var(--ui-special)] text-white shadow-inner' : 'bg-[var(--ui-special-soft)] text-[var(--ui-special-ink)] active:bg-[var(--ui-special-border)]'}`}>{assistBusy ? <LoaderCircle size={18} className="animate-spin" /> : <Sparkles size={18} />}</button>}
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (!assistBusy && e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      void handleSend()
+                    }
+                  }}
+                  disabled={assistBusy}
+                  placeholder={assistBusy ? 'AI代写中...' : aiTyping ? '对方正在输入 你可以直接插话打断' : '发消息…'}
+                  rows={1}
+                  className="max-h-24 flex-1 resize-none rounded-xl border border-gray-200 px-3 py-2 text-[14.5px] outline-none disabled:cursor-wait disabled:bg-gray-50 disabled:text-gray-400"
+                />
+                <button onClick={handleSend} disabled={assistBusy || !input.trim()} aria-label="发送消息" className="shrink-0 rounded-xl bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-40">发送</button>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -823,8 +857,10 @@ export function ChatPage() {
       {appsOpen && (
         <ActionSheet onClose={()=>setAppsOpen(false)} options={[
           {label:'搜索远程表情包',onSelect:()=>{setAppsOpen(false);setStickerPickerOpen(true);setStickerQuery('');setStickerResults([])}},
-          ...(!isGroupConv&&careerEnabled?[{label:'💸 转账',onSelect:()=>{setAppsOpen(false);setFinanceMode('transfer' as const)}},{label:'🧧 红包',onSelect:()=>{setAppsOpen(false);setFinanceMode('redPacket' as const)}},{label:'🤝 借款',onSelect:()=>{setAppsOpen(false);setFinanceMode('loan' as const)}},{label:'💰 归还借款',onSelect:()=>{setAppsOpen(false);void repayLoan()}}]:[]),
-          {label:'💼 工作',onSelect:()=>navigate('/work')},{label:'🛍️ 商城',onSelect:()=>navigate('/shop')},{label:'🎒 仓库',onSelect:()=>navigate('/warehouse')}
+          ...(!isGroupConv&&careerEnabled?[{label:'转账',onSelect:()=>{setAppsOpen(false);setFinanceMode('transfer' as const)}},{label:'红包',onSelect:()=>{setAppsOpen(false);setFinanceMode('redPacket' as const)}},{label:'借款',onSelect:()=>{setAppsOpen(false);setFinanceMode('loan' as const)}},{label:'归还借款',onSelect:()=>{setAppsOpen(false);void repayLoan()}}]:[]),
+          ...(careerEnabled?[{label:'工作',onSelect:()=>navigate('/work')}]:[]),
+          ...(shopEnabled?[{label:'商城',onSelect:()=>navigate('/shop')}]:[]),
+          ...(warehouseEnabled?[{label:'仓库',onSelect:()=>navigate('/warehouse')}]:[])
         ]}/>
       )}
       {financeMode&&<div className="absolute inset-0 z-50 flex items-end bg-black/30" onClick={()=>setFinanceMode(null)}><div className="w-full rounded-t-2xl bg-white p-4" onClick={e=>e.stopPropagation()}><h3 className="font-medium">{financeMode==='transfer'?'转账':financeMode==='redPacket'?'发红包':'向TA借款'}</h3><input type="number" min="1" value={financeAmount} onChange={e=>setFinanceAmount(e.target.value)} placeholder="金额" className="mt-3 w-full rounded-lg border px-3 py-2"/><input value={financeNote} onChange={e=>setFinanceNote(e.target.value)} placeholder="备注或借款理由" className="mt-2 w-full rounded-lg border px-3 py-2"/><button onClick={submitFinance} className="mt-3 w-full rounded-lg bg-gray-900 py-2.5 text-white">确认</button></div></div>}

@@ -4,6 +4,8 @@ import { Avatar } from './Avatar'
 import { useLongPress } from '../hooks/useLongPress'
 import { displayName } from '../lib/contact'
 import type { Contact, Message } from '../types'
+import { Check } from 'lucide-react'
+import { UiIcon } from './UiIcon'
 
 interface MessageBubbleProps {
   message: Message
@@ -77,7 +79,7 @@ export const MessageBubble = memo(function MessageBubble({
           }`}
           aria-hidden="true"
         >
-          ✓
+          <Check size={13} />
         </span>
       )}
       {!isUser && showName && <p className="mb-1 pl-10 text-[11px] text-gray-400">{contactName}</p>}
@@ -121,8 +123,8 @@ export const MessageBubble = memo(function MessageBubble({
               onClick={() => onLinkClick?.(message)}
               className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-left"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--ui-special-soft)] text-sm">
-                🔗
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--ui-special-soft)] text-[var(--ui-special-ink)]">
+                <UiIcon name="link" size={16} />
               </span>
               <span className="text-[13.5px] text-gray-800">{message.link?.label ?? message.content}</span>
             </button>
@@ -141,7 +143,7 @@ export const MessageBubble = memo(function MessageBubble({
           {message.type === 'scheduleChange' && message.scheduleChange && (
             <div className="w-56 rounded-xl border border-gray-200 bg-white p-3">
               <div className="mb-1.5 flex items-center gap-1.5">
-                <span className="text-xs text-gray-400">📅 日程变更</span>
+                <span className="flex items-center gap-1 text-xs text-gray-400"><UiIcon name="calendar" size={13} />日程变更</span>
                 <span className="ml-auto text-xs text-gray-400">{message.scheduleChange.date}</span>
               </div>
               <p className="mb-1 text-[14px] font-medium text-gray-900">{message.scheduleChange.summary}</p>
@@ -152,7 +154,7 @@ export const MessageBubble = memo(function MessageBubble({
           )}
           {message.type === 'groupPlan' && (
             <div className="w-56 rounded-xl border border-[var(--ui-success)] bg-[#f0fff5] p-3">
-              <p className="text-xs text-[#07a651]">📅 共同计划 · 待确认</p>
+              <p className="flex items-center gap-1 text-xs text-[#07a651]"><UiIcon name="calendar" size={13} />共同计划 · 待确认</p>
               <p className="mt-1 text-[14px] font-medium text-gray-900">{message.content}</p>
               <p className="mt-1 text-[11px] text-gray-500">可在群聊信息中确认、取消或标记成行</p>
             </div>
@@ -160,7 +162,7 @@ export const MessageBubble = memo(function MessageBubble({
           {message.type === 'image' && message.image && <div data-ui-scope="special" className="max-w-[240px] overflow-hidden rounded-xl bg-white"><img src={message.image.url} alt={message.image.caption||'聊天图片'} className="max-h-72 w-full object-cover"/>{message.image.caption&&<p className="px-3 py-2 text-xs text-gray-600">{message.image.caption}</p>}{message.image.photographer&&<p className="px-3 pb-2 text-[10px] text-gray-300">Photo: {message.image.photographer}</p>}</div>}
           {['transfer','redPacket','loanRequest','loanResult','repayment'].includes(message.type) && message.finance && (
             <button data-ui-scope="special" onClick={()=>onFinanceClick?.(message)} className="finance-card w-56 rounded-xl border border-orange-200 p-3 text-left text-white">
-              <p className="text-sm font-medium">{message.type==='transfer'?'💸 转账':message.type==='redPacket'?'🧧 红包':message.type==='loanRequest'?'🤝 借款申请':message.type==='repayment'?'✅ 已还款':'📋 借款结果'}</p>
+              <p className="flex items-center gap-1.5 text-sm font-medium"><UiIcon name={message.type==='transfer'?'finance':message.type==='redPacket'?'gift':message.type==='loanRequest'?'loan':message.type==='repayment'?'check':'archive'} size={16} />{message.type==='transfer'?'转账':message.type==='redPacket'?'红包':message.type==='loanRequest'?'借款申请':message.type==='repayment'?'已还款':'借款结果'}</p>
               <p className="mt-2 text-xl font-bold">{message.type==='redPacket'&&message.finance.status==='pending'?'点击领取':message.finance.amount}</p>
               <p className="mt-1 text-xs text-white/80">{message.finance.note || message.finance.status}</p>
             </button>

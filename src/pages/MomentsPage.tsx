@@ -12,6 +12,7 @@ import { recordSocialEvent } from '../lib/socialEvents'
 import { resizeImageDataUrl } from '../lib/image'
 import { formatListTime } from '../lib/time'
 import type { Contact, MomentComment, MomentLike } from '../types'
+import { Heart, Pencil, RefreshCw } from 'lucide-react'
 
 const EMPTY_ARRAY: never[] = []
 
@@ -187,7 +188,7 @@ export function MomentsPage() {
               aria-label="发一条朋友圈"
               className="flex h-9 w-9 items-center justify-center text-gray-500"
             >
-              ✏️
+              <Pencil size={18} />
             </button>
             <button
               onClick={handleRefresh}
@@ -195,7 +196,7 @@ export function MomentsPage() {
               aria-label="刷新朋友圈"
               className="flex h-9 w-9 items-center justify-center text-gray-500 disabled:opacity-40"
             >
-              {refreshing ? '…' : '🔄'}
+              <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
             </button>
           </div>
         }
@@ -312,9 +313,9 @@ export function MomentsPage() {
                         <button
                           onClick={() => toggleUserLike(m.id, poster?.id)}
                           aria-label="点赞"
-                          className="text-base leading-none"
+                          className={userLiked ? 'text-[var(--ui-danger)]' : 'text-gray-400'}
                         >
-                          {userLiked ? '❤️' : '🤍'}
+                          <Heart size={17} fill={userLiked ? 'currentColor' : 'none'} />
                         </button>
                       </div>
                     </div>
@@ -344,8 +345,8 @@ export function MomentsPage() {
                     {(momentLikes.length > 0 || momentComments.length > 0) && (
                       <div className="mt-2 rounded-lg bg-gray-50 px-2.5 py-2 text-[13px] leading-relaxed">
                         {momentLikes.length > 0 && (
-                          <p className="text-[#576b95]">
-                            ❤ {momentLikes.map((l) => likerName(l.likerId)).join('、')}
+                          <p className="flex items-center gap-1.5 text-[#576b95]">
+                            <Heart size={13} fill="currentColor" />{momentLikes.map((l) => likerName(l.likerId)).join('、')}
                           </p>
                         )}
                         {momentComments.length > 0 && (

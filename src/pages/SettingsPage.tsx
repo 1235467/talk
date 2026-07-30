@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { TopBar } from '../components/TopBar'
+import { Palette } from 'lucide-react'
 import { ActionSheet } from '../components/ActionSheet'
 import { ImageCropper } from '../components/ImageCropper'
 import { useSettingsStore } from '../store/useSettingsStore'
@@ -595,7 +596,7 @@ export function SettingsPage() {
 
       <section className="mt-3 bg-white">
         <button type="button" onClick={() => navigate('/settings/image-generation')} className="flex w-full items-center gap-3 px-4 py-4 text-left">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-lg">🎨</div>
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-[var(--ui-special-ink)]"><Palette size={20} /></div>
           <div className="min-w-0 flex-1">
             <p className="text-sm text-gray-900">AI 图片生成</p>
             <p className={`mt-0.5 text-xs ${isImageProviderReady({ imageProvider, imageProviders }) ? 'text-green-600' : 'text-gray-400'}`}>

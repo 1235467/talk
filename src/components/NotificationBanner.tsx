@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useChatUiStore } from '../store/useChatUiStore'
 import { Avatar } from './Avatar'
+import { X } from 'lucide-react'
 
 const AUTO_DISMISS_MS = 4000
 
@@ -42,7 +43,7 @@ export function NotificationBanner() {
         className="shrink-0 px-1 text-gray-300"
         aria-label="关闭通知"
       >
-        ✕
+        <X size={15} />
       </button>
     </div>
   )
