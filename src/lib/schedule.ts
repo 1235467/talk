@@ -102,7 +102,8 @@ export function validateScheduleBlocks(raw: unknown): ScheduleBlock[] {
     if (phoneAccess !== 'available' && phoneAccess !== 'unavailable') continue
     if (!location || !activity) continue
 
-    result.push({ id: uuid(), dayOfWeek, startHour, endHour, phoneAccess, location, activity })
+    const locationId = typeof b.locationId === 'string' && b.locationId.trim() ? b.locationId.trim() : undefined
+    result.push({ id: uuid(), dayOfWeek, startHour, endHour, phoneAccess, location, locationId, activity })
   }
   return result
 }

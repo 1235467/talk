@@ -62,6 +62,10 @@ export interface Contact {
   monthlySalary?: number
   jobStartedDate?: string
   lastSalaryDate?: string
+  /** Optional home/current map anchor used by the 地点 module. */
+  currentLocationId?: string
+  locationUpdatedAt?: number
+  locationSource?: 'schedule' | 'manual' | 'fallback'
 }
 
 /** A recurring weekly time block — generated once at contact creation alongside the persona, not user-editable directly. */
@@ -79,6 +83,7 @@ export interface ScheduleBlock {
   endHour: number // 1-24, exclusive
   phoneAccess: 'available' | 'unavailable'
   location: string
+  locationId?: string
   activity: string
 }
 
@@ -90,6 +95,7 @@ export interface ScheduleOverride {
   endHour: number
   phoneAccess: 'available' | 'unavailable'
   location: string
+  locationId?: string
   activity: string
   summary: string // short human-facing text shown in the chat bubble, e.g. "周三晚上：一起吃烧烤"
   /** Conversation-derived plans take precedence over the generated weekly routine. */
@@ -253,6 +259,8 @@ export interface Conversation {
   updatedAt: number
   createdAt: number
   lastReadAt?: number // stamped whenever ChatPage has this conversation open; unread count = assistant messages newer than this
+  /** System-owned conversations stay above ordinary user pins. */
+  systemPinned?: boolean
 }
 
 /** A group chat: still just one LLM call per turn simulating multiple personas (see groupChat.ts), not real independent AI-to-AI agents. */
@@ -271,6 +279,60 @@ export interface Group {
   createdAt: number
   momentSharing?: 'enabled' | 'relationshipOnly' | 'private'
   memoryMessageCursor?: number // how many of this group's messages have already been folded into members' memory (see memory.ts) — optional since it predates group memory
+  /** The location module reuses the normal Talk group engine and settings. */
+  kind?: 'standard' | 'location'
+  locationId?: string
+}
+
+// ---- optional location module ----
+export type TerrainType = 'river' | 'grassland' | 'beach' | 'mountain' | 'urban' | 'rural'
+
+export interface LocationMapBinding {
+  x: number
+  y: number
+  allowedTerrains: TerrainType[]
+  buildingCategory: string
+}
+
+export interface LocationNode {
+  id: string
+  parentId?: string
+  name: string
+  kind: string
+  description: string
+  access: 'public' | 'restricted' | 'private'
+  mapBinding?: LocationMapBinding
+  sortOrder: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface WorldMapRecord {
+  id: 'active'
+  width: 32
+  height: 32
+  seed: string
+  generatorVersion: number
+  mode: 'fixed' | 'custom'
+  tiles: TerrainType[]
+  createdAt: number
+  updatedAt: number
+}
+
+export interface LocationModuleState {
+  id: 'active'
+  currentLocationId?: string
+  updatedAt: number
+}
+
+export type LocationAudibility = 'clear' | 'muffled' | 'none'
+
+export interface AcousticEdge {
+  id: string
+  fromLocationId: string
+  toLocationId: string
+  audibility: LocationAudibility
+  bidirectional: boolean
 }
 
 export type GroupPlanStatus = 'pending' | 'confirmed' | 'completed' | 'cancelled'

@@ -108,6 +108,45 @@ describe('image generation providers', () => {
     expect(result).toEqual({ url: 'https://cdn.example/generated.png', query: 'orange cat', provider: 'atlas' })
   })
 
+  it('offers the curated Atlas image models including Z-Image Turbo', async () => {
+    const providers = createDefaultImageProviders()
+    const options = await loadImageProviderOptions({ imageProviders: providers }, 'atlas')
+
+    expect(options.models).toContain('z-image/turbo')
+    expect(options.models).toContain('black-forest-labs/flux-schnell')
+    expect(options.models).toContain('atlascloud/qwen-image/text-to-image')
+    expect(options.models.length).toBeGreaterThanOrEqual(6)
+  })
+
+  it('uses the shared Atlas size field for Z-Image Turbo', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body))
+      expect(body).toMatchObject({ model: 'z-image/turbo', size: '1024*1536' })
+      return jsonResponse({ data: { outputs: ['https://cdn.example/z-image.png'] } })
+    }))
+    const providers = createDefaultImageProviders()
+    providers.atlas.apiKey = 'atlas-test-key'
+    providers.atlas.model = 'z-image/turbo'
+    providers.atlas.size = '1024*1536'
+
+    const result = await generateRemoteImage({ imageProvider: 'atlas', imageProviders: providers }, 'portrait')
+    expect(result?.url).toBe('https://cdn.example/z-image.png')
+  })
+
+  it('omits an unsupported size override for the Qwen Image preset', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body))
+      expect(body.model).toBe('atlascloud/qwen-image/text-to-image')
+      expect(body).not.toHaveProperty('size')
+      return jsonResponse({ data: { outputs: ['https://cdn.example/qwen.png'] } })
+    }))
+    const providers = createDefaultImageProviders()
+    providers.atlas.apiKey = 'atlas-test-key'
+    providers.atlas.model = 'atlascloud/qwen-image/text-to-image'
+
+    await generateRemoteImage({ imageProvider: 'atlas', imageProviders: providers }, 'Chinese poster')
+  })
+
   it('decodes the first PNG from NovelAI zip output', async () => {
     const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
     const archive = zipSync({ 'image.png': png })

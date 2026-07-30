@@ -24,6 +24,7 @@ export const BACKUP_TABLES = [
   'simulationState', 'contactLifeStates', 'lifeEvents', 'aiUsageRecords',
   'aiTurns',
   'socialEvents',
+  'locations', 'worldMaps', 'locationModuleState', 'acousticEdges',
   'walletAccounts', 'walletTransactions', 'loans', 'jobListings', 'interviews', 'groupPlans', 'adminLogs', 'adminAiTraces', 'savedPersonas',
 ] as const
 
@@ -66,7 +67,7 @@ export function assertTalkBackup(value: unknown): asserts value is TalkBackup {
   if ((backup.schemaVersion as number | undefined) !== 1 && backup.schemaVersion !== BACKUP_SCHEMA_VERSION) throw new Error('备份版本暂不支持')
   if (!backup.tables || typeof backup.tables !== 'object') throw new Error('备份文件缺少数据表')
   for (const name of BACKUP_TABLES) {
-    if (['worldbookCollections','worldbookEntries','simulationState','contactLifeStates','lifeEvents','aiUsageRecords','socialEvents','walletAccounts','walletTransactions','loans','jobListings','interviews','groupPlans','adminLogs','adminAiTraces','savedPersonas'].includes(name) && backup.tables[name] === undefined) continue
+    if (['worldbookCollections','worldbookEntries','simulationState','contactLifeStates','lifeEvents','aiUsageRecords','socialEvents','walletAccounts','walletTransactions','loans','jobListings','interviews','groupPlans','adminLogs','adminAiTraces','savedPersonas','locations','worldMaps','locationModuleState','acousticEdges'].includes(name) && backup.tables[name] === undefined) continue
     if (!Array.isArray(backup.tables[name])) throw new Error(`备份文件缺少 ${name} 表`)
   }
 }

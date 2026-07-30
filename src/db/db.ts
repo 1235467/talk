@@ -19,6 +19,7 @@ import type {
   SocialEvent, GroupPlan, AdminLogRecord, AdminAiTrace, SaveSlot, SavedPersona, PersonaCreationRecord,
   Sticker,
   WalletAccount, WalletTransaction, Loan, JobListing, InterviewSession,
+  LocationNode, WorldMapRecord, LocationModuleState, AcousticEdge,
 } from '../types'
 
 export class TalkDB extends Dexie {
@@ -54,6 +55,10 @@ export class TalkDB extends Dexie {
   saveSlots!: Table<SaveSlot, string>
   savedPersonas!: Table<SavedPersona, string>
   personaCreationRecords!: Table<PersonaCreationRecord, string>
+  locations!: Table<LocationNode, string>
+  worldMaps!: Table<WorldMapRecord, string>
+  locationModuleState!: Table<LocationModuleState, string>
+  acousticEdges!: Table<AcousticEdge, string>
 
   constructor() {
     super('talk-db')
@@ -292,6 +297,18 @@ export class TalkDB extends Dexie {
         await table.update(keeper.id, { productKey, quantity, updatedAt: Date.now() })
         if (duplicates.length > 0) await table.bulkDelete(duplicates.map((row) => row.id))
       }
+    })
+    // Optional 地点 module. The legacy v2 locations table was deliberately
+    // removed in v3; this is a new, independently modelled map feature.
+    this.version(28).stores({
+      locations: 'id, parentId, sortOrder, kind',
+      worldMaps: '&id, mode, seed',
+      locationModuleState: '&id, currentLocationId, updatedAt',
+      conversations: 'id, contactId, groupId, updatedAt, pinned, systemPinned',
+      groups: 'id, kind, locationId, createdAt',
+    })
+    this.version(29).stores({
+      acousticEdges: '&id, fromLocationId, toLocationId',
     })
   }
 }

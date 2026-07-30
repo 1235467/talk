@@ -2,18 +2,27 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
 
 interface Props {
   children: ReactNode
+  resetKey?: string
 }
 
 interface State {
   hasError: boolean
+  resetKey?: string
 }
 
 /** Keeps an unexpected render failure from taking the entire app to a blank screen. */
 export class AppErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false }
+  state: State = { hasError: false, resetKey: this.props.resetKey }
 
-  static getDerivedStateFromError(): State {
+  static getDerivedStateFromError(): Partial<State> {
     return { hasError: true }
+  }
+
+  static getDerivedStateFromProps(props: Props, state: State): Partial<State> | null {
+    if (props.resetKey !== state.resetKey) {
+      return { hasError: false, resetKey: props.resetKey }
+    }
+    return null
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {

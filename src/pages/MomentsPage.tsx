@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
@@ -16,6 +16,7 @@ import type { Contact, MomentComment, MomentLike } from '../types'
 const EMPTY_ARRAY: never[] = []
 
 export function MomentsPage() {
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const focusMomentId = searchParams.get('focus')
   const settings = useSettingsStore()
@@ -175,7 +176,7 @@ export function MomentsPage() {
   }
 
   return (
-    <div className="relative flex h-[var(--app-height)] flex-col overflow-hidden bg-[#ededed]">
+    <div data-page-kind="moments" className="relative flex h-[var(--app-height)] flex-col overflow-hidden bg-[#ededed]">
       <TopBar
         title="朋友圈"
         showBack
@@ -199,9 +200,9 @@ export function MomentsPage() {
           </div>
         }
       />
-      <div className="flex-1 overflow-y-auto">
+      <div className="moments-scroll flex-1 overflow-y-auto">
 
-      <div className="relative shrink-0" style={{ height: '40vh' }} onClick={() => coverInput.current?.click()}>
+      <div className="moments-cover relative shrink-0" style={{ height: '40vh' }} onClick={() => coverInput.current?.click()}>
         {settings.momentsCoverPhoto ? (
           <img src={settings.momentsCoverPhoto} alt="" className="h-full w-full object-cover" />
         ) : (
@@ -211,7 +212,16 @@ export function MomentsPage() {
           <span className="text-[15px] font-medium text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.4)]">
             {settings.userNickname}
           </span>
-          <Avatar avatar={settings.userAvatar} size={44} />
+          <button
+            type="button"
+            aria-label="编辑个人信息"
+            onClick={(event) => {
+              event.stopPropagation()
+              void navigate('/profile/edit')
+            }}
+          >
+            <Avatar avatar={settings.userAvatar} size={44} />
+          </button>
         </div>
         <input ref={coverInput} type="file" accept="image/*" onChange={handleCoverFile} className="hidden" />
       </div>
@@ -265,7 +275,13 @@ export function MomentsPage() {
             return (
               <div key={m.id} className={`border-b border-gray-100 bg-white px-4 py-3 ${m.id === focusMomentId ? 'ring-2 ring-inset ring-[#07c160]' : ''}`}>
                 <div className="flex gap-3">
-                  <Avatar avatar={posterAvatar} color={posterAvatarColor} size={40} />
+                  <button
+                    type="button"
+                    aria-label={isUserPost ? '编辑个人信息' : `查看${posterName}资料`}
+                    onClick={() => navigate(isUserPost ? '/profile/edit' : `/contact/${poster!.id}`)}
+                  >
+                    <Avatar avatar={posterAvatar} color={posterAvatarColor} size={40} />
+                  </button>
                   <div className="min-w-0 flex-1">
                     <p className="text-[14px] font-medium text-[#576b95]">{posterName}</p>
                     <p className="mt-1 whitespace-pre-wrap text-[14.5px] leading-relaxed text-gray-900">

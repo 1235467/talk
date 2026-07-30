@@ -95,7 +95,7 @@ export function stripSpeakerNamePrefix(content: string, memberNames: string[]): 
   return content
 }
 
-export function buildGroupRawChatPrompt(opts: {
+function buildGroupPrompt(opts: {
   stylePrompt: string
   groupName: string
   allMembers: Contact[]
@@ -117,9 +117,10 @@ export function buildGroupRawChatPrompt(opts: {
   selfIterationGlobalText?: string
   speakerMemoriesMap?: Map<string, string>
   aiRelationshipText?: string
+  locationContextText?: string
   promptModules?: PromptModuleSettings
   enabledModules: string[]
-}): string {
+}, scene: boolean): string {
   const promptSettings = {
     promptModules: opts.promptModules ?? createDefaultPromptModules(),
     enabledModules: opts.enabledModules,
@@ -143,7 +144,7 @@ export function buildGroupRawChatPrompt(opts: {
       const recentMemoText = memoryPromptOn ? opts.speakerMemoriesMap?.get(c.id) : undefined
       return `【发言人${i + 1}: ${c.name}】
 逻辑:
-- 你是${c.name}，现在在微信群"${opts.groupName}"里。
+- 你是${c.name}，${scene ? `正在现实地点“${opts.groupName}”参与线下现场对话` : `现在在微信群“${opts.groupName}”里`}。
 ${relationshipPromptOn ? `- 你和用户的关系: ${base}${c.relationshipDynamic ? `（${c.relationshipDynamic}）` : ''}。\n` : ''}
 - 当前状态: ${scheduleText || '没有特别安排'}。
 ${memoryPromptOn ? `- 对用户的了解: ${c.memoryFacts || '暂无具体聊天记忆'}。\n- 相处习惯: ${c.memoryStyle || '暂无'}。\n${sharedHistoryText}${plansText ? `- 和用户的约定: ${plansText}。\n` : ''}${recentMemoText ? `- 最近记忆碎片:\n${recentMemoText}\n` : ''}` : ''}${selfIterationPromptOn && c.selfIterationPrompt ? `- 关系协商记录:\n${c.selfIterationPrompt}\n` : ''}
@@ -169,7 +170,8 @@ ${samplesText ? `- 说话样例:\n${samplesText}` : ''}`
   const selfIteration = selfIterationPromptOn && opts.selfIterationGlobalText ? `\n【用户边界与偏好 - 全局】\n${opts.selfIterationGlobalText}` : ''
   const groupMemory = memoryPromptOn && opts.groupMemoryText?.trim() ? `\n【群聊记忆】\n${opts.groupMemoryText.trim()}` : ''
   const groupVibe = opts.groupVibeText?.trim() ? `\n【群聊氛围】\n${opts.groupVibeText.trim()}` : ''
-  const editableGroupPrompt = getPromptTemplate(promptSettings, 'chat', 'groupMain', {
+  const locationContext = opts.locationContextText?.trim() ? `\n【地点场景】\n${opts.locationContextText.trim()}` : ''
+  const editableGroupPrompt = getPromptTemplate(promptSettings, 'chat', scene ? 'locationMain' : 'groupMain', {
     groupName: opts.groupName,
     roster: rosterText,
     speakers: speakerNames,
@@ -179,7 +181,7 @@ ${samplesText ? `- 说话样例:\n${samplesText}` : ''}`
     worldbookPrompt: worldview,
     currentTime: opts.currentTimeText,
     userProfile: opts.userProfileText,
-    additionalContext: [groupMemory, groupVibe, knowledge, targetedContext, recentEvents, aiRelationships, selfIteration].filter(Boolean).join('\n'),
+    additionalContext: [locationContext, groupMemory, groupVibe, knowledge, targetedContext, recentEvents, aiRelationships, selfIteration].filter(Boolean).join('\n'),
     speakerProfiles: speakerBlocks,
     stickerCapabilities: opts.remoteStickerSearchEnabled ? `支持远程搜索；本地可用项：${stickersText}` : stickersText,
     imageCapabilities: opts.imageGenerationEnabled ? '支持按完整英文提示词生图' : opts.imageSearchEnabled ? '支持按英文关键词搜索真实图片' : '未启用',
@@ -194,6 +196,14 @@ ${samplesText ? `- 说话样例:\n${samplesText}` : ''}`
 - 消息内容不得残留人名冒号、结构标记或外层格式。`
 
   return finalPrompt
+}
+
+export function buildGroupRawChatPrompt(opts: Parameters<typeof buildGroupPrompt>[0]): string {
+  return buildGroupPrompt(opts, false)
+}
+
+export function buildLocationRawChatPrompt(opts: Parameters<typeof buildGroupPrompt>[0]): string {
+  return buildGroupPrompt(opts, true)
 }
 
 /**

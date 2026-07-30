@@ -245,10 +245,10 @@ ${worldbookText.trim()}` : ''
   ${answers.draftMode ? '"initialWarmth": 35,' : ''}
   "monthlySalary": 8000,
   "schedule": [
-    { "dayOfWeek": 1, "startHour": 9, "endHour": 18, "phoneAccess": "unavailable", "location": "公司", "activity": "上班" },
-    { "dayOfWeek": 1, "startHour": 23, "endHour": 7, "phoneAccess": "unavailable", "location": "家里", "activity": "睡觉" }
+    { "dayOfWeek": 1, "startHour": 9, "endHour": 18, "phoneAccess": "unavailable", "location": "公司", "locationId": "office-floor", "activity": "上班" },
+    { "dayOfWeek": 1, "startHour": 23, "endHour": 7, "phoneAccess": "unavailable", "location": "家里", "locationId": "home-living", "activity": "睡觉" }
   ]${avatarInstruction}
-	}${answers.draftMode ? '\ninitialWarmth 必须是 -100 到 100 的整数。请根据角色对用户的关系定位、共同经历、性格和边界自行决定，陌生疏离可为负数，亲密关系应与设定相符。' : ''}`
+	}\nschedule中的location保留自然语言，同时尽量填写合法locationId。可用值：home-living、home-kitchen、school-classroom、school-canteen、school-playground、office-floor、office-lobby、mall-atrium、mall-cafe、mall-shop、hospital-lobby、hospital-clinic、park-lawn、park-riverside、beach-boardwalk、mountain-lookout、farm-field。${answers.draftMode ? '\ninitialWarmth 必须是 -100 到 100 的整数。请根据角色对用户的关系定位、共同经历、性格和边界自行决定，陌生疏离可为负数，亲密关系应与设定相符。' : ''}`
 }
 
 export function parsePersonaGeneration(raw: string): PersonaGenerationResult | null {

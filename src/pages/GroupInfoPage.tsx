@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate, useParams } from 'react-router-dom'
 import { db } from '../db/db'
@@ -7,13 +7,14 @@ import { Avatar } from '../components/Avatar'
 import { displayName } from '../lib/contact'
 import { activeIntents } from '../lib/intent'
 import { buildUserProfileText } from '../lib/chatEngine'
-import { buildGroupJsonConversionPrompt, buildGroupRawChatPrompt } from '../lib/groupChat'
+import { buildGroupJsonConversionPrompt, buildGroupRawChatPrompt, buildLocationRawChatPrompt } from '../lib/groupChat'
 import { knowledgeDigestText } from '../lib/knowledgeBase'
 import { describeCurrentTime } from '../lib/time'
 import { isModuleEnabled } from '../features'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { setGroupPlanStatus } from '../lib/groupPlans'
 import type { Contact, Group, GroupEnergyLevel, GroupPlan, GroupSpeakerLimit } from '../types'
+import { realSeason, resolveLocationParticipants, syncContactLocationsAt } from '../lib/locations'
 
 const EMPTY_CONTACTS: Contact[] = []
 const SPEAKER_LIMIT_OPTIONS: GroupSpeakerLimit[] = [2, 3, 4, 5, 'all']
@@ -120,12 +121,20 @@ export function GroupInfoPage() {
   const [selectedToAdd, setSelectedToAdd] = useState<string[]>([])
 
   const group = useLiveQuery(() => (groupId ? db.groups.get(groupId) : undefined), [groupId])
+  const groupLocation = useLiveQuery(() => (group?.kind === 'location' && group.locationId ? db.locations.get(group.locationId) : undefined), [group])
+  useEffect(() => {
+    if (group?.kind === 'location') void syncContactLocationsAt(new Date())
+  }, [group?.kind, group?.locationId])
+  const locationParticipants = useLiveQuery(
+    () => group?.kind === 'location' && group.locationId ? resolveLocationParticipants(group.locationId) : undefined,
+    [group?.kind, group?.locationId],
+  )
   const groupPlans = useLiveQuery(() => (groupId ? db.groupPlans.where('groupId').equals(groupId).reverse().sortBy('createdAt') : []), [groupId]) ?? []
   const allContacts = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_CONTACTS
   const membersRaw = useLiveQuery(() => (group ? db.contacts.bulkGet(group.memberContactIds) : []), [group])
   const stickers = useLiveQuery(() => db.stickers.toArray(), []) ?? []
   const knowledgeEntries = useLiveQuery(() => db.knowledgeEntries.toArray(), []) ?? []
-  const members = useMemo(() => (membersRaw ?? []).filter((c): c is Contact => !!c), [membersRaw])
+  const members = useMemo(() => locationParticipants?.activeMembers ?? (membersRaw ?? []).filter((c): c is Contact => !!c), [locationParticipants, membersRaw])
 
   const addableContacts = useMemo(() => {
     if (!group) return []
@@ -141,7 +150,7 @@ export function GroupInfoPage() {
 
   const promptPreview =
     adminEnabled && group && promptPreviewSpeakers.length > 0
-      ? buildGroupRawChatPrompt({
+      ? (group.kind === 'location' ? buildLocationRawChatPrompt : buildGroupRawChatPrompt)({
           stylePrompt: settings.globalSystemPrompt,
           groupName: group.name,
           allMembers: members,
@@ -160,6 +169,12 @@ export function GroupInfoPage() {
           selfIterationGlobalText: isModuleEnabled('selfIteration') ? settings.selfIterationGlobalPrompt : undefined,
           speakerMemoriesMap: new Map(),
           enabledModules: settings.enabledModules,
+          locationContextText: groupLocation
+            ? `当前地点：${groupLocation.name}\n地点描述：${groupLocation.description}\n设备现实时间：${describeCurrentTime(new Date())}\n现实季节：${realSeason(new Date())}\n人物位置与听觉状态：\n${[
+                ...(locationParticipants?.here ?? []).map((contact) => `- ${displayName(contact)}：here`),
+                ...(locationParticipants?.audible ?? []).map(({ contact, audibility }) => `- ${displayName(contact)}：${audibility}`),
+              ].join('\n') || '当前无人'}`
+            : undefined,
         })
       : ''
 
@@ -232,13 +247,13 @@ export function GroupInfoPage() {
       <div className="flex-1 overflow-y-auto">
         <section className="mt-3 flex flex-col items-center gap-2 bg-white px-4 py-6">
           <Avatar avatar={group.avatar} color={group.avatarColor} size={64} />
-          <button onClick={openNameEditor} className="text-[15px] font-medium text-gray-900 underline-offset-2 active:underline">
-            {group.name}
+          <button onClick={group.kind === 'location' ? undefined : openNameEditor} className="text-[15px] font-medium text-gray-900 underline-offset-2 active:underline">
+            {group.kind === 'location' ? `${group.name} · ${groupLocation?.name ?? '未选择地点'}` : group.name}
           </button>
           <p className="text-xs text-gray-400">{members.length} 位成员</p>
         </section>
 
-        <section className="mt-3 bg-white">
+        {group.kind !== 'location' && <section className="mt-3 bg-white">
           <button
             onClick={openNameEditor}
             className="flex w-full items-center justify-between border-b border-gray-100 px-4 py-3.5 text-left active:bg-gray-50"
@@ -246,7 +261,25 @@ export function GroupInfoPage() {
             <span className="text-[15px] text-gray-900">群聊名称</span>
             <span className="max-w-[58%] truncate text-sm text-gray-400">{group.name}</span>
           </button>
-        </section>
+        </section>}
+
+        {group.kind === 'location' && (
+          <section className="mt-3 bg-white px-4 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div><h3 className="text-xs font-medium text-gray-400">当前地点</h3><p className="mt-1 text-sm text-gray-900">{groupLocation?.name ?? '未选择地点'}</p><p className="mt-1 text-xs leading-relaxed text-gray-400">{groupLocation?.description ?? '请从地点地图选择一个具体地点。'}</p></div>
+              <button type="button" onClick={() => navigate('/locations')} className="shrink-0 rounded-full bg-violet-50 px-3 py-1.5 text-xs text-violet-600">打开地图</button>
+            </div>
+          </section>
+        )}
+
+        {group.kind === 'location' && locationParticipants && <section className="mt-3 bg-white px-4 py-4">
+          <h3 className="mb-3 text-xs font-medium text-gray-400">现场人物</h3>
+          {([
+            ['正在这里', locationParticipants.here],
+            ['附近能听见', locationParticipants.audible.map((item) => item.contact)],
+            ['不在这里', locationParticipants.away],
+          ] as Array<[string, Contact[]]>).map(([label, contacts]) => <div key={label} className="mb-3 last:mb-0"><p className="mb-1 text-[11px] text-gray-400">{label} · {contacts.length}</p>{contacts.length === 0 ? <p className="px-2 text-xs text-gray-300">暂无</p> : <div className="space-y-1">{contacts.map((contact) => <button type="button" key={contact.id} onClick={() => navigate(`/contact/${contact.id}`)} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left active:bg-gray-50"><Avatar avatar={contact.avatar} color={contact.avatarColor} size={34} /><span className="min-w-0 flex-1 truncate text-sm text-gray-800">{displayName(contact)}</span><span className="max-w-28 truncate text-[10px] text-gray-400">{contact.currentLocationId}</span></button>)}</div>}</div>)}
+        </section>}
 
         <section className="mt-3 bg-white px-4 py-4">
           <h3 className="mb-2 text-xs font-medium text-gray-400">群聊记忆</h3>
@@ -345,7 +378,7 @@ export function GroupInfoPage() {
           </div>
         </section>
 
-        <section className="mt-3 bg-white px-4 py-4">
+        {group.kind !== 'location' && <section className="mt-3 bg-white px-4 py-4">
           <div className="mb-2 flex items-center justify-between">
             <label className="block text-xs font-medium text-gray-400">群成员</label>
             <button onClick={() => setEditingMembers((v) => !v)} className="text-xs text-gray-500 underline">
@@ -414,7 +447,7 @@ export function GroupInfoPage() {
               )}
             </div>
           )}
-        </section>
+        </section>}
 
         {adminEnabled && (
           <>
@@ -459,7 +492,7 @@ export function GroupInfoPage() {
           </>
         )}
 
-        <section className="mt-3 bg-white px-4 py-4">
+        {group.kind !== 'location' && <section className="mt-3 bg-white px-4 py-4">
           {confirming ? (
             <div className="rounded-lg bg-red-50 p-3">
               <p className="mb-2 text-xs text-red-500">解散后聊天记录也会一起删除，无法恢复。确定吗？</p>
@@ -477,7 +510,7 @@ export function GroupInfoPage() {
               解散群聊
             </button>
           )}
-        </section>
+        </section>}
       </div>
 
       {editingName && (

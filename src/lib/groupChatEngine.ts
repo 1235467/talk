@@ -4,6 +4,7 @@ import { chatCompletion as chatCompletionResult, chatCompletionText as chatCompl
 import {
   buildGroupJsonConversionPrompt,
   buildGroupRawChatPrompt,
+  buildLocationRawChatPrompt,
   groupTypingDelayMs,
   parseGroupAiResponse,
   parseGroupRawDraft,
@@ -25,6 +26,7 @@ import { trackRemoteStickerSend } from './remoteMedia'
 import { resolveBubbleMedia } from './bubbleMedia'
 import { createTurnController, revealSequentially } from './conversationRuntime'
 import { isImageProviderReady, isStickerProviderReady } from './mediaProviders'
+import { realSeason, resolveLocationParticipants, syncContactLocationsAt, type LocationParticipants } from './locations'
 import { recentSocialEventsText, recordSocialEvent } from './socialEvents'
 import { recentSharedOriginalContext } from './sharedRecentContext'
 import { createGroupPlan, planCardMessage } from './groupPlans'
@@ -246,7 +248,14 @@ export async function sendGroupMessage(
   replyToMessageId?: string,
 ): Promise<void> {
   if (!text.trim()) return
-  if (!settings.apiKey) {
+  if (group.kind === 'location' && group.locationId) {
+    await syncContactLocationsAt(new Date())
+    const participants = await resolveLocationParticipants(group.locationId)
+    members = participants.activeMembers
+    group = { ...group, memberContactIds: members.map((member) => member.id) }
+    await db.groups.update(group.id, { memberContactIds: group.memberContactIds })
+  }
+  if (!settings.apiKey && members.length > 0) {
     useChatEngineStore.getState().patch(conversationId, { error: '还没有配置API Key 请先去"我-设置"里填写' })
     return
   }
@@ -267,6 +276,10 @@ export async function sendGroupMessage(
   }
   await db.messages.add(msg)
   await db.conversations.update(conversationId, { updatedAt: Date.now() })
+  if (group.kind === 'location' && members.length === 0) {
+    useChatEngineStore.getState().patch(conversationId, { aiTyping: false, typingLabel: undefined, error: '' })
+    return
+  }
   if (msg.mentions?.length || msg.replyToMessageId) {
     const mentionedNames = msg.mentions
       ?.map((id) => members.find((member) => member.id === id))
@@ -350,8 +363,16 @@ async function runGroupAiTurn(
   engine.patch(conversationId, { aiTyping: true, error: '', typingLabel: '群成员' })
   console.log(`[group] 开始生成回复 群=${group.name} conversationId=${conversationId}`)
   try {
+    let locationParticipants: LocationParticipants | undefined
+    if (group.kind === 'location' && group.locationId) {
+      await syncContactLocationsAt(new Date())
+      locationParticipants = await resolveLocationParticipants(group.locationId)
+      members = locationParticipants.activeMembers
+      group = { ...group, memberContactIds: members.map((member) => member.id) }
+      await db.groups.update(group.id, { memberContactIds: group.memberContactIds })
+    }
     if (members.length === 0) {
-      engine.patch(conversationId, { error: '这个群里已经没有成员了', aiTyping: false, typingLabel: undefined })
+      engine.patch(conversationId, { error: group.kind === 'location' ? '' : '这个群里已经没有成员了', aiTyping: false, typingLabel: undefined })
       return
     }
 
@@ -382,7 +403,15 @@ async function runGroupAiTurn(
     const remoteStickerSearchEnabled = isStickerProviderReady(settings)
     const imageGenerationEnabled = isImageProviderReady(settings)
     const mediaPromptOptions = { remoteStickerSearchEnabled, imageGenerationEnabled }
-    const systemPrompt = buildGroupRawChatPrompt({
+    const location = group.kind === 'location' && group.locationId ? await db.locations.get(group.locationId) : undefined
+    const promptBuilder = group.kind === 'location' ? buildLocationRawChatPrompt : buildGroupRawChatPrompt
+    const participantPositions = locationParticipants
+      ? [
+          ...locationParticipants.here.map((contact) => `- ${displayName(contact)}：here，正在当前地点`),
+          ...locationParticipants.audible.map(({ contact, audibility }) => `- ${displayName(contact)}：${audibility}，位于${contact.currentLocationId ?? '未知地点'}`),
+        ].join('\n')
+      : ''
+    const systemPrompt = promptBuilder({
       stylePrompt: settings.globalSystemPrompt,
       groupName: group.name,
       allMembers: members,
@@ -404,6 +433,9 @@ async function runGroupAiTurn(
       selfIterationGlobalText: featureActive(settings, 'selfIteration') ? settings.selfIterationGlobalPrompt : undefined,
       speakerMemoriesMap,
       aiRelationshipText,
+      locationContextText: location
+        ? `当前地点：${location.name}\n地点描述：${location.description}\n设备现实时间：${describeCurrentTime(new Date())}\n现实季节：${realSeason(new Date())}\n人物位置与听觉状态：\n${participantPositions || '当前没有任何人物能听见'}\n模型只能从本轮可发言成员中选择说话人。muffled人物只能隔墙、隔门或从远处搭话。`
+        : undefined,
       promptModules: settings.promptModules,
       enabledModules: settings.enabledModules,
     })

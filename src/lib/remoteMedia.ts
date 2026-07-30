@@ -6,8 +6,14 @@ import type {
   ImageProviderId,
   StickerProviderId,
 } from '../types'
-import { isImageProviderReady, isStickerProviderReady } from './mediaProviders'
+import {
+  ATLAS_IMAGE_MODEL_PRESETS,
+  atlasImageModelPreset,
+  isImageProviderReady,
+  isStickerProviderReady,
+} from './mediaProviders'
 import { httpFailureMessage, requireHttpUrl } from './connectionError'
+import { appFetch } from './appFetch'
 
 export interface RemoteStickerResult {
   url: string
@@ -135,7 +141,7 @@ async function mediaRequest(url: string, options: MediaRequestOptions = {}): Pro
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const response = await fetch(requestUrl, {
+    const response = await appFetch(requestUrl, {
       method,
       headers,
       body: options.data === undefined ? undefined : JSON.stringify(options.data),
@@ -397,13 +403,14 @@ async function generateAtlas(
 ): Promise<GeneratedImageResult | null> {
   const config = settings.imageProviders.atlas
   const baseUrl = trimBaseUrl(config.baseUrl)
+  const preset = atlasImageModelPreset(config.model)
   const response = await mediaRequest(`${baseUrl}/model/generateImage`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${config.apiKey.trim()}`, 'Content-Type': 'application/json' },
     data: {
       model: config.model,
       prompt: joinedPrompt(config.promptPrefix, query),
-      size: config.size,
+      ...(preset?.includeSize === false ? {} : { size: config.size }),
       enable_base64_output: false,
     },
   })
@@ -736,7 +743,7 @@ export async function loadImageProviderOptions(
   }
   if (provider === 'atlas') {
     return {
-      models: ['bytedance/seedream-v4', 'bytedance/seedream-v5.0-pro/text-to-image'],
+      models: ATLAS_IMAGE_MODEL_PRESETS.map((preset) => preset.id),
       samplers: [],
       schedulers: [],
     }

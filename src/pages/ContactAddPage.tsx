@@ -23,6 +23,7 @@ import { randomAnimeAvatar, searchPexelsPhoto } from '../lib/photoSearch'
 import { retrieveWorldbookContext, selectedWorldbookEntriesText } from '../lib/worldbook'
 import { featureActive, getPromptTemplate, promptModuleEnabled } from '../lib/promptModules'
 import { customTraitsValidationError, hasOverlappingCustomTraitRules } from '../lib/contactCreator'
+import { syncContactLocationsAt } from '../lib/locations'
 import { CONTACT_RELATION_LABELS, HOBBY_TAG_OPTIONS, PERSONALITY_TRAIT_OPTIONS, type ContactRelationLabel, type CustomPersonalityTrait, type PersonaCreationRecord } from '../types'
 import {
   AGE_RANGE_OPTIONS,
@@ -587,6 +588,7 @@ issues 要用简短中文列出具体错误。` },
       if (personaSettingText) {
         await db.contacts.update(id, { personaConstraints: [extra.trim(), personaSettingText].filter(Boolean).join('\n\n') })
       }
+      if (settings.enabledModules.includes('location')) await syncContactLocationsAt(new Date(now))
       await db.conversations.add({
         id: uuid(),
         contactId: id,

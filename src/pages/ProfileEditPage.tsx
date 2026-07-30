@@ -17,6 +17,7 @@ export function ProfileEditPage() {
   const [birthday, setBirthday] = useState(settings.userBirthday)
   const [bio, setBio] = useState(settings.userBio)
   const [pickingAvatar, setPickingAvatar] = useState(false)
+  const desktop = Boolean(window.talkDesktop)
 
   function handleSave() {
     settings.setSettings({
@@ -27,6 +28,37 @@ export function ProfileEditPage() {
       userBio: bio.trim(),
     })
     void navigate(-1)
+  }
+
+  if (desktop) {
+    return (
+      <div className="desktop-profile-page">
+        <div className="desktop-profile-head">
+          <button type="button" onClick={() => navigate(-1)} aria-label="返回">‹</button>
+          <h1>编辑个人信息</h1>
+          <span>信息仅保存在本机</span>
+        </div>
+        <div className="desktop-profile-scroll">
+          <section className="desktop-profile-card">
+            <div className="desktop-profile-hero">
+              <button type="button" className="desktop-profile-avatar" onClick={() => setPickingAvatar(true)}>
+                <Avatar avatar={avatar} size={84} />
+              </button>
+              <span>点击头像上传本地图片</span>
+            </div>
+            <div className="desktop-profile-form">
+              <label><span>昵称</span><input value={nickname} onChange={(event) => setNickname(event.target.value)} maxLength={20} /></label>
+              <label><span>性别</span><div className="desktop-profile-options">{GENDER_OPTIONS.map((value) => <button type="button" key={value} onClick={() => setGender(gender === value ? '' : value)} className={gender === value ? 'active' : ''}>{value}</button>)}</div></label>
+              <label><span>生日</span><input type="date" value={birthday} onChange={(event) => setBirthday(event.target.value)} /></label>
+              <label><span>个人简介</span><textarea value={bio} onChange={(event) => setBio(event.target.value)} rows={4} placeholder="职业、爱好、性格之类的，会作为聊天背景信息" /></label>
+              <label><span>数据说明</span><small>头像和资料只写入当前设备，不会上传到 Talk 服务器。</small></label>
+            </div>
+            <div className="desktop-profile-actions"><button type="button" onClick={() => navigate(-1)}>取消</button><button type="button" className="primary" onClick={handleSave}>保存更改</button></div>
+          </section>
+        </div>
+        {pickingAvatar && <AvatarPicker onSelect={setAvatar} onClose={() => setPickingAvatar(false)} />}
+      </div>
+    )
   }
 
   return (

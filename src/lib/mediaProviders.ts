@@ -6,6 +6,72 @@ import type {
   StickerProvidersSettings,
 } from '../types'
 
+export interface AtlasImageModelPreset {
+  id: string
+  name: string
+  description: string
+  badge: string
+  sizes: readonly string[]
+  defaultSize: string
+  includeSize?: boolean
+}
+
+export const ATLAS_IMAGE_MODEL_PRESETS: readonly AtlasImageModelPreset[] = [
+  {
+    id: 'z-image/turbo',
+    name: 'Z-Image Turbo',
+    description: '速度快、成本低，适合聊天中频繁生成图片。',
+    badge: '高性价比',
+    sizes: ['1024*1024', '1152*896', '896*1152', '1536*1024', '1024*1536'],
+    defaultSize: '1024*1024',
+  },
+  {
+    id: 'bytedance/seedream-v5.0-pro/text-to-image',
+    name: 'Seedream v5 Pro',
+    description: '高质量档，适合文字、构图和细节要求较高的图片。',
+    badge: '高质量',
+    sizes: ['1024*1024', '1536*1536', '1776*1328', '1328*1776', '2048*1152', '1152*2048'],
+    defaultSize: '1536*1536',
+  },
+  {
+    id: 'bytedance/seedream-v4',
+    name: 'Seedream v4',
+    description: '质量和速度比较均衡，保留为兼容性良好的默认选择。',
+    badge: '均衡',
+    sizes: ['1024*1024', '1536*1024', '1024*1536', '2048*1536', '1536*2048'],
+    defaultSize: '1024*1024',
+  },
+  {
+    id: 'atlascloud/qwen-image/text-to-image',
+    name: 'Qwen Image',
+    description: '擅长中文语义和画面文字，由模型采用默认输出尺寸。',
+    badge: '中文',
+    sizes: [],
+    defaultSize: '',
+    includeSize: false,
+  },
+  {
+    id: 'black-forest-labs/flux-schnell',
+    name: 'FLUX Schnell',
+    description: '快速通用生图，适合草图、概念图和快速尝试。',
+    badge: '快速',
+    sizes: ['1024*1024', '1152*896', '896*1152', '1536*1024', '1024*1536'],
+    defaultSize: '1024*1024',
+  },
+  {
+    id: 'bytedance/seedream-v3',
+    name: 'Seedream v3',
+    description: '较早的轻量选择，适合对新模型兼容性不佳时备用。',
+    badge: '兼容',
+    sizes: ['1024*1024', '1152*896', '896*1152', '1536*1024', '1024*1536'],
+    defaultSize: '1024*1024',
+  },
+]
+
+export function atlasImageModelPreset(model: string): AtlasImageModelPreset | undefined {
+  return ATLAS_IMAGE_MODEL_PRESETS.find((preset) => preset.id === model)
+}
+
 export const STICKER_PROVIDER_INFO: Array<{
   id: Exclude<StickerProviderId, 'none'>
   name: string
@@ -153,4 +219,3 @@ export function imageProviderName(provider: ImageProviderId): string {
   if (provider === 'none') return '未启用'
   return IMAGE_PROVIDER_INFO.find((item) => item.id === provider)?.name ?? provider
 }
-

@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { TopBar } from '../components/TopBar'
 import {
+  ATLAS_IMAGE_MODEL_PRESETS,
   IMAGE_PROVIDER_INFO,
+  atlasImageModelPreset,
   isImageProviderReady,
 } from '../lib/mediaProviders'
 import {
@@ -86,6 +88,9 @@ export function ImageProviderSettingsPage() {
   const [loadingOptions, setLoadingOptions] = useState(false)
   const [testing, setTesting] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [atlasCustomMode, setAtlasCustomMode] = useState(
+    () => !atlasImageModelPreset(useSettingsStore.getState().imageProviders.atlas.model),
+  )
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null)
   const [preview, setPreview] = useState<GeneratedImageResult | null>(null)
 
@@ -202,6 +207,8 @@ export function ImageProviderSettingsPage() {
   const modelOptions = options.models
   const samplerOptions = options.samplers
   const schedulerOptions = options.schedulers
+  const atlasPreset = atlasImageModelPreset(providers.atlas.model)
+  const atlasSizes = atlasPreset?.sizes ?? ['1024*1024', '1152*896', '896*1152', '1536*1024', '1024*1536']
 
   return (
     <div className="flex h-[var(--app-height)] flex-col overflow-hidden bg-[#f4f4f6]">
@@ -226,21 +233,62 @@ export function ImageProviderSettingsPage() {
               </label>
               <label className="block">
                 <span className={labelClass}>模型</span>
-                <select value={providers.atlas.model} onChange={(event) => updateProvider('atlas', { model: event.target.value })} className={inputClass}>
-                  <option value="bytedance/seedream-v4">Seedream v4</option>
-                  <option value="bytedance/seedream-v5.0-pro/text-to-image">Seedream v5 Pro</option>
+                <select
+                  value={atlasCustomMode || !atlasPreset ? '__custom__' : providers.atlas.model}
+                  onChange={(event) => {
+                    const model = event.target.value
+                    if (model === '__custom__') {
+                      setAtlasCustomMode(true)
+                      updateProvider('atlas', { model: '' })
+                      return
+                    }
+                    const preset = atlasImageModelPreset(model)
+                    setAtlasCustomMode(false)
+                    updateProvider('atlas', {
+                      model,
+                      ...(preset && preset.includeSize !== false && !preset.sizes.includes(providers.atlas.size)
+                        ? { size: preset.defaultSize }
+                        : {}),
+                    })
+                  }}
+                  className={inputClass}
+                >
+                  {ATLAS_IMAGE_MODEL_PRESETS.map((preset) => (
+                    <option key={preset.id} value={preset.id}>{preset.name} · {preset.badge}</option>
+                  ))}
+                  <option value="__custom__">自定义模型 ID…</option>
                 </select>
               </label>
-              <label className="block">
-                <span className={labelClass}>画面比例</span>
-                <select value={providers.atlas.size} onChange={(event) => updateProvider('atlas', { size: event.target.value })} className={inputClass}>
-                  <option value="1024*1024">1:1 方图</option>
-                  <option value="1152*896">横图 4:3</option>
-                  <option value="896*1152">竖图 3:4</option>
-                  <option value="1536*1024">横图 3:2</option>
-                  <option value="1024*1536">竖图 2:3</option>
-                </select>
-              </label>
+              {(atlasCustomMode || !atlasPreset) && (
+                <label className="block">
+                  <span className={labelClass}>自定义模型 ID</span>
+                  <input
+                    value={providers.atlas.model}
+                    onChange={(event) => updateProvider('atlas', { model: event.target.value })}
+                    placeholder="例如：provider/model-name"
+                    className={inputClass}
+                  />
+                </label>
+              )}
+              {atlasPreset && (
+                <div className="rounded-lg bg-gray-50 px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium text-gray-800">{atlasPreset.name}</span>
+                    <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] text-green-600">{atlasPreset.badge}</span>
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{atlasPreset.description}</p>
+                  <p className="mt-1 break-all font-mono text-[10px] text-gray-400">{atlasPreset.id}</p>
+                </div>
+              )}
+              {atlasPreset?.includeSize !== false && (
+                <label className="block">
+                  <span className={labelClass}>画面尺寸</span>
+                  <select value={providers.atlas.size} onChange={(event) => updateProvider('atlas', { size: event.target.value })} className={inputClass}>
+                    {atlasSizes.map((size) => <option key={size} value={size}>{size.replace('*', ' × ')}</option>)}
+                  </select>
+                </label>
+              )}
+              {atlasPreset?.includeSize === false && <p className="text-[11px] text-gray-400">该模型当前使用 Atlas 的默认输出尺寸。</p>}
               <label className="block">
                 <span className={labelClass}>固定提示词前缀（可选）</span>
                 <textarea value={providers.atlas.promptPrefix} onChange={(event) => updateProvider('atlas', { promptPrefix: event.target.value })} rows={2} placeholder="例如：anime illustration, expressive" className={inputClass} />

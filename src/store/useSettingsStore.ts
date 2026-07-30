@@ -87,12 +87,12 @@ export const useSettingsStore = create<SettingsState>()(
       moodExpiryMs: 30 * 60 * 1000,
       selfIterationGlobalPrompt: '',
       adminModeEnabled: false,
-      enabledModules: ['shop', 'warehouse', 'worldview', 'knowledgeBase', 'relationship', 'personalityTraits', 'intent', 'storyOutline', 'career'],
+      enabledModules: ['shop', 'warehouse', 'worldview', 'knowledgeBase', 'relationship', 'personalityTraits', 'intent', 'storyOutline', 'career', 'location'],
       setSettings: (patch) => set(patch),
     }),
     {
       name: 'talk-settings',
-      version: 15,
+      version: 16,
       migrate: (persisted, version) => {
         const next = persisted as Partial<SettingsState>
         if (!['deepseek', 'openai', 'gemini', 'anthropic', 'xai', 'qwen', 'glm', 'minimax', 'kimi', 'custom'].includes(String(next.aiProvider))) {
@@ -152,6 +152,7 @@ export const useSettingsStore = create<SettingsState>()(
         if (!['none', 'giphy', 'klipy', 'tenor', 'custom'].includes(String(next.stickerProvider))) next.stickerProvider = 'none'
         if (!['none', 'atlas', 'novelai', 'comfyui', 'stable-diffusion', 'custom'].includes(String(next.imageProvider))) next.imageProvider = 'none'
         if (Array.isArray(next.enabledModules)) next.enabledModules = next.enabledModules.filter((id) => id !== 'mood')
+        if (version < 16 && Array.isArray(next.enabledModules) && !next.enabledModules.includes('location')) next.enabledModules = [...next.enabledModules, 'location']
         next.promptModules = normalizePromptModules(next.promptModules, next.globalSystemPrompt)
         return next
       },

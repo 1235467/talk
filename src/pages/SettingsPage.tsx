@@ -120,6 +120,7 @@ export function SettingsPage() {
   const [promptDraft, setPromptDraft] = useState(globalSystemPrompt)
   const [tavilyKeyDraft, setTavilyKeyDraft] = useState(tavilyApiKey)
   const [pexelsKeyDraft, setPexelsKeyDraft] = useState(pexelsApiKey)
+  const [visibleApiKeys, setVisibleApiKeys] = useState({ ai: false, tavily: false, pexels: false })
   const pexelsDraftRef = useRef(pexelsApiKey)
   const pexelsRequestRef = useRef(0)
   const pexelsAbortRef = useRef<AbortController | null>(null)
@@ -400,17 +401,28 @@ export function SettingsPage() {
         </p>
 
         <label className="mb-1 block text-xs text-gray-500">API Key</label>
-        <input
-          value={apiKeyDraft}
-          onChange={(e) => {
-            setApiKeyDraft(e.target.value)
-            setTestResult(null)
-          }}
-          onBlur={persistConnection}
-          type="password"
-          placeholder="sk-..."
-          className="mb-3 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-        />
+        <div className="relative mb-3">
+          <input
+            value={apiKeyDraft}
+            onChange={(e) => {
+              setApiKeyDraft(e.target.value)
+              setTestResult(null)
+            }}
+            onBlur={persistConnection}
+            type={visibleApiKeys.ai ? 'text' : 'password'}
+            placeholder="sk-..."
+            className="w-full rounded-lg border border-gray-200 py-2 pl-3 pr-16 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => setVisibleApiKeys((current) => ({ ...current, ai: !current.ai }))}
+            aria-label={visibleApiKeys.ai ? '隐藏 API Key' : '显示 API Key'}
+            aria-pressed={visibleApiKeys.ai}
+            className="absolute inset-y-0 right-0 px-3 text-xs text-gray-500"
+          >
+            {visibleApiKeys.ai ? '隐藏' : '显示'}
+          </button>
+        </div>
         <div className={`mb-3 rounded-lg px-3 py-2 text-[11px] leading-relaxed ${endpointPreviewError ? 'bg-red-50 text-red-500' : 'bg-gray-50 text-gray-500'}`}>
           {endpointPreviewError ? endpointPreviewError : <>
             <p className="break-all">实际聊天地址：{chatEndpointPreview}</p>
@@ -502,17 +514,28 @@ export function SettingsPage() {
       <section className="mt-3 bg-white px-4 py-3">
         <h2 className="mb-2 text-xs font-medium text-gray-400">联网搜索（Tavily，仅供知识库定时更新使用）</h2>
         <label className="mb-1 block text-xs text-gray-500">Tavily API Key</label>
-        <input
-          value={tavilyKeyDraft}
-          onChange={(e) => {
-            setTavilyKeyDraft(e.target.value)
-            setTavilyTestResult(null)
-          }}
-          onBlur={() => setSettings({ tavilyApiKey: tavilyKeyDraft.trim() })}
-          type="password"
-          placeholder="tvly-..."
-          className="mb-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-        />
+        <div className="relative mb-2">
+          <input
+            value={tavilyKeyDraft}
+            onChange={(e) => {
+              setTavilyKeyDraft(e.target.value)
+              setTavilyTestResult(null)
+            }}
+            onBlur={() => setSettings({ tavilyApiKey: tavilyKeyDraft.trim() })}
+            type={visibleApiKeys.tavily ? 'text' : 'password'}
+            placeholder="tvly-..."
+            className="w-full rounded-lg border border-gray-200 py-2 pl-3 pr-16 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => setVisibleApiKeys((current) => ({ ...current, tavily: !current.tavily }))}
+            aria-label={visibleApiKeys.tavily ? '隐藏 Tavily API Key' : '显示 Tavily API Key'}
+            aria-pressed={visibleApiKeys.tavily}
+            className="absolute inset-y-0 right-0 px-3 text-xs text-gray-500"
+          >
+            {visibleApiKeys.tavily ? '隐藏' : '显示'}
+          </button>
+        </div>
         <button
           onClick={handleTavilyTest}
           disabled={tavilyTesting || !tavilyKeyDraft}
@@ -534,21 +557,32 @@ export function SettingsPage() {
       <section className="mt-3 bg-white px-4 py-3">
         <h2 className="mb-2 text-xs font-medium text-gray-400">图片（Pexels，头像自动配图+朋友圈配图）</h2>
         <label className="mb-1 block text-xs text-gray-500">Pexels API Key</label>
-        <input
-          value={pexelsKeyDraft}
-          onChange={(e) => {
-            setPexelsKeyDraft(e.target.value)
-            pexelsDraftRef.current = e.target.value
-            pexelsRequestRef.current += 1
-            pexelsAbortRef.current?.abort()
-            setPexelsTesting(false)
-            setPexelsTestResult(null)
-          }}
-          onBlur={() => setSettings({ pexelsApiKey: pexelsKeyDraft.trim() })}
-          type="password"
-          placeholder="Pexels API Key"
-          className="mb-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-        />
+        <div className="relative mb-2">
+          <input
+            value={pexelsKeyDraft}
+            onChange={(e) => {
+              setPexelsKeyDraft(e.target.value)
+              pexelsDraftRef.current = e.target.value
+              pexelsRequestRef.current += 1
+              pexelsAbortRef.current?.abort()
+              setPexelsTesting(false)
+              setPexelsTestResult(null)
+            }}
+            onBlur={() => setSettings({ pexelsApiKey: pexelsKeyDraft.trim() })}
+            type={visibleApiKeys.pexels ? 'text' : 'password'}
+            placeholder="Pexels API Key"
+            className="w-full rounded-lg border border-gray-200 py-2 pl-3 pr-16 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => setVisibleApiKeys((current) => ({ ...current, pexels: !current.pexels }))}
+            aria-label={visibleApiKeys.pexels ? '隐藏 Pexels API Key' : '显示 Pexels API Key'}
+            aria-pressed={visibleApiKeys.pexels}
+            className="absolute inset-y-0 right-0 px-3 text-xs text-gray-500"
+          >
+            {visibleApiKeys.pexels ? '隐藏' : '显示'}
+          </button>
+        </div>
         <button
           onClick={handlePexelsTest}
           disabled={pexelsTesting || !pexelsKeyDraft}

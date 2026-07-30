@@ -1,4 +1,5 @@
 import { formatBubbleTime } from './time'
+import { appFetch } from './appFetch'
 import type { Message } from '../types'
 
 export interface ChatCaptureSpeaker {
@@ -203,7 +204,7 @@ export function downloadDataUrl(dataUrl: string, filename: string) {
 
 export async function shareDataUrl(dataUrl: string, filename: string): Promise<boolean> {
   if (!navigator.share) return false
-  const blob = await (await fetch(dataUrl)).blob()
+  const blob = await (await appFetch(dataUrl)).blob()
   const file = new File([blob], filename, { type: 'image/png' })
   const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean }
   if (nav.canShare && !nav.canShare({ files: [file] })) return false

@@ -9,6 +9,7 @@ import type { AdminAiTraceStage, AiUsagePurpose } from '../types'
 import { friendlyConnectionError, httpFailureMessage, parseJsonText, requireApiKey, requireHttpUrl } from './connectionError'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { foundationalWorldviewText } from './worldbook'
+import { appFetch } from './appFetch'
 import {
   AI_PROVIDERS,
   clampProviderTemperature,
@@ -56,7 +57,7 @@ export async function listModels(apiKey: string, baseUrl: string, provider: AiPr
     requireHttpUrl(baseUrl || AI_PROVIDERS[provider].defaultBaseUrl, 'Base URL')
     const modelsUrl = resolveModelsUrl(baseUrl, provider)
     if (!modelsUrl) throw new Error(`${AI_PROVIDERS[provider].label} 未声明兼容的模型列表接口，请直接填写模型名称`)
-    const res = await fetch(modelsUrl, {
+    const res = await appFetch(modelsUrl, {
       headers: { Authorization: `Bearer ${key}` },
     })
     const text = await res.text()
@@ -281,7 +282,7 @@ export async function chatCompletion(opts: ChatCompletionOptions): Promise<ChatC
   let result: ChatCompletionResult | undefined
   let retryMode: { disableJson?: boolean; alternateToken?: boolean; emptyRetry?: boolean } = {}
   for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await fetch(endpoint, {
+    const res = await appFetch(endpoint, {
       method: 'POST', signal: opts.signal,
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody(opts, messages, provider, retryMode)),
@@ -341,7 +342,7 @@ export async function chatCompletionStream(opts: Omit<ChatCompletionOptions, 'js
   const inputTokens = messages.reduce((sum, message) => sum + estimateTokens(message.content), 0)
   const key = requireApiKey(opts.apiKey, 'AI')
   const provider = opts.provider ?? useSettingsStore.getState().aiProvider ?? 'deepseek'
-  const res = await fetch(resolveChatCompletionsUrl(opts.baseUrl, provider), { method: 'POST', signal: opts.signal, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...requestBody(opts, messages, provider), stream: true }) })
+  const res = await appFetch(resolveChatCompletionsUrl(opts.baseUrl, provider), { method: 'POST', signal: opts.signal, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...requestBody(opts, messages, provider), stream: true }) })
   if (!res.ok || !res.body) {
     const text = await res.text()
     let payload: unknown = text

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, type ElementType } from 'react'
-import { Route, Routes, useLocation } from 'react-router-dom'
+import { Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { App as CapacitorApp } from '@capacitor/app'
 import { useSettingsStore } from './store/useSettingsStore'
 import { refreshMoments } from './lib/moments'
@@ -9,9 +9,12 @@ import { TabLayout } from './components/TabLayout'
 import { ALL_MODULES, useModuleEnabled } from './features'
 import { NotificationBanner } from './components/NotificationBanner'
 import { AppErrorBoundary } from './components/AppErrorBoundary'
+import { DesktopLayout } from './components/DesktopLayout'
+import { DesktopHomePage } from './pages/DesktopHomePage'
 import { ensureWallets, settleSalaries } from './lib/finance'
 import { ensureLegacyWorldviewMigrated } from './lib/worldbook'
 import { runLifeSimulation } from './lib/lifeSimulation'
+import { syncContactLocationsAt } from './lib/locations'
 // Tab pages are the landing screen — keep them eager. Everything else is
 // route-level code-split (lazy) so the initial bundle stays small; matches
 // how features/* already lazy-load their pages.
@@ -19,18 +22,25 @@ import { MessagesPage } from './pages/MessagesPage'
 import { ContactsPage } from './pages/ContactsPage'
 import { DiscoverPage } from './pages/DiscoverPage'
 import { MePage } from './pages/MePage'
-const ChatPage = lazy(() => import('./pages/ChatPage').then((m) => ({ default: m.ChatPage })))
-const ContactCardPage = lazy(() => import('./pages/ContactCardPage').then((m) => ({ default: m.ContactCardPage })))
-const ContactAddPage = lazy(() => import('./pages/ContactAddPage').then((m) => ({ default: m.ContactAddPage })))
+const loadChatPage = () => import('./pages/ChatPage')
+const loadContactCardPage = () => import('./pages/ContactCardPage')
+const loadContactAddPage = () => import('./pages/ContactAddPage')
+const loadMomentsPage = () => import('./pages/MomentsPage')
+const loadSettingsPage = () => import('./pages/SettingsPage')
+const loadImageProviderListPage = () => import('./pages/ImageProviderListPage')
+const loadImageProviderSettingsPage = () => import('./pages/ImageProviderSettingsPage')
+const ChatPage = lazy(() => loadChatPage().then((m) => ({ default: m.ChatPage })))
+const ContactCardPage = lazy(() => loadContactCardPage().then((m) => ({ default: m.ContactCardPage })))
+const ContactAddPage = lazy(() => loadContactAddPage().then((m) => ({ default: m.ContactAddPage })))
 const GroupAddPage = lazy(() => import('./pages/GroupAddPage').then((m) => ({ default: m.GroupAddPage })))
 const GroupInfoPage = lazy(() => import('./pages/GroupInfoPage').then((m) => ({ default: m.GroupInfoPage })))
-const MomentsPage = lazy(() => import('./pages/MomentsPage').then((m) => ({ default: m.MomentsPage })))
-const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })))
+const MomentsPage = lazy(() => loadMomentsPage().then((m) => ({ default: m.MomentsPage })))
+const SettingsPage = lazy(() => loadSettingsPage().then((m) => ({ default: m.SettingsPage })))
 const StickersPage = lazy(() => import('./pages/StickersPage').then((m) => ({ default: m.StickersPage })))
 const StickerProviderListPage = lazy(() => import('./pages/StickerProviderListPage').then((m) => ({ default: m.StickerProviderListPage })))
 const StickerProviderSettingsPage = lazy(() => import('./pages/StickerProviderSettingsPage').then((m) => ({ default: m.StickerProviderSettingsPage })))
-const ImageProviderListPage = lazy(() => import('./pages/ImageProviderListPage').then((m) => ({ default: m.ImageProviderListPage })))
-const ImageProviderSettingsPage = lazy(() => import('./pages/ImageProviderSettingsPage').then((m) => ({ default: m.ImageProviderSettingsPage })))
+const ImageProviderListPage = lazy(() => loadImageProviderListPage().then((m) => ({ default: m.ImageProviderListPage })))
+const ImageProviderSettingsPage = lazy(() => loadImageProviderSettingsPage().then((m) => ({ default: m.ImageProviderSettingsPage })))
 const ProfileEditPage = lazy(() => import('./pages/ProfileEditPage').then((m) => ({ default: m.ProfileEditPage })))
 const ModulesPage = lazy(() => import('./pages/ModulesPage').then((m) => ({ default: m.ModulesPage })))
 const SkyEyePage = lazy(() => import('./pages/SkyEyePage').then((m) => ({ default: m.SkyEyePage })))
@@ -39,6 +49,18 @@ import { WebPrivacyNotice } from './components/WebPrivacyNotice'
 // Runs once at module load, regardless of admin mode — so there's already
 // log history by the time someone opens "天眼".
 installConsoleCapture()
+
+function RouteLoadingFallback({ desktop }: { desktop: boolean }) {
+  if (desktop) {
+    return (
+      <div className="desktop-route-loading" role="status" aria-label="页面加载中">
+        <span className="desktop-route-loading-spinner" />
+        <span>正在打开…</span>
+      </div>
+    )
+  }
+  return <div className="flex h-full items-center justify-center bg-[#f4f4f6] text-sm text-gray-400">加载中…</div>
+}
 
 
 /**
@@ -91,14 +113,28 @@ function useAndroidBackButton() {
   }, [])
 }
 
+function useLocationResumeSync() {
+  const enabled = useModuleEnabled('location')
+  useEffect(() => {
+    if (!enabled) return
+    const syncWhenVisible = () => {
+      if (document.visibilityState === 'visible') void syncContactLocationsAt(new Date())
+    }
+    document.addEventListener('visibilitychange', syncWhenVisible)
+    return () => document.removeEventListener('visibilitychange', syncWhenVisible)
+  }, [enabled])
+}
+
 function App() {
   useAutonomousBehaviorTimer()
   useAndroidBackButton()
+  useLocationResumeSync()
   const themeMode = useSettingsStore((s) => s.themeMode ?? 'light')
   const animationsEnabled = useSettingsStore((s) => s.animationsEnabled ?? true)
   const adminModeEnabled = useSettingsStore((s) => s.adminModeEnabled)
   const enabledModules = useSettingsStore((s) => s.enabledModules)
   const location = useLocation()
+  const desktop = Boolean(window.talkDesktop)
   useEffect(() => { void ensureWallets().then(() => settleSalaries()) }, [enabledModules])
   useEffect(() => {
     const resume = () => { if (document.visibilityState === 'visible') void runLifeSimulation() }
@@ -107,6 +143,23 @@ function App() {
     return () => document.removeEventListener('visibilitychange', resume)
   }, [enabledModules])
   useEffect(() => { void ensureLegacyWorldviewMigrated() }, [])
+  useEffect(() => {
+    if (!desktop) return
+    // Warm the routes people open most often after the desktop shell settles.
+    // Dynamic imports are cached, so lazy() reuses these exact promises later.
+    const timer = window.setTimeout(() => {
+      void Promise.allSettled([
+        loadChatPage(),
+        loadContactCardPage(),
+        loadContactAddPage(),
+        loadMomentsPage(),
+        loadSettingsPage(),
+        loadImageProviderListPage(),
+        loadImageProviderSettingsPage(),
+      ])
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [desktop])
 
   // Build deduplicated route list from enabled modules.
   const moduleRoutes = useMemo(() => {
@@ -131,22 +184,19 @@ function App() {
   }, [animationsEnabled])
   useEffect(() => {
     if (!animationsEnabled) return
-    const shell = document.querySelector<HTMLElement>('.app-shell')
-    if (!shell) return
-    shell.classList.remove('page-transition')
-    void shell.offsetWidth
-    shell.classList.add('page-transition')
-  }, [location.pathname, animationsEnabled])
+    const surface = document.querySelector<HTMLElement>(desktop ? '.desktop-main' : '.app-shell')
+    if (!surface) return
+    const animationClass = desktop ? 'desktop-page-transition' : 'page-transition'
+    surface.classList.remove(animationClass)
+    void surface.offsetWidth
+    surface.classList.add(animationClass)
+  }, [location.pathname, animationsEnabled, desktop])
 
-  return (
-    <AppErrorBoundary key={location.key}>
-      <div className={`app-shell ${themeMode === 'dark' ? 'theme-dark' : ''}`}>
-        <NotificationBanner />
-        <WebPrivacyNotice />
-        <Suspense key={location.pathname} fallback={<div className="flex h-[var(--app-height)] items-center justify-center text-sm text-gray-400">加载中…</div>}>
+  const routeContent = (
+    <Suspense fallback={<RouteLoadingFallback desktop={desktop} />}>
         <Routes>
-        <Route element={<TabLayout />}>
-          <Route path="/" element={<MessagesPage />} />
+        <Route element={desktop ? <Outlet /> : <TabLayout />}>
+          <Route path="/" element={desktop ? <DesktopHomePage /> : <MessagesPage />} />
           <Route path="/contacts" element={<ContactsPage />} />
           <Route path="/discover" element={<DiscoverPage />} />
           <Route path="/me" element={<MePage />} />
@@ -173,7 +223,15 @@ function App() {
           <Route path="/sky-eye" element={<SkyEyePage />} />
         )}
         </Routes>
-        </Suspense>
+    </Suspense>
+  )
+
+  return (
+    <AppErrorBoundary resetKey={location.pathname}>
+      <div className={`app-shell ${themeMode === 'dark' ? 'theme-dark' : ''}`} data-desktop={desktop ? 'true' : undefined}>
+        <NotificationBanner />
+        <WebPrivacyNotice />
+        {desktop ? <DesktopLayout>{routeContent}</DesktopLayout> : routeContent}
       </div>
     </AppErrorBoundary>
   )

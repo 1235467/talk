@@ -17,6 +17,7 @@ import { saveLoadModule } from './saveLoad'
 import { aiReplyAssistModule } from './aiReplyAssist'
 import { realisticRepliesModule } from './realisticReplies'
 import { promptModuleEditorModule } from './promptModuleEditor'
+import { locationModule } from './location'
 import type { FeatureModule, ParentModule } from './types'
 
 // ---- parent modules (accordion groups in the UI) ----
@@ -64,6 +65,7 @@ export const ALL_MODULES: FeatureModule[] = [
   aiReplyAssistModule,
   realisticRepliesModule,
   promptModuleEditorModule,
+  locationModule,
 ]
 
 /** Modules that don't belong to any parent — shown as standalone toggles. */

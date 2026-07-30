@@ -23,6 +23,7 @@ import { draftReply } from '../lib/aiReplyAssist'
 import { searchRemoteStickers, trackRemoteStickerSend, type RemoteStickerResult } from '../lib/remoteMedia'
 import { isStickerProviderReady, stickerProviderName } from '../lib/mediaProviders'
 import { normalizeChatPageSize } from '../lib/chatPagination'
+import { resolveLocationParticipants, syncContactLocationsAt } from '../lib/locations'
 
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_STICKERS: Sticker[] = []
@@ -53,6 +54,20 @@ export function ChatPage() {
     () => (conversation?.groupId ? db.groups.get(conversation.groupId) : undefined),
     [conversation],
   )
+  const groupLocation = useLiveQuery(
+    () => (group?.kind === 'location' && group.locationId ? db.locations.get(group.locationId) : undefined),
+    [group],
+  )
+  useEffect(() => {
+    if (group?.kind !== 'location' || !group.locationId) return
+    let cancelled = false
+    void (async () => {
+      await syncContactLocationsAt(new Date())
+      const participants = await resolveLocationParticipants(group.locationId!)
+      if (!cancelled) await db.groups.update(group.id, { memberContactIds: participants.activeMembers.map((contact) => contact.id) })
+    })()
+    return () => { cancelled = true }
+  }, [group?.id, group?.kind, group?.locationId])
   const groupMembersRaw = useLiveQuery(
     () => (group ? db.contacts.bulkGet(group.memberContactIds) : []),
     [group],
@@ -415,6 +430,14 @@ export function ChatPage() {
     if (path) void navigate(path)
     else setToast('暂不支持这个小程序')
   }, [navigate])
+  const handleAvatarClick = useCallback((message: Message) => {
+    if (message.role === 'user') {
+      void navigate('/profile/edit')
+      return
+    }
+    const targetId = message.speakerContactId ?? contact?.id
+    if (targetId) void navigate(`/contact/${targetId}`)
+  }, [contact?.id, navigate])
   async function repayLoan(){if(!contact||!conversationId)return;const loan=await db.loans.filter(l=>l.status==='active'&&l.borrowerId===USER_WALLET_ID&&l.lenderId===contact.id).first();if(!loan){setToast('没有需要归还的借款');return}try{const tx=await transferFunds({from:USER_WALLET_ID,to:contact.id,amount:loan.outstanding,kind:'repayment',note:'归还借款',idempotencyKey:`repay:${loan.id}`});await db.loans.update(loan.id,{status:'repaid',outstanding:0,resolvedAt:Date.now()});await db.messages.add({id:uuid(),conversationId,role:'user',type:'repayment',content:'归还借款',finance:{transactionId:tx.id,loanId:loan.id,amount:loan.outstanding,status:'repaid'},createdAt:Date.now()});void triggerAiTurn(conversationId,contact,settings,stickers)}catch(e){setToast(e instanceof Error?e.message:String(e))}}
 
   function beginMessageSelection(initialId?: string) {
@@ -524,7 +547,9 @@ export function ChatPage() {
     }
   }
 
-  const headerTitle = isGroupConv ? group!.name : displayName(contact!)
+  const headerTitle = isGroupConv
+    ? group!.kind === 'location' ? `${group!.name} · ${groupLocation?.name ?? '未选择地点'}` : group!.name
+    : displayName(contact!)
   const visibleHeaderTitle = aiTyping && typingLabel ? `${typingLabel}正在输入中...` : headerTitle
   const headerInfoPath = isGroupConv ? `/group/${group!.id}` : `/contact/${contact!.id}`
   const chatBackgroundStyle =
@@ -625,6 +650,7 @@ export function ChatPage() {
               onLongPress={handleBubbleLongPress}
               onLinkClick={selectingMessages ? undefined : handleLinkClick}
               onFinanceClick={selectingMessages ? undefined : handleFinanceCard}
+              onAvatarClick={selectingMessages ? undefined : handleAvatarClick}
               showName={isGroupConv && m.role === 'assistant'}
               />
             </div>

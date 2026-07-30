@@ -4,6 +4,7 @@
  * (code-driven, not LLM) that decides when each of these gets used.
  */
 import { friendlyConnectionError, httpFailureMessage, parseJsonText, requireApiKey } from './connectionError'
+import { appFetch } from './appFetch'
 
 export interface PhotoResult {
   url: string
@@ -29,7 +30,7 @@ export async function searchPexelsPhoto(
     const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=1&orientation=${orientation}`
     const fingerprint = apiKeyFingerprint(key)
     console.info(`[photo] Pexels请求 query="${query}" key:${fingerprint}`)
-    const res = await fetch(url, { headers: { Authorization: key }, signal })
+    const res = await appFetch(url, { headers: { Authorization: key }, signal })
     const body = await res.text()
     let json: { photos?: unknown } & Record<string, unknown>
     try {
@@ -97,7 +98,7 @@ const ANIME_CATEGORIES = ['waifu', 'neko']
 
 export async function randomAnimeAvatar(): Promise<PhotoResult | null> {
   const category = ANIME_CATEGORIES[Math.floor(Math.random() * ANIME_CATEGORIES.length)]
-  const res = await fetch(`https://api.waifu.pics/sfw/${category}`)
+  const res = await appFetch(`https://api.waifu.pics/sfw/${category}`)
   if (!res.ok) {
     console.warn(`[photo] waifu.pics请求失败 category=${category} HTTP ${res.status}`)
     throw new Error(`waifu.pics请求失败 HTTP ${res.status}`)

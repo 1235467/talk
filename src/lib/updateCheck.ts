@@ -11,6 +11,8 @@
  * app update. This just removes the "did I check GitHub for a new
  * version" step.
  */
+import { appFetch } from './appFetch'
+
 export interface UpdateCheckResult {
   hasUpdate: boolean
   latestVersion: string
@@ -36,7 +38,7 @@ function isNewer(latest: number[], current: number[]): boolean {
 }
 
 export async function checkForUpdate(): Promise<UpdateCheckResult> {
-  const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`)
+  const res = await appFetch(`https://api.github.com/repos/${REPO}/releases/latest`)
   if (!res.ok) {
     throw new Error(`检查更新失败 HTTP ${res.status}`)
   }

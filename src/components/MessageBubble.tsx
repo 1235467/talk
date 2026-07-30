@@ -24,6 +24,7 @@ interface MessageBubbleProps {
   onSelect?: (id: string) => void
   onLinkClick?: (message: Message) => void
   onFinanceClick?: (message: Message) => void
+  onAvatarClick?: (message: Message) => void
   /** Stable ref registrar: called with (id, el) so the parent can track bubble DOM nodes without a per-item ref closure. */
   registerRef?: (id: string, el: HTMLDivElement | null) => void
   showName?: boolean
@@ -46,6 +47,7 @@ export const MessageBubble = memo(function MessageBubble({
   onSelect,
   onLinkClick,
   onFinanceClick,
+  onAvatarClick,
   registerRef,
   showName = false,
 }: MessageBubbleProps) {
@@ -80,11 +82,13 @@ export const MessageBubble = memo(function MessageBubble({
       )}
       {!isUser && showName && <p className="mb-1 pl-10 text-[11px] text-gray-400">{contactName}</p>}
       <div className={`flex items-start gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
-        {isUser ? (
-          <Avatar avatar={userAvatar} size={32} />
-        ) : (
-          <Avatar avatar={contactAvatar} color={contactAvatarColor} size={32} />
-        )}
+        <button type="button" onClick={() => onAvatarClick?.(message)} aria-label={isUser ? '编辑个人信息' : `查看${contactName}资料`}>
+          {isUser ? (
+            <Avatar avatar={userAvatar} size={32} />
+          ) : (
+            <Avatar avatar={contactAvatar} color={contactAvatarColor} size={32} />
+          )}
+        </button>
 
         <div className={`flex max-w-[68%] flex-col ${isUser ? 'items-end' : 'items-start'}`}>
           {replyPreview && (

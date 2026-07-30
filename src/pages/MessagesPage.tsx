@@ -12,6 +12,7 @@ import { formatListTime } from '../lib/time'
 import { displayName } from '../lib/contact'
 import { previewForMessage } from '../lib/messagePreview'
 import { useLastMessageByConversation, useUnreadByConversation } from '../lib/unread'
+import { useSettingsStore } from '../store/useSettingsStore'
 
 const EMPTY_ARRAY: never[] = []
 
@@ -20,17 +21,21 @@ export function MessagesPage() {
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [showAddMenu, setShowAddMenu] = useState(false)
   const navigate = useNavigate()
+  const locationEnabled = useSettingsStore((state) => state.enabledModules.includes('location'))
 
   const conversations = useLiveQuery(() => db.conversations.toArray(), []) ?? EMPTY_ARRAY
   const contacts = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_ARRAY
   const groups = useLiveQuery(() => db.groups.toArray(), []) ?? EMPTY_ARRAY
+  const locations = useLiveQuery(() => db.locations.toArray(), []) ?? EMPTY_ARRAY
   const unreadByConversation = useUnreadByConversation()
   const lastMessageByConversation = useLastMessageByConversation()
 
   const rows = useMemo(() => {
     const contactById = new Map(contacts.map((c) => [c.id, c]))
     const groupById = new Map(groups.map((g) => [g.id, g]))
+    const locationById = new Map(locations.map((location) => [location.id, location]))
     return conversations
+      .filter((conversation) => locationEnabled || !conversation.systemPinned)
       .map((conv) => {
         const lastMessage = lastMessageByConversation.get(conv.id)
         const unread = unreadByConversation.get(conv.id) ?? 0
@@ -45,7 +50,7 @@ export function MessagesPage() {
             conv,
             avatar: group.avatar,
             avatarColor: group.avatarColor,
-            name: group.name,
+            name: group.kind === 'location' ? `${group.name} · ${locationById.get(group.locationId ?? '')?.name ?? '未选择地点'}` : group.name,
             preview: previewForMessage(lastMessage, speaker ? displayName(speaker) : undefined),
             unread,
           }
@@ -63,10 +68,11 @@ export function MessagesPage() {
       })
       .filter((r): r is NonNullable<typeof r> => !!r)
       .sort((a, b) => {
+        if (!!a.conv.systemPinned !== !!b.conv.systemPinned) return a.conv.systemPinned ? -1 : 1
         if (a.conv.pinned !== b.conv.pinned) return a.conv.pinned ? -1 : 1
         return b.conv.updatedAt - a.conv.updatedAt
       })
-  }, [conversations, contacts, groups, lastMessageByConversation, unreadByConversation])
+  }, [conversations, contacts, groups, locations, locationEnabled, lastMessageByConversation, unreadByConversation])
 
   const openConversation = useCallback((id: string) => navigate(`/chat/${id}`), [navigate])
   const openConversationMenu = useCallback((id: string) => setMenuFor(id), [])
@@ -126,7 +132,7 @@ export function MessagesPage() {
         />
       )}
 
-      {menuConv && (
+      {menuConv && !menuConv.systemPinned && (
         <ActionSheet
           onClose={() => setMenuFor(null)}
           options={[

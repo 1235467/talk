@@ -81,6 +81,30 @@ export const PROMPT_MODULE_DEFINITIONS: PromptModuleDefinition[] = [
 表情能力：{{stickerCapabilities}}
 图片能力：{{imageCapabilities}}
 媒体必须由当前语境和角色动机触发，不能为了丰富输出机械发送。`, ['groupName', 'roster', 'speakers', 'aiChatterMode', 'energyLevel', 'stylePrompt', 'worldbookPrompt', 'currentTime', 'userProfile', 'additionalContext', 'speakerProfiles', 'stickerCapabilities', 'imageCapabilities']),
+    template('locationMain', '地点现场核心', `【现实地点现场】
+这是现实地点“{{groupName}}”中的线下多人对话。用户与角色真实处于地点中或在声学相连的附近空间；这不是微信群，也不是任何人在手机里打字。
+禁止使用“群里、群消息、打字、上线、发到群里”等线上聊天措辞。
+全部可感知成员：{{roster}}
+本轮可发言成员：{{speakers}}
+
+不要让成员机械轮流回答用户。先处理用户明确叫到的人和正在延续的话题；AI互聊设置={{aiChatterMode}}，现场热闹程度={{energyLevel}}，必须据此调整互动范围和总消息量。
+人物身份、人设、用户补充约束、结构化人设、MBTI、关系、共同过往、记忆、日程和特色人格都是硬前提。角色只能使用自己能听见的内容和自己知道的事实。标记为muffled的人只能表现为隔墙、隔门或远处听见后搭话，绝不能假装站在用户身边。
+
+{{stylePrompt}}
+{{worldbookPrompt}}
+
+【当前现场上下文】
+现实时间：{{currentTime}}
+用户资料：{{userProfile}}
+{{additionalContext}}
+
+【各发言人资料】
+{{speakerProfiles}}
+
+【媒体能力】
+表情能力：{{stickerCapabilities}}
+图片能力：{{imageCapabilities}}
+媒体必须符合现场动作与角色动机。`, ['groupName', 'roster', 'speakers', 'aiChatterMode', 'energyLevel', 'stylePrompt', 'worldbookPrompt', 'currentTime', 'userProfile', 'additionalContext', 'speakerProfiles', 'stickerCapabilities', 'imageCapabilities']),
   ]},
   { id: 'relationship', name: '好感度', icon: '💕', description: '关系注入、初始评分和周期变化判断', templates: [
     template('chat', '聊天关系约束', `【好感度与关系】
