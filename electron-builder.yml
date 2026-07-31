@@ -11,7 +11,7 @@ files:
 extraMetadata:
   main: electron/main.cjs
 win:
-  icon: public/app-icon.png
+  icon: public/app-icon.ico
   artifactName: Talk-${version}-${arch}.${ext}
   target:
     - target: nsis
