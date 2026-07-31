@@ -17,11 +17,12 @@ import { UiIcon } from './UiIcon'
 
 const EMPTY: never[] = []
 
-type DesktopSection = 'messages' | 'contacts' | 'discover' | 'settings'
+type DesktopSection = 'messages' | 'contacts' | 'discover' | 'sky-eye' | 'settings'
 
 function sectionForPath(path: string): DesktopSection {
   if (path === '/' || path.startsWith('/chat/')) return 'messages'
   if (path.startsWith('/contact') || path.startsWith('/group')) return 'contacts'
+  if (path === '/sky-eye') return 'sky-eye'
   if (path === '/me' || path === '/appearance' || path.startsWith('/settings') || path.startsWith('/profile') || path.startsWith('/stickers') || path === '/modules') return 'settings'
   return 'discover'
 }
@@ -30,7 +31,7 @@ export function DesktopLayout({ children }: { children: ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
   const section = sectionForPath(location.pathname)
-  const detailMode = location.pathname === '/profile/edit'
+  const detailMode = location.pathname === '/profile/edit' || location.pathname === '/sky-eye'
 
   return (
     <div className="desktop-layout">
@@ -55,6 +56,7 @@ function DesktopRail({ section, onNavigate }: { section: DesktopSection; onNavig
     { section: 'contacts', to: '/contacts', label: '联系人' },
     { section: 'discover', to: '/moments', label: '朋友圈', badge: momentsUnread },
   ]
+  if (settings.adminModeEnabled) items.push({ section: 'sky-eye', to: '/sky-eye', label: '天眼' })
 
   return (
     <nav className="desktop-rail" aria-label="桌面主导航">
@@ -90,6 +92,7 @@ function RailIcon({ section }: { section: DesktopSection }) {
   if (section === 'messages') return <svg className="desktop-rail-svg" viewBox="0 0 24 24" fill="none"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-4.4 3.3A.6.6 0 0 1 3 19.8V6a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /></svg>
   if (section === 'contacts') return <svg className="desktop-rail-svg" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.2" stroke="currentColor" strokeWidth="1.7" /><path d="M5 19c1.2-3.2 3.8-5 7-5s5.8 1.8 7 5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>
   if (section === 'discover') return <svg className="desktop-rail-svg" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.7" /><path d="m15 9-2 5-4 1.5 2-5 4-1.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /></svg>
+  if (section === 'sky-eye') return <svg className="desktop-rail-svg" viewBox="0 0 24 24" fill="none"><path d="M2.8 12s3.3-5 9.2-5 9.2 5 9.2 5-3.3 5-9.2 5-9.2-5-9.2-5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /><circle cx="12" cy="12" r="2.7" stroke="currentColor" strokeWidth="1.7" /></svg>
   return <svg className="desktop-rail-svg" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" /><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1A8 8 0 0 0 15 6l-.3-2.6h-4L10.5 6A8 8 0 0 0 9 7.1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1A8 8 0 0 0 10.5 18l.2 2.6h4L15 18a8 8 0 0 0 1.5-1.1l2.4 1 2-3.4-2-1.5a7 7 0 0 0 .1-1Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></svg>
 }
 
