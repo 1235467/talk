@@ -66,6 +66,10 @@ export interface Contact {
   currentLocationId?: string
   locationUpdatedAt?: number
   locationSource?: 'schedule' | 'manual' | 'fallback'
+  /** Worldbook entries explicitly bound when this contact was created. */
+  worldbookEntryIds?: string[]
+  /** End of the latest time range already covered by offline experience completion. */
+  experienceCursorAt?: number
 }
 
 /** A recurring weekly time block — generated once at contact creation alongside the persona, not user-editable directly. */
@@ -141,7 +145,7 @@ export const CONTACT_RELATION_LABELS = [
 export type ContactRelationLabel = (typeof CONTACT_RELATION_LABELS)[number] | (string & {})
 
 export const PERSONALITY_TRAIT_OPTIONS = [
-  { value: '病娇', description: '初始好感100且无上限 好感只升不降 被温暖双倍心动 极度占有' },
+  { value: '病娇', description: '创建时好感100且无上限 好感只升不降 被温暖双倍心动 极度占有' },
   { value: '天然呆', description: '反应慢半拍 单纯 情绪变化缓慢 不太会读空气' },
   { value: '傲娇', description: '口是心非 越在意越表现得冷淡 防御心强 不擅长坦率' },
   { value: '高冷', description: '冷淡疏离 不轻易被打动 熟了之后才会放下防备' },
@@ -150,7 +154,7 @@ export const PERSONALITY_TRAIT_OPTIONS = [
   { value: '妹控', description: '对妹妹系的人天然亲近 其他人较难打开心扉' },
   { value: '兄控', description: '对兄长系的人天然亲近 其他人较难打开心扉' },
   { value: '雌小鬼', description: '表面嘲讽捉弄 来拒去留 嘴上不饶人心里怕被丢下' },
-  { value: '妈妈', description: '无底线包容 好感度永远不会下降 初始好感度固定为75' },
+  { value: '妈妈', description: '无底线包容 好感度永远不会下降 创建时好感度固定为75' },
   { value: '猫系', description: '尊重边界才会亲近 熟了以后嘴硬但黏人' },
   { value: '犬系', description: '热情直球 忠诚爱分享 被回应会特别开心' },
   { value: '爱哭包', description: '情绪外显 容易委屈 被安慰会迅速心软' },
@@ -197,6 +201,7 @@ export interface Moment {
   imageUrl?: string
   imagePhotographer?: string
   imagePhotographerUrl?: string
+  sourceExperienceId?: string
 }
 
 export interface MomentComment {
@@ -833,6 +838,31 @@ export interface LifeEvent {
   occurredAt: number
   expiresAt?: number
   surfacedAsMessage?: boolean
+  surfacedAsMoment?: boolean
+}
+
+export type ContactExperienceKind = 'past' | 'offline'
+export type ContactExperienceMemoryTier = 'short' | 'long'
+export type ContactExperienceSource = 'user' | 'worldbook' | 'relationship' | 'persona' | 'simulation'
+
+/** A concrete part of a character's life. Shared events have multiple contactIds. */
+export interface ContactExperience {
+  id: string
+  contactIds: string[]
+  kind: ContactExperienceKind
+  memoryTier: ContactExperienceMemoryTier
+  title: string
+  summary: string
+  details?: string
+  periodLabel?: string
+  startedAt?: number
+  endedAt?: number
+  location?: string
+  importance: number // 0..100
+  sources: ContactExperienceSource[]
+  sourceRefIds?: string[]
+  createdAt: number
+  expiresAt?: number
   surfacedAsMoment?: boolean
 }
 

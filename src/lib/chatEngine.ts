@@ -33,6 +33,8 @@ import { createTurnController, revealSequentially } from './conversationRuntime'
 import { isImageProviderReady, isStickerProviderReady } from './mediaProviders'
 import { featureActive, promptModuleEnabled } from './promptModules'
 import { realisticReplyDelayMs } from './replyTiming'
+import { betaNow } from './contactBeta'
+import { buildExperiencePromptSlice, ensureOfflineExperiences } from './experiences'
 import type { AiBubble, AppSettings, Contact, Message, MessageType, ScheduleOverride, Sticker } from '../types'
 
 /**
@@ -111,15 +113,17 @@ function scheduleAiTurn(
   streamId: string,
   triggeringUserText = '',
   proactiveContext = '',
+  offlineFrom?: number,
+  turnNow?: number,
 ): void {
   const delay = realisticReplyDelayMs(isModuleEnabled('realisticReplies'))
   if (delay === 0) {
-    void runAiTurn(conversationId, contact, settings, stickers, streamId, triggeringUserText, proactiveContext)
+    void runAiTurn(conversationId, contact, settings, stickers, streamId, triggeringUserText, proactiveContext, offlineFrom, turnNow)
     return
   }
   const timer = setTimeout(() => {
     if (!turns.isCurrent(conversationId, streamId)) return
-    void runAiTurn(conversationId, contact, settings, stickers, streamId, triggeringUserText, proactiveContext)
+    void runAiTurn(conversationId, contact, settings, stickers, streamId, triggeringUserText, proactiveContext, offlineFrom, turnNow)
   }, delay)
   turns.addTimer(conversationId, timer)
 }
@@ -250,18 +254,21 @@ export async function sendMessage(
   turns.begin(conversationId, streamId)
   useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: displayName(contact) })
 
+  const now = betaNow(contact.id)
+  const previousUserMessages = await db.messages.where('conversationId').equals(conversationId).toArray()
+  const previousUserAt = previousUserMessages.filter((message) => message.role === 'user').reduce((latest, message) => Math.max(latest, message.createdAt), 0)
   const msg: Message = {
     id: uuid(),
     conversationId,
     role: 'user',
     type: 'text',
     content: text.trim(),
-    createdAt: Date.now(),
+    createdAt: now,
   }
   await db.messages.add(msg)
-  await db.conversations.update(conversationId, { updatedAt: Date.now() })
+  await db.conversations.update(conversationId, { updatedAt: now })
 
-  scheduleAiTurn(conversationId, contact, settings, stickers, streamId, text.trim())
+  scheduleAiTurn(conversationId, contact, settings, stickers, streamId, text.trim(), '', previousUserAt || undefined, now)
 }
 
 /**
@@ -321,15 +328,29 @@ async function runAiTurn(
   streamId: string,
   _triggeringUserText = '',
   proactiveContext = '',
+  offlineFrom?: number,
+  turnNow?: number,
 ): Promise<void> {
   const engine = useChatEngineStore.getState()
   const turnStartedAt = performance.now()
-  const now = Date.now()
+  const now = turnNow ?? betaNow(contact.id)
   const activeMood = getActiveMood(contact, now)
   engine.patch(conversationId, { aiTyping: true, error: '', typingLabel: displayName(contact) })
   console.log(`[chat] 开始生成回复 对方=${displayName(contact)} conversationId=${conversationId}`)
   try {
     const history = await db.messages.where('conversationId').equals(conversationId).sortBy('createdAt')
+    let absenceContext = ''
+    if (offlineFrom && now - offlineFrom >= 60 * 60 * 1000 && isModuleEnabled('lifeSimulation')) {
+      try {
+        const completed = await ensureOfflineExperiences({ contact, settings, from: offlineFrom, to: now })
+        absenceContext = completed.absenceContext
+        const refreshed = await db.contacts.get(contact.id)
+        if (refreshed) contact = refreshed
+      } catch (error) {
+        console.warn('[experiences] 离线经历补全失败，本轮降级继续聊天', error)
+        absenceContext = `【用户离线】对方距离上次回复约${Math.round((now - offlineFrom) / 360000) / 10}小时。结合关系和上次对话自然判断是否提及，不要机械报时，也不要默认对方故意忽视你。`
+      }
+    }
 
     // Cold-start warmth evaluation: 好感度 is enabled but this contact
     // was created while the module was off → evaluate once from chat history.
@@ -351,7 +372,8 @@ async function runAiTurn(
     const injectedIntentText = activeIntentPrompt(injectedIntents)
 
     // ---- Step 1: build context sections (no JSON protocol) ----
-    const scheduleText = describeUpcomingScheduleText(contact, new Date())
+    const nowDate = new Date(now)
+    const scheduleText = describeUpcomingScheduleText(contact, nowDate)
     const memoryPromptOn = promptModuleEnabled(settings, 'memory')
     const recentMemories = memoryPromptOn ? await recentMemoriesText(contact.id) : ''
     const financeContext = featureActive(settings, 'career')
@@ -366,6 +388,7 @@ async function runAiTurn(
     const lifeEventText = isModuleEnabled('lifeSimulation')
       ? (await db.lifeEvents.where('contactId').equals(contact.id).reverse().sortBy('occurredAt')).slice(0, 4).map((event) => event.summary).join('；')
       : ''
+    const experienceText = isModuleEnabled('lifeSimulation') ? await buildExperiencePromptSlice(contact.id, now) : ''
     const worldbookTrace = featureActive(settings, 'worldview') ? await retrieveWorldbookTrace([
       _triggeringUserText, proactiveContext, contact.name, contact.systemPrompt, contact.memoryFacts,
       history.slice(-8).map((m) => m.content).join(' '),
@@ -378,7 +401,7 @@ async function runAiTurn(
     )}`
     const userMemoryText = `【你对TA的了解】${contact.memoryFacts || '（刚开始聊）'}`
     const habitText = `【相处习惯】${contact.memoryStyle || '（还没有形成习惯）'}`
-    const situationText = `【当前情境】现在: ${describeCurrentTime(new Date())}。对方: ${buildUserProfileText(settings)}。${activeMood ? `你的心情: ${activeMood}。` : ''}【日程】${describeCurrentSchedule(contact, new Date()) ? `\n当前: ${describeCurrentSchedule(contact, new Date())}` : '\n当前: 暂无安排'}${scheduleText ? `\n接下来:\n${scheduleText}` : '\n接下来: 暂无安排'}${memoryPromptOn && activeUpcomingPlansText(contact, new Date()) ? `\n约定: ${activeUpcomingPlansText(contact, new Date())}` : ''}${recentEventsText ? `\n最近: ${recentEventsText}` : ''}`
+    const situationText = `【当前情境】现在: ${describeCurrentTime(nowDate)}。对方: ${buildUserProfileText(settings)}。${activeMood ? `你的心情: ${activeMood}。` : ''}【日程】${describeCurrentSchedule(contact, nowDate) ? `\n当前: ${describeCurrentSchedule(contact, nowDate)}` : '\n当前: 暂无安排'}${scheduleText ? `\n接下来:\n${scheduleText}` : '\n接下来: 暂无安排'}${memoryPromptOn && activeUpcomingPlansText(contact, nowDate) ? `\n约定: ${activeUpcomingPlansText(contact, nowDate)}` : ''}${recentEventsText ? `\n最近: ${recentEventsText}` : ''}`
     const contextSections = buildRawChatPrompt({
       name: contact.name,
       persona: `${contact.systemPrompt}${featureActive(settings, 'personalityTraits') ? customPersonalityTraitsLine(contact.customPersonalityTraits, contact.warmth ?? 0) : ''}${featureActive(settings, 'career') && contact.occupation ? `\n当前职业：${contact.occupation}，现实月薪：${contact.monthlySalary ?? 0}。工作会真实影响你的作息和日常话题。` : ''}${financeContext}`,
@@ -398,6 +421,8 @@ async function runAiTurn(
       memoryContext: [userMemoryText, habitText].join('\n\n'),
       situationContext: [
         situationText,
+        experienceText,
+        absenceContext,
         lifeEventText ? `【近期生活】${lifeEventText}` : '',
         proactiveContext,
       ].filter(Boolean).join('\n\n'),
@@ -632,7 +657,7 @@ async function runAiTurn(
         promptTrace: { sections: [{ label: '世界书', content: worldbookText }, { label: '结构化记忆', content: recentMemories }, { label: '特质规则', content: contact.customPersonalityTraits?.map((trait) => `${trait.name}: ${trait.meaning}`).join('\n') || contact.personalityTrait || '' }, { label: '关系与心情', content: relationshipText }, { label: '日程与当前情境', content: situationText }, { label: '主动话题', content: proactiveContext }].filter((section) => section.content), worldbookMatches: worldbookTrace.matches.map((match) => ({ id: match.entry.id, title: match.entry.title, score: match.score, chars: match.entry.content.length })), memorySummary: recentMemories, traitSummary: contact.customPersonalityTraits?.map((trait) => trait.name).join('、') || contact.personalityTrait, proactiveSource: proactiveContext || undefined },
       }),
       knowledgeQueries,
-      createdAt: Date.now(),
+      createdAt: now,
     })
     revealBubbles(
       conversationId,
@@ -647,6 +672,7 @@ async function runAiTurn(
       turnThought,
       finalRaw,
       injectedIntents.map((intent) => intent.id),
+      now,
     )
     console.info(`[chat-perf] first-bubble-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)}`)
     } catch (err) {
@@ -671,6 +697,7 @@ function revealBubbles(
   turnThought?: string,
   finalRaw?: string,
   injectedIntentIds: string[] = [],
+  turnNow = betaNow(contact.id),
 ): void {
   revealSequentially({
     conversationId,
@@ -688,7 +715,7 @@ function revealBubbles(
         // scheduleOverrides array here would silently drop the exception
         // (same staleness bug fixed in proactiveChat.ts's pendingEvents write).
         const fresh = await db.contacts.get(contact.id)
-        const pruned = pruneExpiredOverrides(fresh?.scheduleOverrides ?? [], new Date())
+        const pruned = pruneExpiredOverrides(fresh?.scheduleOverrides ?? [], new Date(turnNow))
         const override: ScheduleOverride = {
           id: uuid(),
           date: bubble.date,
@@ -699,7 +726,7 @@ function revealBubbles(
           activity: bubble.activity,
           summary: bubble.summary,
           priority: 'special',
-          createdAt: Date.now(),
+          createdAt: turnNow,
         }
         // A new special arrangement replaces the previous one for that day;
         // the generated weekly schedule remains the low-priority fallback.
@@ -766,14 +793,14 @@ function revealBubbles(
         debugParsedBubble: bubble,
         debugRawAiResponse: i === bubbles.length - 1 ? (finalRaw || '') : undefined,
         thought: turnThought && i === bubbles.length - 1 ? turnThought : undefined,
-        createdAt: Date.now(),
+        createdAt: turnNow + i,
       }
       if (turnThought && i === bubbles.length - 1) {
         console.log(`[chat] 想法已存入消息: ${turnThought}`)
       }
       await db.messages.add(msg)
       if (remoteSticker) void trackRemoteStickerSend(remoteSticker)
-      await db.conversations.update(conversationId, { updatedAt: Date.now() })
+      await db.conversations.update(conversationId, { updatedAt: turnNow + i })
 
       // Only pop a notification if the user isn't already looking at this
       // exact conversation right now.
@@ -804,7 +831,7 @@ function revealBubbles(
         }
         if (turnMood) {
           await db.contacts.update(contact.id, {
-            mood: { text: turnMood, expiresAt: Date.now() + settings.moodExpiryMs },
+            mood: { text: turnMood, expiresAt: turnNow + settings.moodExpiryMs },
           })
         }
         if (_triggeringUserText && isModuleEnabled('selfIteration')) {

@@ -15,7 +15,7 @@ import type {
   SavedWorldview,
   WorldbookCollection,
   WorldbookEntry,
-  SimulationState, ContactLifeState, LifeEvent, AiUsageRecord,
+  SimulationState, ContactLifeState, LifeEvent, ContactExperience, AiUsageRecord,
   SocialEvent, GroupPlan, AdminLogRecord, AdminAiTrace, SaveSlot, SavedPersona, PersonaCreationRecord,
   Sticker,
   WalletAccount, WalletTransaction, Loan, JobListing, InterviewSession,
@@ -40,6 +40,7 @@ export class TalkDB extends Dexie {
   simulationState!: Table<SimulationState, string>
   contactLifeStates!: Table<ContactLifeState, string>
   lifeEvents!: Table<LifeEvent, string>
+  contactExperiences!: Table<ContactExperience, string>
   aiUsageRecords!: Table<AiUsageRecord, string>
   aiTurns!: Table<AiTurnDebug, string>
   socialEvents!: Table<SocialEvent, string>
@@ -60,8 +61,8 @@ export class TalkDB extends Dexie {
   locationModuleState!: Table<LocationModuleState, string>
   acousticEdges!: Table<AcousticEdge, string>
 
-  constructor() {
-    super('talk-db')
+  constructor(name = 'talk-db') {
+    super(name)
     this.version(1).stores({
       contacts: 'id, name, createdAt',
       conversations: 'id, contactId, updatedAt, pinned',
@@ -310,7 +311,18 @@ export class TalkDB extends Dexie {
     this.version(29).stores({
       acousticEdges: '&id, fromLocationId, toLocationId',
     })
+    this.version(30).stores({
+      contactExperiences: 'id, kind, memoryTier, startedAt, endedAt, importance, *contactIds',
+    })
   }
 }
 
-export const db = new TalkDB()
+const activeBeta = (() => {
+  try {
+    const raw = localStorage.getItem('talk-contact-beta-session')
+    return raw ? JSON.parse(raw) as { branchDbName?: string } : undefined
+  } catch { return undefined }
+})()
+
+/** A page reload switches the whole app onto the isolated beta database branch. */
+export const db = new TalkDB(activeBeta?.branchDbName || 'talk-db')

@@ -152,7 +152,7 @@ test('settings page exports a complete Talk backup json', async ({ page }) => {
 
   const backup = JSON.parse(await import('node:fs/promises').then((fs) => fs.readFile(path!, 'utf8')))
   expect(backup.format).toBe('talk-backup')
-  expect(backup.schemaVersion).toBe(2)
+  expect(backup.schemaVersion).toBe(3)
   expect(backup.settings.userNickname).toBe('Backup User')
   expect(backup.tables.contacts).toHaveLength(1)
   expect(backup.tables.conversations).toHaveLength(1)
@@ -647,16 +647,16 @@ test('Nuwa AI initial warmth can be edited before contact creation', async ({ pa
   await page.reload()
   await page.getByRole('button', { name: '女娲模式' }).click()
   await page.getByRole('button', { name: '生成AI初稿' }).click()
-  await expect(page.getByLabel('女娲初始好感度数值')).toHaveValue('42')
-  await page.getByLabel('女娲初始好感度数值').fill('-35')
-  await expect(page.getByRole('slider', { name: '女娲初始好感度' })).toHaveValue('-35')
+  await expect(page.getByLabel('女娲好感度数值')).toHaveValue('42')
+  await page.getByLabel('女娲好感度数值').fill('-35')
+  await expect(page.getByRole('slider', { name: '女娲好感度' })).toHaveValue('-35')
 })
 
 test('ordinary contact creation can override the automatic initial warmth', async ({ page }) => {
   await page.goto('/#/contact/new')
-  await expect(page.getByText('初始好感度', { exact: true })).toBeVisible()
+  await expect(page.getByText('好感度', { exact: true })).toBeVisible()
   await expect(page.getByText('30', { exact: true })).toBeVisible()
-  const warmthSection = page.getByText('初始好感度', { exact: true }).locator('..').locator('..').locator('..')
+  const warmthSection = page.getByText('好感度', { exact: true }).locator('..').locator('..').locator('..')
   await warmthSection.getByRole('button', { name: '自定义', exact: true }).click()
   await warmthSection.locator('input[type="number"]').fill('-45')
   await expect(warmthSection.locator('input[type="range"]')).toHaveValue('-45')
@@ -829,6 +829,76 @@ test('life simulation catches up local state after elapsed time without an API k
   })
   expect(result.states).toBe(1)
   expect(result.events).toBeGreaterThan(0)
+})
+
+test('contact Beta mode uses an isolated time branch and discards it on close', async ({ page }) => {
+  await page.goto('/#/')
+  await clearDatabase(page)
+  await page.evaluate(async () => {
+    const { db } = await import('/src/db/db.ts')
+    await db.contacts.add({ id: 'beta-contact', name: 'Beta联系人', avatar: '🙂', avatarColor: '#eee', systemPrompt: '测试人设', createdAt: 1, memoryFacts: '', memoryStyle: '', memoryUpdatedAt: 0, memoryMessageCursor: 0, relationshipBase: '朋友', relationshipDynamic: '' })
+    await db.conversations.add({ id: 'beta-conversation', contactId: 'beta-contact', pinned: false, createdAt: 1, updatedAt: 1 })
+  })
+  await page.goto('/#/contact/beta-contact')
+  await page.getByRole('switch', { name: '联系人 Beta 模式' }).click()
+  await expect(page.getByRole('switch', { name: '联系人 Beta 模式' })).toBeChecked()
+  const before = await page.locator('time').filter({ hasText: /\d/ }).last().textContent()
+  await page.getByRole('button', { name: '推进两小时' }).click()
+  const after = await page.locator('time').filter({ hasText: /\d/ }).last().textContent()
+  expect(after).not.toBe(before)
+  await page.evaluate(async () => {
+    const { db } = await import('/src/db/db.ts')
+    await db.messages.add({ id: 'beta-only-message', conversationId: 'beta-conversation', role: 'user', type: 'text', content: '只存在于分支', createdAt: Date.now() })
+  })
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('switch', { name: '联系人 Beta 模式' }).click()
+  await expect(page.getByRole('switch', { name: '联系人 Beta 模式' })).not.toBeChecked()
+  const result = await page.evaluate(async () => {
+    const { db } = await import('/src/db/db.ts')
+    return { betaMessage: await db.messages.get('beta-only-message'), session: localStorage.getItem('talk-contact-beta-session') }
+  })
+  expect(result).toEqual({ betaMessage: undefined, session: null })
+})
+
+test('offline completion creates a shared experience and backdated moment', async ({ page }) => {
+  let prompt = ''
+  await page.route('**/chat/completions', async (route) => {
+    const body = route.request().postDataJSON() as { messages?: Array<{ content?: string }> }
+    prompt = body.messages?.[0]?.content ?? ''
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ choices: [{ message: { content: JSON.stringify({ experiences: [{ title: '整理宴会厅', summary: '她与管家一起核对了晚宴布置。', details: '检查餐具与花束。', offsetStartMinutes: 30, offsetEndMinutes: 45, location: '宅邸', activity: '整理', participantContactIds: ['beta-steward'], interactionMode: 'physical', importance: 82, visibility: 'public', shareAsMoment: true, momentContent: '宴会厅终于整理好了。' }] }) } }], usage: { prompt_tokens: 10, completion_tokens: 10 } }) })
+  })
+  await page.goto('/#/')
+  await clearDatabase(page)
+  const from = new Date('2026-07-31T10:00:00+08:00').getTime()
+  const to = from + 2 * 60 * 60 * 1000
+  const result = await page.evaluate(async ({ from, to }) => {
+    const { db } = await import('/src/db/db.ts')
+    const { ensureOfflineExperiences } = await import('/src/lib/experiences.ts')
+    const { useSettingsStore } = await import('/src/store/useSettingsStore.ts')
+    const base = { avatar: '🙂', avatarColor: '#eee', createdAt: 1, memoryFacts: '', memoryStyle: '', memoryUpdatedAt: 0, memoryMessageCursor: 0, relationshipBase: '同事', relationshipDynamic: '' }
+    await db.contacts.bulkAdd([
+      { ...base, id: 'beta-maid', name: '林夏', systemPrompt: '宅邸里的女仆长，做事细致。', schedule: [], experienceCursorAt: from },
+      { ...base, id: 'beta-steward', name: '周管家', systemPrompt: '宅邸管家。', schedule: [] },
+    ])
+    await db.contactRelations.bulkAdd([
+      { id: 'rel-a', pairId: 'pair', fromContactId: 'beta-maid', toContactId: 'beta-steward', label: '前辈/同事', createdAt: 1 },
+      { id: 'rel-b', pairId: 'pair', fromContactId: 'beta-steward', toContactId: 'beta-maid', label: '前辈/同事', createdAt: 1 },
+    ])
+    await db.contactLifeStates.bulkPut([
+      { contactId: 'beta-maid', location: '宅邸', activity: '整理', energy: 70, stress: 20, socialNeed: 30, updatedAt: from },
+      { contactId: 'beta-steward', location: '宅邸', activity: '核对清单', energy: 70, stress: 20, socialNeed: 30, updatedAt: from },
+    ])
+    const settings = useSettingsStore.getState()
+    settings.setSettings({ apiKey: 'sk-experience-test', baseUrl: 'https://experience.test', utilityModel: 'utility-test', enabledModules: [...new Set([...settings.enabledModules, 'lifeSimulation'])] })
+    const contact = (await db.contacts.get('beta-maid'))!
+    await ensureOfflineExperiences({ contact, settings: useSettingsStore.getState(), from, to })
+    return { experience: (await db.contactExperiences.toArray())[0], moment: (await db.moments.toArray())[0], cursor: (await db.contacts.get('beta-maid'))?.experienceCursorAt }
+  }, { from, to })
+  expect(prompt).toContain('宅邸里的女仆长')
+  expect(result.experience.contactIds).toEqual(['beta-maid', 'beta-steward'])
+  expect(result.experience.memoryTier).toBe('long')
+  expect(result.moment.createdAt).toBe(from + 45 * 60 * 1000)
+  expect(result.cursor).toBe(to)
 })
 
 test.skip('relationship deltas are rule based and prompt includes human style rules', async ({ page }) => {

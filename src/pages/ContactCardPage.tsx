@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate, useParams } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
@@ -8,6 +8,7 @@ import { UiIcon } from '../components/UiIcon'
 import { Avatar } from '../components/Avatar'
 import { AvatarPicker } from '../components/AvatarPicker'
 import { ActionSheet } from '../components/ActionSheet'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 import { displayName } from '../lib/contact'
 import { activeUpcomingPlans, activeUpcomingPlansText, resetMemory } from '../lib/memory'
 import { cascadeDeleteContactSocialData } from '../lib/moments'
@@ -31,6 +32,7 @@ import { setWalletBalance } from '../lib/finance'
 import { createDefaultPromptModules, PROMPT_MODULE_DEFINITIONS, unknownPromptPlaceholders } from '../lib/promptModules'
 import type { PromptModuleId } from '../types'
 import { ArrowDownToLine, ArrowUpFromLine, ClipboardList, Phone, PhoneOff } from 'lucide-react'
+import { canMoveContactBetaTo, disableContactBeta, enableContactBeta, getContactBetaSession, restartContactBeta, shiftContactBeta } from '../lib/contactBeta'
 
 function LatestAiTurnJson({ contactId }: { contactId: string }) {
   const latestTurn = useLiveQuery(async () => {
@@ -81,6 +83,15 @@ export function ContactCardPage() {
   const [promptValidationError, setPromptValidationError] = useState('')
   const [editingRelations, setEditingRelations] = useState(false)
   const [relationDrafts, setRelationDrafts] = useState<Array<{ targetContactId: string; label: string }>>([])
+  const [betaSession, setBetaSession] = useState(getContactBetaSession())
+  const [betaBusy, setBetaBusy] = useState(false)
+  const [betaError, setBetaError] = useState('')
+
+  useEffect(() => {
+    const update = () => setBetaSession(getContactBetaSession())
+    window.addEventListener('talk:contact-beta-time', update)
+    return () => window.removeEventListener('talk:contact-beta-time', update)
+  }, [])
 
   const contact = useLiveQuery(() => (contactId ? db.contacts.get(contactId) : undefined), [contactId])
   const allContacts = useLiveQuery(() => db.contacts.toArray(), []) ?? []
@@ -90,6 +101,7 @@ export function ContactCardPage() {
   )
   const contactWallet = useLiveQuery(() => contactId ? db.walletAccounts.get(contactId) : undefined, [contactId])
   const lifeEvents = useLiveQuery(() => contactId ? db.lifeEvents.where('contactId').equals(contactId).reverse().sortBy('occurredAt') : [], [contactId]) ?? []
+  const experiences = useLiveQuery(() => contactId ? db.contactExperiences.where('contactIds').equals(contactId).toArray() : [], [contactId]) ?? []
   const lifeState = useLiveQuery(() => contactId ? db.contactLifeStates.get(contactId) : undefined, [contactId])
   const socialTimeline = useLiveQuery(async () => {
     if (!contactId) return []
@@ -196,8 +208,32 @@ export function ContactCardPage() {
     setEditingRemark(false)
   }
 
-  const activePlans = activeUpcomingPlans(contact.upcomingPlans ?? [], new Date())
-  const visibleActiveIntents = activeIntents(contact, Date.now(), 10)
+  async function toggleBeta(checked: boolean) {
+    if (!contactId || betaBusy) return
+    setBetaBusy(true)
+    setBetaError('')
+    try {
+      if (checked) await enableContactBeta(contactId)
+      else if (window.confirm('关闭 Beta 模式将丢弃这条测试分支中的聊天、记忆、经历、朋友圈及关系变化，确认回档吗？')) await disableContactBeta(contactId)
+    } catch (error) {
+      setBetaError(error instanceof Error ? error.message : String(error))
+    } finally { setBetaBusy(false) }
+  }
+
+  async function moveBeta(deltaMs: number) {
+    if (!contactId || !betaSession) return
+    const target = Math.max(betaSession.startedAt, betaSession.virtualNow + deltaMs)
+    if (deltaMs < 0 && !await canMoveContactBetaTo(contactId, target)) {
+      setBetaError('目标时间之后已经产生测试数据。请使用“回到起点”丢弃分支内容后重新测试。')
+      return
+    }
+    setBetaError('')
+    setBetaSession(shiftContactBeta(contactId, deltaMs))
+  }
+
+  const contactNow = betaSession?.contactId === contactId ? betaSession.virtualNow : Date.now()
+  const activePlans = activeUpcomingPlans(contact.upcomingPlans ?? [], new Date(contactNow))
+  const visibleActiveIntents = activeIntents(contact, contactNow, 10)
   const usedIntents = (contact.intentQueue ?? [])
     .filter((intent) => intent.status === 'used')
     .sort((a, b) => b.createdAt - a.createdAt)
@@ -212,7 +248,7 @@ export function ContactCardPage() {
   // pendingEvents-clearing side effect — this is a read-only preview, not
   // an actual turn, so pendingEvents here is read straight off the live
   // contact instead of going through the "read once then clear" flow.
-  const now = new Date()
+  const now = new Date(contactNow)
   const pendingEvents = contact.pendingEvents ?? []
   const previewActiveIntents = isModuleEnabled('intent') ? activeIntents(contact, now.getTime()) : []
   // ---- admin-mode prompt preview (two-step pipeline) ----
@@ -300,6 +336,15 @@ export function ContactCardPage() {
         </section>
       )}
 
+      {experiences.length > 0 && <section className="mt-3 bg-[var(--ui-surface)] px-4 py-4 shadow-[var(--ui-shadow)]">
+        <h3 className="mb-2 text-xs font-medium text-[var(--ui-text-3)]">经历</h3>
+        <div className="space-y-2">{[...experiences].sort((a, b) => (b.endedAt ?? b.createdAt) - (a.endedAt ?? a.createdAt)).slice(0, 12).map((experience) => <div key={experience.id} className="rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-2)] px-3 py-2">
+          <div className="flex items-center justify-between gap-2"><p className="text-sm font-medium text-[var(--ui-text)]">{experience.title}</p><span className="shrink-0 text-[10px] text-[var(--ui-text-3)]">{experience.kind === 'past' ? '过去' : experience.memoryTier === 'long' ? '长期记忆' : '短期记忆'}</span></div>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--ui-text-2)]">{experience.summary}</p>
+          <p className="mt-1 text-[10px] text-[var(--ui-text-3)]">{experience.periodLabel || (experience.startedAt ? new Date(experience.startedAt).toLocaleString() : '')}{experience.location ? ` · ${experience.location}` : ''}</p>
+        </div>)}</div>
+      </section>}
+
       <div className="mt-3 bg-white">
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 border-b border-gray-100 px-4 py-3 text-xs text-gray-500"><p>性别：{contact.gender || contact.creatorProfile?.gender || '未填写'}</p><p>真名：{contact.realName || contact.name}</p><p>网名：{contact.nickname || contact.name}</p><p>生日：{contact.birthday || '未填写'}</p></div>
         <button
@@ -332,14 +377,14 @@ export function ContactCardPage() {
           <div className="flex w-full items-center justify-between px-4 py-3.5">
             <span className="text-[15px] text-gray-900">心情</span>
             <span className="text-sm text-gray-400">
-              {contact.mood?.text && Date.now() < contact.mood.expiresAt ? normalizeMood(contact.mood.text) : '暂无'}
+            {contact.mood?.text && contactNow < contact.mood.expiresAt ? normalizeMood(contact.mood.text) : '暂无'}
             </span>
           </div>
         )}
         <div className="flex w-full items-center justify-between px-4 py-3.5">
           <span className="text-[15px] text-gray-900">状态</span>
           <span className="flex items-center gap-1.5 text-sm text-gray-400">
-            {isPhoneAvailable(contact, new Date()) ? <Phone size={14} /> : <PhoneOff size={14} />}{describeCurrentSchedule(contact, new Date()).replace(/^现在在/, '') || '空闲'}
+            {isPhoneAvailable(contact, new Date(contactNow)) ? <Phone size={14} /> : <PhoneOff size={14} />}{describeCurrentSchedule(contact, new Date(contactNow)).replace(/^现在在/, '') || '空闲'}
           </span>
         </div>
         {relEnabled && (
@@ -355,6 +400,23 @@ export function ContactCardPage() {
         {careerEnabled && <button onClick={assignCareer} disabled={assigningCareer} className="flex w-full items-center justify-between px-4 py-3.5 text-left active:bg-gray-50 disabled:opacity-50"><span className="text-[15px] text-gray-900">职业</span><span className="text-sm text-gray-400">{assigningCareer?'生成中…':contact.occupation?`${contact.occupation} · 月薪 ${formatCurrency(contact.monthlySalary??0,settings)}`:'赋予职业'}</span></button>}
         {careerEnabled && <button onClick={adminEnabled ? async()=>{const raw=prompt('设定该AI的钱包余额',String(contactWallet?.balance??0));if(raw!==null&&Number.isFinite(Number(raw))&&Number(raw)>=0)await setWalletBalance(contact.id,Number(raw))}:undefined} className="flex w-full items-center justify-between px-4 py-3.5 text-left"><span className="text-[15px] text-gray-900">钱包</span><span className="text-sm text-gray-400">{formatCurrency(contactWallet?.balance??0,settings)}{adminEnabled?' · 点击设定':''}</span></button>}
       </div>
+
+      <section className="mt-3 bg-[var(--ui-surface)] shadow-[var(--ui-shadow)]">
+        <div className="flex min-h-14 items-center justify-between gap-3 border-b border-[var(--ui-border-soft)] px-4 py-3">
+          <div className="min-w-0"><p className="text-[15px] text-[var(--ui-text)]">Beta模式</p>{betaSession?.contactId === contactId && <p className="mt-0.5 text-[11px] text-[var(--ui-text-3)]">独立测试分支 · 关闭后完整回档</p>}</div>
+          <ToggleSwitch checked={betaSession?.contactId === contactId} onChange={(checked) => void toggleBeta(checked)} ariaLabel="联系人 Beta 模式" disabled={betaBusy || (!!betaSession && betaSession.contactId !== contactId)} />
+        </div>
+        {betaSession?.contactId === contactId && <div className="px-4 py-3">
+          <div className="flex items-center justify-between gap-3"><span className="text-xs text-[var(--ui-text-2)]">模拟时间</span><time className="font-mono text-xs text-[var(--ui-text)]">{new Date(betaSession.virtualNow).toLocaleString()}</time></div>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {[[-1, '回退一小时'], [1, '推进一小时'], [2, '推进两小时'], [6, '推进六小时'], [24, '推进一天']].map(([hours, label]) => <button key={String(label)} type="button" onClick={() => void moveBeta(Number(hours) * 60 * 60 * 1000)} disabled={betaBusy || (Number(hours) < 0 && betaSession.virtualNow <= betaSession.startedAt)} className="min-h-9 rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface-2)] px-2 text-xs text-[var(--ui-text-2)] disabled:opacity-40">{label}</button>)}
+            <button type="button" onClick={() => { if (window.confirm('丢弃当前测试分支的全部变化并回到开启 Beta 模式的时刻吗？')) void restartContactBeta(contactId!) }} className="min-h-9 rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface-2)] px-2 text-xs text-[var(--ui-text-2)]">回到起点</button>
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-[var(--ui-text-3)]">推进时间不会立即补全经历；下次给TA发消息时才会补全缺失时段。回退不会跨过已经产生的测试数据。</p>
+          {betaError && <p className="mt-2 text-xs text-[var(--ui-danger-ink)]">{betaError}</p>}
+        </div>}
+        {!betaSession && betaError && <p className="px-4 pb-3 text-xs text-[var(--ui-danger-ink)]">{betaError}</p>}
+      </section>
 
       <section className="mt-3 bg-white px-4 py-4">
         <h3 className="mb-2 text-xs font-medium text-gray-400">最近社交动态</h3>

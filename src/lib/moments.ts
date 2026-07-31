@@ -739,4 +739,10 @@ export async function cascadeDeleteContactSocialData(contactId: string): Promise
 
   await db.contactRelations.where('fromContactId').equals(contactId).delete()
   await db.contactRelations.where('toContactId').equals(contactId).delete()
+  const experiences = await db.contactExperiences.where('contactIds').equals(contactId).toArray()
+  for (const experience of experiences) {
+    const contactIds = experience.contactIds.filter((id) => id !== contactId)
+    if (contactIds.length === 0) await db.contactExperiences.delete(experience.id)
+    else await db.contactExperiences.update(experience.id, { contactIds })
+  }
 }

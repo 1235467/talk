@@ -7,6 +7,7 @@ import { displayName } from './contact'
 import { describeCurrentTime, toDateKey } from './time'
 import { parseIntentsField, type ParsedIntent } from './intent'
 import { applyInterpersonalMemorySignals, uniqueRelationPairs } from './contactRelations'
+import { betaNow } from './contactBeta'
 import type { AppSettings, Contact, ContactMemory, ContactMemoryScope, ContactRelationLabel, IntentItem, MemoryCategory, MemoryKind, Message, PlanItem } from '../types'
 import { featureActive, getPromptTemplate, promptModuleEnabled } from './promptModules'
 
@@ -492,7 +493,7 @@ export async function maybeUpdateMemory(
     const updated = parseMemoryResponse(raw)
     if (!updated) return null
 
-    const now = Date.now()
+    const now = betaNow(contactId)
 
     // Relationship scoring is only active when the 好感度 module is enabled.
     // Memory (facts/style/plans) always updates regardless.
@@ -598,7 +599,7 @@ export async function recentMemoriesTextByScope(
   opts: { includeScopes?: ContactMemoryScope[]; excludeScopes?: ContactMemoryScope[]; title?: string } = {},
 ): Promise<string> {
   try {
-    const now = Date.now()
+    const now = betaNow(contactId)
     let items = await db.contactMemories
       .where('contactId')
       .equals(contactId)
@@ -716,7 +717,7 @@ export async function rememberInitialContactRelation(opts: {
   label: ContactRelationLabel
   now?: number
 }): Promise<void> {
-  const now = opts.now ?? Date.now()
+  const now = opts.now ?? betaNow(opts.fromContactId)
   const [from, to] = await Promise.all([
     db.contacts.get(opts.fromContactId),
     db.contacts.get(opts.toContactId),
@@ -929,7 +930,7 @@ export async function maybeUpdateGroupMemory(
       return
     }
 
-    const now = Date.now()
+    const now = betaNow()
     const memberByName = new Map(members.map((member) => [displayName(member), member]))
     for (const member of members) memberByName.set(member.name, member)
     for (let i = 0; i < targets.length; i++) {

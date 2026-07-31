@@ -13,7 +13,7 @@ import { DesktopLayout } from './components/DesktopLayout'
 import { DesktopHomePage } from './pages/DesktopHomePage'
 import { ensureWallets, settleSalaries } from './lib/finance'
 import { ensureLegacyWorldviewMigrated } from './lib/worldbook'
-import { runLifeSimulation } from './lib/lifeSimulation'
+import { getContactBetaSession } from './lib/contactBeta'
 import { syncContactLocationsAt } from './lib/locations'
 // Tab pages are the landing screen — keep them eager. Everything else is
 // route-level code-split (lazy) so the initial bundle stays small; matches
@@ -78,8 +78,8 @@ function useAutonomousBehaviorTimer() {
   useEffect(() => {
     if (!enabled) return
     const tick = () => {
+      if (getContactBetaSession()) return
       const settings = useSettingsStore.getState()
-      runLifeSimulation(settings).catch(() => {})
       refreshMoments(settings).catch(() => {})
       maybeTriggerProactiveMessage(settings).catch(() => {})
     }
@@ -119,7 +119,7 @@ function useLocationResumeSync() {
   useEffect(() => {
     if (!enabled) return
     const syncWhenVisible = () => {
-      if (document.visibilityState === 'visible') void syncContactLocationsAt(new Date())
+      if (document.visibilityState === 'visible' && !getContactBetaSession()) void syncContactLocationsAt(new Date())
     }
     document.addEventListener('visibilitychange', syncWhenVisible)
     return () => document.removeEventListener('visibilitychange', syncWhenVisible)
@@ -138,12 +138,6 @@ function App() {
   const location = useLocation()
   const desktop = Boolean(window.talkDesktop)
   useEffect(() => { void ensureWallets().then(() => settleSalaries()) }, [enabledModules])
-  useEffect(() => {
-    const resume = () => { if (document.visibilityState === 'visible') void runLifeSimulation() }
-    void runLifeSimulation()
-    document.addEventListener('visibilitychange', resume)
-    return () => document.removeEventListener('visibilitychange', resume)
-  }, [enabledModules])
   useEffect(() => { void ensureLegacyWorldviewMigrated() }, [])
   useEffect(() => {
     if (!desktop) return

@@ -23,4 +23,13 @@ describe('persona initial warmth', () => {
     }))
     expect(parsed?.initialWarmth).toBe(100)
   })
+
+  it('requires and parses structured past experiences', () => {
+    expect(buildPersonaGenerationPrompt(answers, 'anime', undefined, '世界书中的旧事')).toContain('"pastExperiences"')
+    const parsed = parsePersonaGeneration(JSON.stringify({
+      name: '林夏', persona: '测试人设', schedule: [], personalityTrait: '猫系', mbti: 'INFP',
+      pastExperiences: [{ title: '重逢', period: '去年', summary: '与旧友重新取得联系。', relatedContactNames: ['周晴'], importance: 88 }],
+    }))
+    expect(parsed?.pastExperiences).toEqual([{ title: '重逢', period: '去年', summary: '与旧友重新取得联系。', relatedContactNames: ['周晴'], importance: 88 }])
+  })
 })

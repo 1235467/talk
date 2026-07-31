@@ -584,6 +584,8 @@ issues 要用简短中文列出具体错误。` },
         schedule: parsed.schedule,
         scheduleOverrides: [],
         mbti: parsed.mbti || undefined,
+        worldbookEntryIds: selectedWorldbookEntryIds,
+        experienceCursorAt: now,
         ...(careerEnabled && (chosenOccupation || parsed.occupation) ? employmentPatch(chosenOccupation || parsed.occupation || '', parsed.monthlySalary ?? 6000) : {}),
       })
       if (personaSettingText) {
@@ -605,6 +607,35 @@ issues 要用简短中文列出具体错误。` },
           label: row.label,
           now,
         })
+      }
+      const contactIdByName = new Map(existingContacts.flatMap((existingContact) => [
+        existingContact.name,
+        existingContact.realName,
+        existingContact.nickname,
+        displayName(existingContact),
+      ].filter((name): name is string => !!name).map((name) => [name.trim().toLocaleLowerCase(), existingContact.id] as const)))
+      const pastExperiences = parsed.pastExperiences ?? []
+      if (pastExperiences.length > 0) {
+        await db.contactExperiences.bulkAdd(pastExperiences.map((experience) => ({
+          id: uuid(),
+          contactIds: [id, ...Array.from(new Set(experience.relatedContactNames.map((name) => contactIdByName.get(name.trim().toLocaleLowerCase())).filter((relatedId): relatedId is string => !!relatedId)))],
+          kind: 'past' as const,
+          memoryTier: 'long' as const,
+          title: experience.title || '过去的经历',
+          summary: experience.summary,
+          periodLabel: experience.period || undefined,
+          importance: experience.importance,
+          sources: Array.from(new Set([
+            effectiveSharedHistory ? 'user' : undefined,
+            selectedWorldbookEntryIds.length ? 'worldbook' : undefined,
+            values.relationRows.length ? 'relationship' : undefined,
+            'persona',
+          ].filter((source): source is 'user' | 'worldbook' | 'relationship' | 'persona' => !!source))),
+          sourceRefIds: selectedWorldbookEntryIds.length ? selectedWorldbookEntryIds : undefined,
+          createdAt: now,
+        })))
+      } else if (effectiveSharedHistory) {
+        await db.contactExperiences.add({ id: uuid(), contactIds: [id], kind: 'past', memoryTier: 'long', title: '与用户的过去', summary: effectiveSharedHistory, importance: 85, sources: ['user'], createdAt: now })
       }
       await db.personaCreationRecords.add({
         id: uuid(),
@@ -830,7 +861,7 @@ issues 要用简短中文列出具体错误。` },
           <section className="mb-4 rounded-xl border border-gray-200 bg-white p-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-medium text-gray-700">初始好感度</p>
+                <p className="text-xs font-medium text-gray-700">好感度</p>
                 <p className="mt-0.5 text-[11px] text-gray-400">自动值会根据关系定位和性格特质计算</p>
               </div>
               <div className="flex rounded-lg bg-gray-100 p-0.5 text-xs">
@@ -842,7 +873,7 @@ issues 要用简短中文列出具体错误。` },
               <p className="mt-3 text-center text-lg font-semibold text-[var(--ui-special-ink)]">{initialWarmthForBase(relationship || '朋友', personalityTrait)}</p>
             ) : (
               <div className="mt-3 flex items-center gap-3">
-                <input type="range" min="-100" max="100" value={customInitialWarmth} onChange={(event) => setCustomInitialWarmth(Number(event.target.value))} className="min-w-0 flex-1 accent-[var(--ui-special)]" aria-label="初始好感度" />
+                <input type="range" min="-100" max="100" value={customInitialWarmth} onChange={(event) => setCustomInitialWarmth(Number(event.target.value))} className="min-w-0 flex-1 accent-[var(--ui-special)]" aria-label="好感度" />
                 <input type="number" min="-100" max="100" value={customInitialWarmth} onChange={(event) => setCustomInitialWarmth(Math.max(-100, Math.min(100, Number(event.target.value) || 0)))} className="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-center text-sm" />
               </div>
             )}
@@ -1034,9 +1065,11 @@ issues 要用简短中文列出具体错误。` },
               <label className="block text-xs font-medium text-[var(--ui-special-ink)]">MBTI<input value={personaDraft.mbti ?? ''} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, mbti: event.target.value } : draft)} placeholder="例如 INFP" className="mt-1 w-full rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm" /></label>
               <label className="block text-xs font-medium text-[var(--ui-special-ink)]">头像关键词<input value={personaDraft.avatarKeyword ?? ''} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, avatarKeyword: event.target.value } : draft)} placeholder="用于头像搜索的英文关键词" className="mt-1 w-full rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm" /></label>
             </div>
-            {relEnabled && <div className="mb-3 rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-medium text-[var(--ui-special-ink)]">初始好感度</p><p className="mt-0.5 text-[10px] text-[var(--ui-special-ink)]">AI已根据完整人设生成，你可以在创建前修改</p></div><input aria-label="女娲初始好感度数值" type="number" min="-100" max="100" value={personaDraft.initialWarmth ?? 0} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, initialWarmth: Math.max(-100, Math.min(100, Number(event.target.value) || 0)) } : draft)} className="w-20 rounded-lg border border-[var(--ui-special-border)] px-2 py-1.5 text-center text-sm font-semibold text-[var(--ui-special-ink)]" /></div><input aria-label="女娲初始好感度" type="range" min="-100" max="100" value={personaDraft.initialWarmth ?? 0} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, initialWarmth: Number(event.target.value) } : draft)} className="mt-2 w-full accent-[var(--ui-special)]" /></div>}
+            {relEnabled && <div className="mb-3 rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-medium text-[var(--ui-special-ink)]">好感度</p><p className="mt-0.5 text-[10px] text-[var(--ui-special-ink)]">AI已根据完整人设生成，你可以在创建前修改</p></div><input aria-label="女娲好感度数值" type="number" min="-100" max="100" value={personaDraft.initialWarmth ?? 0} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, initialWarmth: Math.max(-100, Math.min(100, Number(event.target.value) || 0)) } : draft)} className="w-20 rounded-lg border border-[var(--ui-special-border)] px-2 py-1.5 text-center text-sm font-semibold text-[var(--ui-special-ink)]" /></div><input aria-label="女娲好感度" type="range" min="-100" max="100" value={personaDraft.initialWarmth ?? 0} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, initialWarmth: Number(event.target.value) } : draft)} className="mt-2 w-full accent-[var(--ui-special)]" /></div>}
             <label className="block text-xs font-medium text-[var(--ui-special-ink)]">完整人设</label>
             <textarea value={personaDraft.persona} onChange={(e) => setPersonaDraft((draft) => draft ? { ...draft, persona: e.target.value } : draft)} rows={8} className="mt-1 w-full resize-y rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm leading-relaxed" />
+            <label className="mt-3 block text-xs font-medium text-[var(--ui-special-ink)]">过去的经历（每行一条）</label>
+            <textarea value={(personaDraft.pastExperiences ?? []).map((item) => [item.period, item.title, item.summary].filter(Boolean).join('｜')).join('\n')} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, pastExperiences: event.target.value.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 10).map((line) => { const [period = '', title = '过去的经历', ...summary] = line.split('｜'); return { period, title, summary: summary.join('｜') || title, relatedContactNames: [], importance: 75 } }) } : draft)} rows={5} placeholder="时期｜标题｜具体发生过什么以及带来的影响" className="mt-1 w-full resize-y rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm leading-relaxed" />
             <label className="mt-3 block text-xs font-medium text-[var(--ui-special-ink)]">说话样例（每行一条）</label>
             <textarea value={(personaDraft.speechSamples ?? []).join('\n')} onChange={(e) => setPersonaDraft((draft) => draft ? { ...draft, speechSamples: e.target.value.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 8) } : draft)} rows={5} className="mt-1 w-full resize-y rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm leading-relaxed" />
           </section>

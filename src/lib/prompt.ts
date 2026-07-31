@@ -190,6 +190,13 @@ export interface PersonaGenerationResult {
   occupation?: string
   /** Nuwa mode lets the model choose this from the completed persona. */
   initialWarmth?: number
+  pastExperiences?: Array<{
+    title: string
+    period: string
+    summary: string
+    relatedContactNames: string[]
+    importance: number
+  }>
 }
 
 export function buildPersonaGenerationPrompt(answers: PersonaAnswers, avatarCategory: AvatarCategory, promptModules?: PromptModuleSettings, worldbookText = ''): string {
@@ -242,13 +249,14 @@ ${worldbookText.trim()}` : ''
   "mbti": "这个人的MBTI类型 根据你设计的人设推断最符合的四字母 比如INFP/ESTJ/INTJ等 必须是一个有效的MBTI类型",
   "speechSamples": ["[日常] 一句符合这个人说话方式的短消息", "[被关心] 一句短消息", "[情绪触发] 一句短消息", "[亲近互动] 一句短消息"],
   "personaProfile": {"facts":["不可改变的身份/背景事实"],"boundaries":["关系边界或禁忌"],"habits":["稳定习惯/口癖"],"behaviorAnchors":["遇到某类情境会如何自然反应"]},
+  "pastExperiences": [{"title":"经历标题","period":"人生阶段或大致时间","summary":"具体发生过什么以及如何影响现在的性格、生活或关系","relatedContactNames":["只填写本次输入中明确存在的其他联系人姓名"],"importance":85}],
   ${answers.draftMode ? '"initialWarmth": 35,' : ''}
   "monthlySalary": 8000,
   "schedule": [
     { "dayOfWeek": 1, "startHour": 9, "endHour": 18, "phoneAccess": "unavailable", "location": "公司", "locationId": "office-floor", "activity": "上班" },
     { "dayOfWeek": 1, "startHour": 23, "endHour": 7, "phoneAccess": "unavailable", "location": "家里", "locationId": "home-living", "activity": "睡觉" }
   ]${avatarInstruction}
-	}\nschedule中的location保留自然语言，同时尽量填写合法locationId。可用值：home-living、home-kitchen、school-classroom、school-canteen、school-playground、office-floor、office-lobby、mall-atrium、mall-cafe、mall-shop、hospital-lobby、hospital-clinic、park-lawn、park-riverside、beach-boardwalk、mountain-lookout、farm-field。${answers.draftMode ? '\ninitialWarmth 必须是 -100 到 100 的整数。请根据角色对用户的关系定位、共同经历、性格和边界自行决定，陌生疏离可为负数，亲密关系应与设定相符。' : ''}`
+	}\nschedule中的location保留自然语言，同时尽量填写合法locationId。可用值：home-living、home-kitchen、school-classroom、school-canteen、school-playground、office-floor、office-lobby、mall-atrium、mall-cafe、mall-shop、hospital-lobby、hospital-clinic、park-lawn、park-riverside、beach-boardwalk、mountain-lookout、farm-field。${answers.draftMode ? '\ninitialWarmth 必须是 -100 到 100 的整数。请根据角色对用户的关系、过去的经历、性格和边界决定创建时的好感度，陌生疏离可为负数，亲密关系应与设定相符。' : ''}`
 }
 
 export function parsePersonaGeneration(raw: string): PersonaGenerationResult | null {
@@ -267,6 +275,17 @@ export function parsePersonaGeneration(raw: string): PersonaGenerationResult | n
         ? profileRaw![key].filter((v): v is string => typeof v === 'string' && v.trim().length > 0).map((v) => v.trim().slice(0, 120)).slice(0, 6)
         : []
       const personaProfile: PersonaProfile | undefined = profileRaw ? { facts: profileList('facts'), boundaries: profileList('boundaries'), habits: profileList('habits'), behaviorAnchors: profileList('behaviorAnchors') } : undefined
+      const pastExperiences = Array.isArray(parsed.pastExperiences)
+        ? parsed.pastExperiences.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item) && typeof (item as Record<string, unknown>).summary === 'string')
+            .slice(0, 10)
+            .map((item) => ({
+              title: typeof item.title === 'string' ? item.title.trim().slice(0, 80) : '过去的经历',
+              period: typeof item.period === 'string' ? item.period.trim().slice(0, 80) : '',
+              summary: String(item.summary).trim().slice(0, 800),
+              relatedContactNames: Array.isArray(item.relatedContactNames) ? item.relatedContactNames.filter((name): name is string => typeof name === 'string').map((name) => name.trim()).filter(Boolean).slice(0, 8) : [],
+              importance: Math.max(0, Math.min(100, Math.round(Number(item.importance) || 70))),
+            }))
+        : []
       // Validate: must be exactly 4 letters from the MBTI dimensions.
       const mbti = /^[IE][SN][TF][JP]$/.test(mbtiRaw) ? mbtiRaw : ''
       return {
@@ -287,6 +306,7 @@ export function parsePersonaGeneration(raw: string): PersonaGenerationResult | n
         personaProfile,
         monthlySalary: typeof parsed.monthlySalary === 'number' && Number.isFinite(parsed.monthlySalary) ? Math.max(1000, Math.min(200000, Math.round(parsed.monthlySalary))) : undefined,
         initialWarmth: typeof parsed.initialWarmth === 'number' && Number.isFinite(parsed.initialWarmth) ? Math.max(-100, Math.min(100, Math.round(parsed.initialWarmth))) : undefined,
+        pastExperiences,
       }
   }
   return null
