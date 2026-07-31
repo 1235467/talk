@@ -491,6 +491,15 @@ export interface ImageProvidersSettings {
   comfyui: {
     baseUrl: string
     apiKey: string
+    workflowMode: 'basic' | 'custom'
+    workflow?: Record<string, unknown>
+    workflowFileName?: string
+    workflowBindings?: {
+      positivePromptNodeId?: string
+      negativePromptNodeId?: string
+      samplerNodeId?: string
+      latentNodeId?: string
+    }
     model: string
     width: number
     height: number

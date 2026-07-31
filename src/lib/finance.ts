@@ -105,23 +105,34 @@ export async function claimRedPacket(transactionId: string, to: WalletOwnerId) {
   })
 }
 
-export async function settleSalaries(): Promise<void> {
+export interface DailySalaryClaimResult { userAmount: number; contactAmount: number; contactCount: number; date: string }
+
+export async function hasClaimedDailySalary(date = localDateKey()): Promise<boolean> {
+  return !!await db.walletTransactions.where('idempotencyKey').equals(`salary:user:${date}`).first()
+}
+
+/** Daily payroll is user-triggered. Idempotency makes retries safe even after a partial browser interruption. */
+export async function claimDailySalaries(date = localDateKey()): Promise<DailySalaryClaimResult> {
   const settings = useSettingsStore.getState()
-  if (!settings.enabledModules.includes('career')) return
+  if (!settings.enabledModules.includes('career')) throw new Error('职业模块尚未启用')
+  if (!settings.userOccupation || settings.userMonthlySalary <= 0) throw new Error('需要先入职才能领取工资')
   await ensureWallets()
-  const today = localDateKey()
-  if (settings.userOccupation && settings.userMonthlySalary > 0 && settings.userLastSalaryDate) {
-    const days = elapsedLocalDays(settings.userLastSalaryDate, today)
-    if (days) {
-      await transferFunds({ to: USER_WALLET_ID, amount: Math.round(settings.userMonthlySalary / 30 * days), kind: 'salary', note: `${settings.userOccupation}工资`, idempotencyKey: `salary:user:${today}` })
-      settings.setSettings({ userLastSalaryDate: today })
-    }
-  }
+  const alreadyClaimed = await hasClaimedDailySalary(date)
+  const userAmount = Math.max(1, Math.round(settings.userMonthlySalary / 30))
+  await transferFunds({ to: USER_WALLET_ID, amount: userAmount, kind: 'salary', note: `${settings.userOccupation}工资`, idempotencyKey: `salary:user:${date}` })
+  settings.setSettings({ userLastSalaryDate: date })
+  let contactAmount = 0
+  let contactCount = 0
   for (const c of await db.contacts.toArray()) {
-    if (!c.occupation || !c.monthlySalary || !c.lastSalaryDate) continue
-    const days = elapsedLocalDays(c.lastSalaryDate, today)
-    if (!days) continue
-    await transferFunds({ to: c.id, amount: Math.round(c.monthlySalary / 30 * days), kind: 'salary', note: `${c.occupation}工资`, idempotencyKey: `salary:${c.id}:${today}` })
-    await db.contacts.update(c.id, { lastSalaryDate: today })
+    if (!c.occupation || !c.monthlySalary) continue
+    const amount = Math.max(1, Math.round(c.monthlySalary / 30))
+    await transferFunds({ to: c.id, amount, kind: 'salary', note: `${c.occupation}工资`, idempotencyKey: `salary:${c.id}:${date}` })
+    await db.contacts.update(c.id, { lastSalaryDate: date })
+    contactAmount += amount
+    contactCount += 1
   }
+  // Finish missing contact payments before reporting a duplicate user claim. If
+  // the browser stopped midway, a retry repairs payroll without double-paying.
+  if (alreadyClaimed) throw new Error('今天已经领取过工资了')
+  return { userAmount, contactAmount, contactCount, date }
 }

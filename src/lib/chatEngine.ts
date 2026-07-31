@@ -33,7 +33,6 @@ import { createTurnController, revealSequentially } from './conversationRuntime'
 import { isImageProviderReady, isStickerProviderReady } from './mediaProviders'
 import { featureActive, promptModuleEnabled } from './promptModules'
 import { realisticReplyDelayMs } from './replyTiming'
-import { betaNow } from './contactBeta'
 import { buildExperiencePromptSlice, ensureOfflineExperiences } from './experiences'
 import type { AiBubble, AppSettings, Contact, Message, MessageType, ScheduleOverride, Sticker } from '../types'
 
@@ -59,6 +58,13 @@ interface ConversationRuntimeState {
 // since a new reference every call trips React's useSyncExternalStore
 // infinite-loop detection and crashes the page.
 export const DEFAULT_RUNTIME_STATE: ConversationRuntimeState = { aiTyping: false, error: '', typingLabel: undefined }
+
+/** Equal IndexedDB index keys have no stable order, so timestamps must be monotonic per conversation. */
+export async function nextMessageTimestamp(conversationId: string, requested = Date.now()): Promise<number> {
+  const rows = await db.messages.where('conversationId').equals(conversationId).toArray()
+  const latest = rows.reduce((value, message) => Math.max(value, message.createdAt), 0)
+  return Math.max(requested, latest + 1)
+}
 
 interface ChatEngineStore {
   states: Record<string, ConversationRuntimeState>
@@ -254,7 +260,7 @@ export async function sendMessage(
   turns.begin(conversationId, streamId)
   useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: displayName(contact) })
 
-  const now = betaNow(contact.id)
+  const now = await nextMessageTimestamp(conversationId)
   const previousUserMessages = await db.messages.where('conversationId').equals(conversationId).toArray()
   const previousUserAt = previousUserMessages.filter((message) => message.role === 'user').reduce((latest, message) => Math.max(latest, message.createdAt), 0)
   const msg: Message = {
@@ -333,7 +339,7 @@ async function runAiTurn(
 ): Promise<void> {
   const engine = useChatEngineStore.getState()
   const turnStartedAt = performance.now()
-  const now = turnNow ?? betaNow(contact.id)
+  const now = turnNow ?? Date.now()
   const activeMood = getActiveMood(contact, now)
   engine.patch(conversationId, { aiTyping: true, error: '', typingLabel: displayName(contact) })
   console.log(`[chat] 开始生成回复 对方=${displayName(contact)} conversationId=${conversationId}`)
@@ -697,7 +703,7 @@ function revealBubbles(
   turnThought?: string,
   finalRaw?: string,
   injectedIntentIds: string[] = [],
-  turnNow = betaNow(contact.id),
+  turnNow = Date.now(),
 ): void {
   revealSequentially({
     conversationId,
@@ -760,6 +766,7 @@ function revealBubbles(
       else if (bubble.type === 'giftPurchase') content = bubble.name || '礼物'
       else content = bubble.note || (bubble.type === 'loanDecision' ? '借款决定' : '资金互动')
 
+      const messageCreatedAt = await nextMessageTimestamp(conversationId, turnNow + i + 1)
       const msg: Message = {
         id: uuid(),
         conversationId,
@@ -793,14 +800,14 @@ function revealBubbles(
         debugParsedBubble: bubble,
         debugRawAiResponse: i === bubbles.length - 1 ? (finalRaw || '') : undefined,
         thought: turnThought && i === bubbles.length - 1 ? turnThought : undefined,
-        createdAt: turnNow + i,
+        createdAt: messageCreatedAt,
       }
       if (turnThought && i === bubbles.length - 1) {
         console.log(`[chat] 想法已存入消息: ${turnThought}`)
       }
       await db.messages.add(msg)
       if (remoteSticker) void trackRemoteStickerSend(remoteSticker)
-      await db.conversations.update(conversationId, { updatedAt: turnNow + i })
+      await db.conversations.update(conversationId, { updatedAt: messageCreatedAt })
 
       // Only pop a notification if the user isn't already looking at this
       // exact conversation right now.

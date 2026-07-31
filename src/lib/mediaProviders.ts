@@ -131,6 +131,7 @@ export function createDefaultImageProviders(): ImageProvidersSettings {
     comfyui: {
       baseUrl: 'http://127.0.0.1:8188',
       apiKey: '',
+      workflowMode: 'basic',
       model: '',
       width: 768,
       height: 768,
@@ -205,7 +206,7 @@ export function isImageProviderReady(settings: Pick<AppSettings, 'imageProvider'
   if (provider === 'none') return false
   if (provider === 'atlas') return !!providers.atlas.apiKey.trim()
   if (provider === 'novelai') return !!providers.novelai.apiKey.trim()
-  if (provider === 'comfyui') return !!providers.comfyui.baseUrl.trim() && !!providers.comfyui.model.trim()
+  if (provider === 'comfyui') return !!providers.comfyui.baseUrl.trim() && (providers.comfyui.workflowMode === 'custom' ? !!providers.comfyui.workflow : !!providers.comfyui.model.trim())
   if (provider === 'stable-diffusion') return !!providers.stableDiffusion.baseUrl.trim()
   return !!providers.custom.endpoint.trim()
 }

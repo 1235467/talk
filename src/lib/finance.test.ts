@@ -4,6 +4,7 @@ import { useSettingsStore } from '../store/useSettingsStore'
 import {
   USER_WALLET_ID,
   claimRedPacket,
+  claimDailySalaries,
   ensureWallets,
   getBalance,
   reserveRedPacket,
@@ -95,5 +96,17 @@ describe('wallet ledger', () => {
 
     expect(await getBalance(USER_WALLET_ID)).toBe(25)
     expect((await getBalance(USER_WALLET_ID)) + (await getBalance('contact-a'))).toBe(100)
+  })
+
+  it('pays the user and every employed contact once per daily claim', async () => {
+    useSettingsStore.setState({ enabledModules: ['career'], userOccupation: '设计师', userMonthlySalary: 9000, walletMigrated: true })
+    await db.contacts.add({ id: 'salary-ai', name: '小林', avatar: '🙂', avatarColor: '#eee', systemPrompt: '测试', occupation: '编辑', monthlySalary: 6000, createdAt: 1, memoryFacts: '', memoryStyle: '', memoryUpdatedAt: 0, memoryMessageCursor: 0, relationshipBase: '朋友', relationshipDynamic: '' })
+
+    const result = await claimDailySalaries('2026-07-31')
+
+    expect(result).toMatchObject({ userAmount: 300, contactAmount: 200, contactCount: 1 })
+    expect(await getBalance(USER_WALLET_ID)).toBe(300)
+    expect(await getBalance('salary-ai')).toBe(200)
+    await expect(claimDailySalaries('2026-07-31')).rejects.toThrow('今天已经领取过工资了')
   })
 })

@@ -66,6 +66,7 @@ export const MessageBubble = memo(function MessageBubble({
   return (
     <div
       ref={(el) => registerRef?.(message.id, el)}
+      data-message-id={message.id}
       {...(selecting ? {} : longPress)}
       onClick={selecting ? () => onSelect?.(message.id) : undefined}
       className={`relative select-none [-webkit-touch-callout:none] px-3 py-1.5 ${selecting ? 'cursor-pointer pl-12' : ''} ${

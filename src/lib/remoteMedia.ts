@@ -13,6 +13,7 @@ import {
   isStickerProviderReady,
 } from './mediaProviders'
 import { httpFailureMessage, requireHttpUrl } from './connectionError'
+import { injectComfyWorkflow } from './comfyWorkflow'
 import { appFetch } from './appFetch'
 
 export interface RemoteStickerResult {
@@ -506,6 +507,7 @@ function comfyHeaders(apiKey: string): Record<string, string> {
 }
 
 function buildComfyWorkflow(config: AppSettings['imageProviders']['comfyui'], query: string): Record<string, unknown> {
+  if (config.workflowMode === 'custom' && config.workflow) return injectComfyWorkflow(config, query, joinedPrompt)
   return {
     '3': {
       class_type: 'KSampler',

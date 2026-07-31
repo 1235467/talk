@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { v4 as uuid } from 'uuid'
@@ -25,6 +25,9 @@ import { retrieveWorldbookContext, selectedWorldbookEntriesText } from '../lib/w
 import { featureActive, getPromptTemplate, promptModuleEnabled } from '../lib/promptModules'
 import { customTraitsValidationError, hasOverlappingCustomTraitRules } from '../lib/contactCreator'
 import { syncContactLocationsAt } from '../lib/locations'
+import { characterCardPersonaText, parseSillyTavernCharacterCard } from '../lib/characterCardImport'
+import { parseWorldbookFile, type ParsedWorldbookImport } from '../lib/worldbookImport'
+import { extractWorldbookPersonaCanon } from '../lib/worldbookPersonaCanon'
 import { CONTACT_RELATION_LABELS, HOBBY_TAG_OPTIONS, PERSONALITY_TRAIT_OPTIONS, type ContactRelationLabel, type CustomPersonalityTrait, type PersonaCreationRecord } from '../types'
 import {
   AGE_RANGE_OPTIONS,
@@ -116,6 +119,33 @@ export function ContactAddPage() {
   const [polishingPersona, setPolishingPersona] = useState(false)
   const [worldbookSelectorOpen, setWorldbookSelectorOpen] = useState(false)
   const [selectedWorldbookEntryIds, setSelectedWorldbookEntryIds] = useState<string[]>([])
+  const characterCardInputRef = useRef<HTMLInputElement | null>(null)
+  const [importedFirstMessage, setImportedFirstMessage] = useState('')
+  const [importedCardName, setImportedCardName] = useState('')
+  const [pendingCardWorldbook, setPendingCardWorldbook] = useState<ParsedWorldbookImport | null>(null)
+
+  async function importCharacterCard(file: File) {
+    try {
+      const card = await parseSillyTavernCharacterCard(file, settings.userNickname || '用户')
+      setIsNuwaMode(true)
+      setPersonaDraft(null)
+      setCustomRealName(card.name)
+      setCustomNickname(card.name)
+      setCustomTendencies(card.personality || card.tags.join('、'))
+      setExtra(card.scenario)
+      setSharedHistory(card.scenario)
+      setNuwaPersonaSetting(characterCardPersonaText(card))
+      setImportedFirstMessage(card.firstMessage)
+      setImportedCardName(file.name)
+      try { setPendingCardWorldbook(await parseWorldbookFile(file)) } catch { setPendingCardWorldbook(null) }
+      if (card.avatarDataUrl) { setAvatar(card.avatarDataUrl); setAvatarManuallySet(true) }
+      setError('角色卡已读取。请检查设定并生成初稿；内嵌世界书可在世界书选择器中绑定。')
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : String(importError))
+    } finally {
+      if (characterCardInputRef.current) characterCardInputRef.current.value = ''
+    }
+  }
 
   const previouslyUsedTraits = (() => {
     const byName = new Map<string, CustomPersonalityTrait>()
@@ -160,6 +190,7 @@ export function ContactAddPage() {
     ])
     return [
       selectedText ? `【用户为本次角色生成明确勾选的世界观——最高语义优先级】\n${selectedText}` : '',
+      pendingCardWorldbook?.entries.length ? `【角色卡内嵌世界书——正史】\n${pendingCardWorldbook.entries.map((entry) => `【${entry.title}】\n${entry.content}`).join('\n\n')}` : '',
       retrievedText,
     ].filter(Boolean).join('\n\n')
   }
@@ -450,7 +481,7 @@ issues 要用简短中文列出具体错误。` },
         occupation: isNuwaMode ? customOccupation.trim() : (occupation === '自定义' ? customOccupation.trim() : occupation),
         relationRows,
       }
-      const effectiveSharedHistory = (draftMode ? extra : sharedHistory).trim()
+      let effectiveSharedHistory = (draftMode ? (sharedHistory || extra) : sharedHistory).trim()
       const personaSettingText = (isNuwaMode ? currentNuwaPersonaText() : '').trim()
       const avatarCategory = pickAvatarCategory(values.tags)
       let parsed = draftOverride
@@ -459,6 +490,20 @@ issues 要用简短中文列出具体错误。` },
         const interpersonalSetting = currentInterpersonalSetting()
         const extra = [roleDescription, personaSettingText, interpersonalSetting].filter(Boolean).join('\n\n')
         const worldbookText = await creationWorldbookContext([values.tags.join(' '), values.ageRange, values.gender, values.relationship, values.personalityTrait, values.hobbies.join(' '), values.occupation, extra, personaSettingText].join('\n'))
+        const canon = await extractWorldbookPersonaCanon({
+          settings,
+          worldbookText,
+          requestedCharacter: [roleDescription, personaSettingText, values.relationship].filter(Boolean).join('\n'),
+          existingContactNames: existingContacts.flatMap((contact) => [contact.name, contact.realName, contact.nickname, displayName(contact)].filter((name): name is string => !!name)),
+        })
+        if (!values.relationship && canon.relationship) values = { ...values, relationship: canon.relationship }
+        if (!effectiveSharedHistory && canon.sharedHistory) {
+          effectiveSharedHistory = canon.sharedHistory
+          setSharedHistory(canon.sharedHistory)
+        }
+        const canonText = canon.pastExperiences.length || canon.facts.length || canon.relationship
+          ? `【已结构化提取的世界书正史——输出必须逐项覆盖】\n${JSON.stringify(canon)}`
+          : ''
         const raw = await chatCompletion({
           apiKey: settings.apiKey,
           baseUrl: settings.baseUrl,
@@ -481,7 +526,7 @@ issues 要用简短中文列出具体错误。` },
                 },
                 avatarCategory,
                 settings.promptModules,
-                worldbookText,
+                [worldbookText, canonText].filter(Boolean).join('\n\n'),
               ),
             },
             { role: 'user', content: '请生成' },
@@ -494,6 +539,21 @@ issues 要用简短中文列出具体错误。` },
         })
         console.info(`[persona-perf] 主模型完成=${Math.round(performance.now() - generationStartedAt)}ms`)
         parsed = parsePersonaGeneration(raw) ?? undefined
+        if (parsed && canon.pastExperiences.length) {
+          const existingExperiences = parsed.pastExperiences ?? []
+          const seen = new Set(existingExperiences.map((item) => `${item.period}|${item.summary}`))
+          parsed = {
+            ...parsed,
+            relationship: values.relationship || parsed.relationship || canon.relationship,
+            pastExperiences: [...canon.pastExperiences.filter((item) => !seen.has(`${item.period}|${item.summary}`)), ...existingExperiences].slice(0, 12),
+            personaProfile: {
+              facts: Array.from(new Set([...(canon.facts ?? []), ...(parsed.personaProfile?.facts ?? [])])),
+              boundaries: Array.from(new Set([...(canon.boundaries ?? []), ...(parsed.personaProfile?.boundaries ?? [])])),
+              habits: parsed.personaProfile?.habits ?? [],
+              behaviorAnchors: parsed.personaProfile?.behaviorAnchors ?? [],
+            },
+          }
+        }
       }
       if (!parsed) throw new Error('生成结果解析失败 请重试一次')
       if (personaSettingText && !parsed.persona.includes(personaSettingText)) {
@@ -545,6 +605,11 @@ issues 要用简短中文列出具体错误。` },
       setProgressStep('saving')
       const id = uuid()
       const now = Date.now()
+      if (pendingCardWorldbook) {
+        await db.worldbookCollections.put(pendingCardWorldbook.collection)
+        await db.worldbookEntries.bulkPut(pendingCardWorldbook.entries)
+      }
+      const boundWorldbookEntryIds = Array.from(new Set([...selectedWorldbookEntryIds, ...(pendingCardWorldbook?.entries.map((entry) => entry.id) ?? [])]))
       const chosenOccupation = values.occupation
       const automaticWarmth = initialWarmthForBase(values.relationship || parsed.relationship || '朋友', values.personalityTrait || parsed.personalityTrait)
       const resolvedInitialWarmth = isNuwaMode
@@ -584,7 +649,7 @@ issues 要用简短中文列出具体错误。` },
         schedule: parsed.schedule,
         scheduleOverrides: [],
         mbti: parsed.mbti || undefined,
-        worldbookEntryIds: selectedWorldbookEntryIds,
+        worldbookEntryIds: boundWorldbookEntryIds,
         experienceCursorAt: now,
         ...(careerEnabled && (chosenOccupation || parsed.occupation) ? employmentPatch(chosenOccupation || parsed.occupation || '', parsed.monthlySalary ?? 6000) : {}),
       })
@@ -592,13 +657,18 @@ issues 要用简短中文列出具体错误。` },
         await db.contacts.update(id, { personaConstraints: [extra.trim(), personaSettingText].filter(Boolean).join('\n\n') })
       }
       if (settings.enabledModules.includes('location')) await syncContactLocationsAt(new Date(now))
+      const newConversationId = uuid()
       await db.conversations.add({
-        id: uuid(),
+        id: newConversationId,
         contactId: id,
         pinned: false,
         createdAt: now,
         updatedAt: now,
       })
+      if (importedFirstMessage.trim()) {
+        await db.messages.add({ id: uuid(), conversationId: newConversationId, role: 'assistant', type: 'text', content: importedFirstMessage.trim(), createdAt: now + 1 })
+        await db.conversations.update(newConversationId, { updatedAt: now + 1 })
+      }
       for (const row of values.relationRows) {
         await setPairedContactRelation(id, row.targetContactId, row.label)
         await rememberInitialContactRelation({
@@ -627,11 +697,11 @@ issues 要用简短中文列出具体错误。` },
           importance: experience.importance,
           sources: Array.from(new Set([
             effectiveSharedHistory ? 'user' : undefined,
-            selectedWorldbookEntryIds.length ? 'worldbook' : undefined,
+            boundWorldbookEntryIds.length ? 'worldbook' : undefined,
             values.relationRows.length ? 'relationship' : undefined,
             'persona',
           ].filter((source): source is 'user' | 'worldbook' | 'relationship' | 'persona' => !!source))),
-          sourceRefIds: selectedWorldbookEntryIds.length ? selectedWorldbookEntryIds : undefined,
+          sourceRefIds: boundWorldbookEntryIds.length ? boundWorldbookEntryIds : undefined,
           createdAt: now,
         })))
       } else if (effectiveSharedHistory) {
@@ -713,6 +783,9 @@ issues 要用简短中文列出具体错误。` },
           <p className="px-2 pb-1 pt-2 text-[11px] leading-relaxed text-gray-400">女娲模式会先生成一份完整人设初稿，你可以逐项修改，确认后才会创建联系人。</p>
         </div>
         {!isNuwaMode && <button type="button" onClick={completelyRandom} disabled={generating} className="mb-4 flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 py-3 text-sm font-medium text-white transition active:scale-[.98] disabled:opacity-50"><Dice5 size={17} />完全随机创建</button>}
+        <button type="button" onClick={() => characterCardInputRef.current?.click()} disabled={generating} className="mb-4 w-full rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface-2)] py-2.5 text-sm text-[var(--ui-text-2)] disabled:opacity-50">导入 SillyTavern 角色卡</button>
+        <input ref={characterCardInputRef} type="file" accept=".png,.json,application/json,image/png" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importCharacterCard(file) }} />
+        {importedCardName && <p className="-mt-2 mb-4 break-all text-[11px] text-[var(--ui-text-3)]">已载入：{importedCardName}</p>}
         {isNuwaMode && <p className="mb-2 text-xs text-[var(--ui-special-ink)]">女娲模式：先写初稿建议和你确定的设定，AI只补全仍为空的内容。</p>}
         <p className="mb-4 text-xs text-gray-400">
           描述一下你想认识的这个人 名字会由对方自己来定 确认添加后就正式加上了 之后不能再改TA的性格设定
@@ -1069,6 +1142,7 @@ issues 要用简短中文列出具体错误。` },
             <label className="block text-xs font-medium text-[var(--ui-special-ink)]">完整人设</label>
             <textarea value={personaDraft.persona} onChange={(e) => setPersonaDraft((draft) => draft ? { ...draft, persona: e.target.value } : draft)} rows={8} className="mt-1 w-full resize-y rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm leading-relaxed" />
             <label className="mt-3 block text-xs font-medium text-[var(--ui-special-ink)]">过去的经历（每行一条）</label>
+            {(personaDraft.pastExperiences ?? []).length > 0 && <div className="mt-2 space-y-2">{(personaDraft.pastExperiences ?? []).map((experience, index) => <article key={`${experience.title}:${index}`} className="rounded-[var(--ui-radius-card)] border border-[var(--ui-special-border)] bg-[var(--ui-surface-2)] px-3 py-2"><div className="flex items-start justify-between gap-2"><p className="text-sm font-medium text-[var(--ui-text)]">{experience.title || '过去的经历'}</p><span className="shrink-0 text-[10px] text-[var(--ui-special-ink)]">长期记忆 · {experience.importance}</span></div><p className="mt-1 text-xs leading-relaxed text-[var(--ui-text-2)]">{experience.summary}</p><p className="mt-1 text-[10px] text-[var(--ui-text-3)]">{[experience.period, experience.relatedContactNames.length ? `参与者：${experience.relatedContactNames.join('、')}` : '', selectedWorldbookEntryIds.length || pendingCardWorldbook ? '含世界书正史来源' : 'AI/用户设定'].filter(Boolean).join(' · ')}</p></article>)}</div>}
             <textarea value={(personaDraft.pastExperiences ?? []).map((item) => [item.period, item.title, item.summary].filter(Boolean).join('｜')).join('\n')} onChange={(event) => setPersonaDraft((draft) => draft ? { ...draft, pastExperiences: event.target.value.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 10).map((line) => { const [period = '', title = '过去的经历', ...summary] = line.split('｜'); return { period, title, summary: summary.join('｜') || title, relatedContactNames: [], importance: 75 } }) } : draft)} rows={5} placeholder="时期｜标题｜具体发生过什么以及带来的影响" className="mt-1 w-full resize-y rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm leading-relaxed" />
             <label className="mt-3 block text-xs font-medium text-[var(--ui-special-ink)]">说话样例（每行一条）</label>
             <textarea value={(personaDraft.speechSamples ?? []).join('\n')} onChange={(e) => setPersonaDraft((draft) => draft ? { ...draft, speechSamples: e.target.value.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 8) } : draft)} rows={5} className="mt-1 w-full resize-y rounded-lg border border-[var(--ui-special-border)] bg-white px-3 py-2 text-sm leading-relaxed" />

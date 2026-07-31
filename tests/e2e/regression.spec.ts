@@ -230,7 +230,7 @@ test('settings uses searchable model pickers for large provider model lists', as
   const models = Array.from({ length: 118 }, (_, index) => `vendor/model-${String(index).padStart(3, '0')}`)
   models[73] = 'deepseek-ai/deepseek-v4-pro'
 
-  await page.route('https://models.example/v1/models', async (route) => {
+  await page.route('https://models.example/models', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -430,7 +430,7 @@ test('appearance settings enable dark mode and custom chat background', async ({
   await page.goto('/#/appearance')
   await clearDatabase(page)
 
-  await page.getByRole('button', { name: '◐ 深色' }).click()
+  await page.getByRole('button', { name: '深色', exact: true }).click()
   await expect(page.locator('.app-shell')).toHaveClass(/theme-dark/)
 
   await page.evaluate(async () => {
@@ -628,7 +628,7 @@ test('Nuwa mode exposes an editable AI first-draft workflow', async ({ page }) =
 })
 
 test('Nuwa AI initial warmth can be edited before contact creation', async ({ page }) => {
-  await page.route('**/v1/chat/completions', async (route) => {
+  await page.route('**/chat/completions', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -701,19 +701,19 @@ test('mobile touch jitter still opens the long-press message menu', async ({ pag
   await seedSearchAndGroupFixture(page)
   await page.evaluate(() => localStorage.setItem('talk-chat-long-press-hint-seen-v1', '1'))
   await page.goto('/#/chat/conversation-a')
-  const message = page.getByText('the hidden keyword is nebula', { exact: true })
-  await message.dispatchEvent('pointerdown', { pointerId: 7, pointerType: 'touch', clientX: 120, clientY: 280, isPrimary: true, buttons: 1 })
-  await message.dispatchEvent('pointermove', { pointerId: 7, pointerType: 'touch', clientX: 124, clientY: 283, isPrimary: true, buttons: 1 })
-  await page.waitForTimeout(500)
+  const bubble = page.locator('[data-message-id="message-a"]')
+  await bubble.dispatchEvent('pointerdown', { bubbles: true, pointerId: 7, pointerType: 'touch', clientX: 120, clientY: 280, isPrimary: true, buttons: 1 })
+  await bubble.dispatchEvent('pointermove', { bubbles: true, pointerId: 7, pointerType: 'touch', clientX: 124, clientY: 283, isPrimary: true, buttons: 1 })
+  await page.waitForTimeout(700)
   await expect(page.getByRole('button', { name: '重新生成这一轮' })).toBeVisible()
-  await message.dispatchEvent('pointerup', { pointerId: 7, pointerType: 'touch', clientX: 124, clientY: 283, isPrimary: true })
+  await bubble.dispatchEvent('pointerup', { bubbles: true, pointerId: 7, pointerType: 'touch', clientX: 124, clientY: 283, isPrimary: true })
   await page.getByRole('button', { name: '取消', exact: true }).click()
 
-  await message.dispatchEvent('pointerdown', { pointerId: 8, pointerType: 'touch', clientX: 120, clientY: 280, isPrimary: true, buttons: 1 })
-  await message.dispatchEvent('pointermove', { pointerId: 8, pointerType: 'touch', clientX: 120, clientY: 310, isPrimary: true, buttons: 1 })
-  await page.waitForTimeout(500)
+  await bubble.dispatchEvent('pointerdown', { bubbles: true, pointerId: 8, pointerType: 'touch', clientX: 120, clientY: 280, isPrimary: true, buttons: 1 })
+  await bubble.dispatchEvent('pointermove', { bubbles: true, pointerId: 8, pointerType: 'touch', clientX: 120, clientY: 310, isPrimary: true, buttons: 1 })
+  await page.waitForTimeout(700)
   await expect(page.getByRole('button', { name: '重新生成这一轮' })).toHaveCount(0)
-  await message.dispatchEvent('pointerup', { pointerId: 8, pointerType: 'touch', clientX: 120, clientY: 310, isPrimary: true })
+  await bubble.dispatchEvent('pointerup', { bubbles: true, pointerId: 8, pointerType: 'touch', clientX: 120, clientY: 310, isPrimary: true })
 })
 
 test('an exhausted warehouse item stays visible and can be repurchased', async ({ page }) => {
@@ -739,12 +739,17 @@ test('Nuwa AI polishing is reviewed and retries invalid form output', async ({ p
   type AiRequest = { model?: string; messages?: Array<{ content: string }>; response_format?: unknown }
   const mainRequests: AiRequest[] = []
   const reviewRequests: AiRequest[] = []
-  await page.route('**/v1/chat/completions', async (route) => {
+  await page.route('**/chat/completions', async (route) => {
     const requestBody = route.request().postDataJSON() as AiRequest
+    const isCanonExtraction = requestBody.messages?.[0]?.content.includes('世界书正史提取器') ?? false
     const isReview = requestBody.messages?.[0]?.content.includes('严格格式审查器') ?? false
-    if (isReview) reviewRequests.push(requestBody)
-    else mainRequests.push(requestBody)
-    const content = isReview
+    if (!isCanonExtraction) {
+      if (isReview) reviewRequests.push(requestBody)
+      else mainRequests.push(requestBody)
+    }
+    const content = isCanonExtraction
+      ? JSON.stringify({ relationship: '', sharedHistory: '', facts: [], boundaries: [], pastExperiences: [] })
+      : isReview
       ? JSON.stringify({ valid: true, issues: [] })
       : mainRequests.length === 1
         ? JSON.stringify({
@@ -829,35 +834,6 @@ test('life simulation catches up local state after elapsed time without an API k
   })
   expect(result.states).toBe(1)
   expect(result.events).toBeGreaterThan(0)
-})
-
-test('contact Beta mode uses an isolated time branch and discards it on close', async ({ page }) => {
-  await page.goto('/#/')
-  await clearDatabase(page)
-  await page.evaluate(async () => {
-    const { db } = await import('/src/db/db.ts')
-    await db.contacts.add({ id: 'beta-contact', name: 'Beta联系人', avatar: '🙂', avatarColor: '#eee', systemPrompt: '测试人设', createdAt: 1, memoryFacts: '', memoryStyle: '', memoryUpdatedAt: 0, memoryMessageCursor: 0, relationshipBase: '朋友', relationshipDynamic: '' })
-    await db.conversations.add({ id: 'beta-conversation', contactId: 'beta-contact', pinned: false, createdAt: 1, updatedAt: 1 })
-  })
-  await page.goto('/#/contact/beta-contact')
-  await page.getByRole('switch', { name: '联系人 Beta 模式' }).click()
-  await expect(page.getByRole('switch', { name: '联系人 Beta 模式' })).toBeChecked()
-  const before = await page.locator('time').filter({ hasText: /\d/ }).last().textContent()
-  await page.getByRole('button', { name: '推进两小时' }).click()
-  const after = await page.locator('time').filter({ hasText: /\d/ }).last().textContent()
-  expect(after).not.toBe(before)
-  await page.evaluate(async () => {
-    const { db } = await import('/src/db/db.ts')
-    await db.messages.add({ id: 'beta-only-message', conversationId: 'beta-conversation', role: 'user', type: 'text', content: '只存在于分支', createdAt: Date.now() })
-  })
-  page.once('dialog', (dialog) => dialog.accept())
-  await page.getByRole('switch', { name: '联系人 Beta 模式' }).click()
-  await expect(page.getByRole('switch', { name: '联系人 Beta 模式' })).not.toBeChecked()
-  const result = await page.evaluate(async () => {
-    const { db } = await import('/src/db/db.ts')
-    return { betaMessage: await db.messages.get('beta-only-message'), session: localStorage.getItem('talk-contact-beta-session') }
-  })
-  expect(result).toEqual({ betaMessage: undefined, session: null })
 })
 
 test('offline completion creates a shared experience and backdated moment', async ({ page }) => {

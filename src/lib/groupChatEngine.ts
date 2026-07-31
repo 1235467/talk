@@ -20,7 +20,7 @@ import { isModuleEnabled } from '../features'
 import { describeCurrentTime } from './time'
 import { displayName } from './contact'
 import { previewForMessage } from './messagePreview'
-import { buildUserProfileText, useChatEngineStore } from './chatEngine'
+import { buildUserProfileText, nextMessageTimestamp, useChatEngineStore } from './chatEngine'
 import { reviewTurnLogic } from './turnLogicReviewer'
 import { trackRemoteStickerSend } from './remoteMedia'
 import { resolveBubbleMedia } from './bubbleMedia'
@@ -264,6 +264,7 @@ export async function sendGroupMessage(
   turns.begin(conversationId, streamId)
   useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: '群成员' })
 
+  const messageCreatedAt = await nextMessageTimestamp(conversationId)
   const msg: Message = {
     id: uuid(),
     conversationId,
@@ -272,10 +273,10 @@ export async function sendGroupMessage(
     content: text.trim(),
     mentions: mentionContactIds.length > 0 ? Array.from(new Set(mentionContactIds)) : undefined,
     replyToMessageId,
-    createdAt: Date.now(),
+    createdAt: messageCreatedAt,
   }
   await db.messages.add(msg)
-  await db.conversations.update(conversationId, { updatedAt: Date.now() })
+  await db.conversations.update(conversationId, { updatedAt: messageCreatedAt })
   if (group.kind === 'location' && members.length === 0) {
     useChatEngineStore.getState().patch(conversationId, { aiTyping: false, typingLabel: undefined, error: '' })
     return
@@ -698,6 +699,7 @@ function revealGroupBubbles(
             )
           : bubble.type === 'sticker' ? (stickerFailed ? '表情没找到…' : bubble.name) : imageFailed ? '图片没发出来…' : bubble.caption || '[图片]'
 
+      const messageCreatedAt = await nextMessageTimestamp(conversationId)
       const msg: Message = {
         id: uuid(),
         conversationId,
@@ -710,7 +712,7 @@ function revealGroupBubbles(
         thought: bubble.thought,
         sticker: remoteSticker ? { url: remoteSticker.url, provider: remoteSticker.provider } : undefined,
         image: imagePayload,
-        createdAt: Date.now(),
+        createdAt: messageCreatedAt,
       }
       await db.messages.add(msg)
       if (remoteSticker) void trackRemoteStickerSend(remoteSticker)
@@ -722,7 +724,7 @@ function revealGroupBubbles(
           mood: { text: bubble.mood, expiresAt: Date.now() + settings.moodExpiryMs },
         })
       }
-      await db.conversations.update(conversationId, { updatedAt: Date.now() })
+      await db.conversations.update(conversationId, { updatedAt: messageCreatedAt })
 
       if (useChatUiStore.getState().activeConversationId !== conversationId) {
         useChatUiStore.getState().showNotification({

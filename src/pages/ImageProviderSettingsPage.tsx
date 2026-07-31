@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { TopBar } from '../components/TopBar'
 import {
@@ -17,6 +17,7 @@ import {
 import { useSettingsStore } from '../store/useSettingsStore'
 import type { ImageProviderId, ImageProvidersSettings } from '../types'
 import { friendlyConnectionError } from '../lib/connectionError'
+import { detectComfyWorkflowBindings, validateComfyWorkflow } from '../lib/comfyWorkflow'
 
 const inputClass = 'w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-gray-400'
 const labelClass = 'mb-1 block text-xs text-gray-500'
@@ -93,6 +94,24 @@ export function ImageProviderSettingsPage() {
   )
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null)
   const [preview, setPreview] = useState<GeneratedImageResult | null>(null)
+  const workflowInputRef = useRef<HTMLInputElement | null>(null)
+
+  async function importComfyWorkflow(file: File) {
+    try {
+      const workflow = validateComfyWorkflow(JSON.parse(await file.text()))
+      updateProvider('comfyui', {
+        workflowMode: 'custom',
+        workflow,
+        workflowFileName: file.name,
+        workflowBindings: detectComfyWorkflowBindings(workflow),
+      })
+      setStatus({ ok: true, text: `已导入 ${file.name}，生成时会自动注入提示词与常用参数。` })
+    } catch (error) {
+      setStatus({ ok: false, text: error instanceof Error ? error.message : String(error) })
+    } finally {
+      if (workflowInputRef.current) workflowInputRef.current.value = ''
+    }
+  }
 
   if (!isKnownProvider(providerId)) {
     return (
@@ -345,6 +364,15 @@ export function ImageProviderSettingsPage() {
 
           {provider === 'comfyui' && (
             <div className="space-y-3">
+              <div className="rounded-[var(--ui-radius-card)] border border-[var(--ui-border)] bg-[var(--ui-surface-2)] p-3">
+                <p className="text-xs font-medium text-[var(--ui-text)]">工作流</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => updateProvider('comfyui', { workflowMode: 'basic' })} className={`rounded-[var(--ui-radius-control)] border px-3 py-2 text-xs ${providers.comfyui.workflowMode !== 'custom' ? 'border-[var(--ui-action)] text-[var(--ui-action)]' : 'border-[var(--ui-border)] text-[var(--ui-text-2)]'}`}>内置基础工作流</button>
+                  <button type="button" onClick={() => workflowInputRef.current?.click()} className={`rounded-[var(--ui-radius-control)] border px-3 py-2 text-xs ${providers.comfyui.workflowMode === 'custom' ? 'border-[var(--ui-action)] text-[var(--ui-action)]' : 'border-[var(--ui-border)] text-[var(--ui-text-2)]'}`}>导入 API 工作流</button>
+                </div>
+                <input ref={workflowInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importComfyWorkflow(file) }} />
+                {providers.comfyui.workflowMode === 'custom' && <p className="mt-2 break-all text-[11px] text-[var(--ui-text-3)]">{providers.comfyui.workflowFileName || '自定义工作流'} · 仅支持 ComfyUI API Format JSON</p>}
+              </div>
               <label className="block">
                 <span className={labelClass}>ComfyUI 地址</span>
                 <input aria-label="ComfyUI 地址" value={providers.comfyui.baseUrl} onChange={(event) => updateProvider('comfyui', { baseUrl: event.target.value })} placeholder="http://127.0.0.1:8188" className={inputClass} />

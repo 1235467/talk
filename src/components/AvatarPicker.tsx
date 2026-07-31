@@ -31,8 +31,8 @@ export function AvatarPicker({ onSelect, onClose, pexelsApiKey }: AvatarPickerPr
       }
       onSelect(photo.url, { name: photo.photographer, url: photo.photographerUrl })
       onClose()
-    } catch {
-      setPhotoError('搜索失败 检查一下Pexels Key有没有配置对')
+    } catch (error) {
+      setPhotoError(error instanceof Error ? error.message : String(error))
     } finally {
       setSearchingPhoto(false)
     }

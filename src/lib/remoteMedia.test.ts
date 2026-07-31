@@ -199,6 +199,32 @@ describe('image generation providers', () => {
     expect(result?.url).toMatch(/^data:image\/png;base64,/)
   })
 
+  it('injects prompts into an imported ComfyUI API workflow', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/prompt')) {
+        const body = JSON.parse(String(init?.body))
+        expect(body.prompt['6'].inputs.text).toContain('custom workflow fox')
+        expect(body.prompt['7'].inputs.text).toContain('bad quality')
+        return jsonResponse({ prompt_id: 'custom-1' })
+      }
+      if (url.endsWith('/history/custom-1')) return jsonResponse({ 'custom-1': { outputs: { '9': { images: [{ filename: 'custom.png', type: 'output' }] } } } })
+      return new Response(new Uint8Array([1]), { status: 200, headers: { 'Content-Type': 'image/png' } })
+    }))
+    const providers = createDefaultImageProviders()
+    providers.comfyui.workflowMode = 'custom'
+    providers.comfyui.negativePrompt = 'bad quality'
+    providers.comfyui.workflow = {
+      '3': { class_type: 'KSampler', inputs: { positive: ['6', 0], negative: ['7', 0], latent_image: ['5', 0], seed: 1, steps: 10, cfg: 5, sampler_name: 'euler', scheduler: 'normal' } },
+      '5': { class_type: 'EmptyLatentImage', inputs: { width: 512, height: 512 } },
+      '6': { class_type: 'CLIPTextEncode', inputs: { text: '' } },
+      '7': { class_type: 'CLIPTextEncode', inputs: { text: '' } },
+      '9': { class_type: 'SaveImage', inputs: { images: ['8', 0] } },
+    }
+    const result = await generateRemoteImage({ imageProvider: 'comfyui', imageProviders: providers }, 'custom workflow fox')
+    expect(result?.provider).toBe('comfyui')
+  })
+
   it('calls the A1111 / Forge txt2img endpoint and wraps its base64 image', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       expect(String(input)).toBe('http://127.0.0.1:7860/sdapi/v1/txt2img')

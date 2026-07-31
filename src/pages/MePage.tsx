@@ -9,7 +9,7 @@ import { formatCurrency } from '../lib/wallet'
 import { checkForUpdate } from '../lib/updateCheck'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
-import { USER_WALLET_ID } from '../lib/finance'
+import { claimDailySalaries, localDateKey, USER_WALLET_ID } from '../lib/finance'
 import { useModuleEnabled } from '../features'
 import { uiThemeName } from '../lib/uiTheme'
 
@@ -40,6 +40,23 @@ export function MePage() {
   )
   const [fullscreenError, setFullscreenError] = useState('')
   const saveLoadEnabled = useModuleEnabled('saveLoad')
+  const careerEnabled = useModuleEnabled('career')
+  const salaryClaim = useLiveQuery(() => db.walletTransactions.where('idempotencyKey').equals(`salary:user:${localDateKey()}`).first(), [])
+  const [claimingSalary, setClaimingSalary] = useState(false)
+  const [salaryMessage, setSalaryMessage] = useState('')
+
+  async function claimSalary() {
+    setClaimingSalary(true)
+    setSalaryMessage('')
+    try {
+      const result = await claimDailySalaries()
+      setSalaryMessage(`已领取 ${formatCurrency(result.userAmount, settings)}，并为 ${result.contactCount} 位 AI 发放工资`)
+    } catch (error) {
+      setSalaryMessage(error instanceof Error ? error.message : String(error))
+    } finally {
+      setClaimingSalary(false)
+    }
+  }
 
   useEffect(() => {
     const syncFullscreenState = () => {
@@ -106,6 +123,21 @@ export function MePage() {
           <span className="text-xs text-gray-400">{formatCurrency(wallet?.balance ?? 0, settings)}</span>
         </div>
       </button>
+
+      {careerEnabled && (
+        <section className="mt-3 bg-[var(--ui-surface)] px-4 py-3 shadow-[var(--ui-shadow)]">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[15px] text-[var(--ui-text)]">每日工资</p>
+              <p className="mt-0.5 text-xs text-[var(--ui-text-3)]">领取时会同时为所有已入职 AI 发薪</p>
+            </div>
+            <button type="button" onClick={() => void claimSalary()} disabled={claimingSalary || !!salaryClaim || !settings.userOccupation} className="shrink-0 rounded-[var(--ui-radius-control)] bg-[var(--ui-action)] px-3 py-2 text-sm text-[var(--ui-on-action)] disabled:opacity-45">
+              {claimingSalary ? '发放中…' : salaryClaim ? '今日已领取' : settings.userOccupation ? '签到领取' : '尚未入职'}
+            </button>
+          </div>
+          {salaryMessage && <p className="mt-2 text-xs text-[var(--ui-text-2)]">{salaryMessage}</p>}
+        </section>
+      )}
 
       <div className="mt-3">
         <button

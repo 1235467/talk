@@ -61,8 +61,8 @@ export class TalkDB extends Dexie {
   locationModuleState!: Table<LocationModuleState, string>
   acousticEdges!: Table<AcousticEdge, string>
 
-  constructor(name = 'talk-db') {
-    super(name)
+  constructor() {
+    super('talk-db')
     this.version(1).stores({
       contacts: 'id, name, createdAt',
       conversations: 'id, contactId, updatedAt, pinned',
@@ -317,12 +317,4 @@ export class TalkDB extends Dexie {
   }
 }
 
-const activeBeta = (() => {
-  try {
-    const raw = localStorage.getItem('talk-contact-beta-session')
-    return raw ? JSON.parse(raw) as { branchDbName?: string } : undefined
-  } catch { return undefined }
-})()
-
-/** A page reload switches the whole app onto the isolated beta database branch. */
-export const db = new TalkDB(activeBeta?.branchDbName || 'talk-db')
+export const db = new TalkDB()
