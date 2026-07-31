@@ -41,6 +41,7 @@ const StickerProviderListPage = lazy(() => import('./pages/StickerProviderListPa
 const StickerProviderSettingsPage = lazy(() => import('./pages/StickerProviderSettingsPage').then((m) => ({ default: m.StickerProviderSettingsPage })))
 const ImageProviderListPage = lazy(() => loadImageProviderListPage().then((m) => ({ default: m.ImageProviderListPage })))
 const ImageProviderSettingsPage = lazy(() => loadImageProviderSettingsPage().then((m) => ({ default: m.ImageProviderSettingsPage })))
+const AiTestCardsPage = lazy(() => import('./pages/AiTestCardsPage').then((m) => ({ default: m.AiTestCardsPage })))
 const ProfileEditPage = lazy(() => import('./pages/ProfileEditPage').then((m) => ({ default: m.ProfileEditPage })))
 const ModulesPage = lazy(() => import('./pages/ModulesPage').then((m) => ({ default: m.ModulesPage })))
 const SkyEyePage = lazy(() => import('./pages/SkyEyePage').then((m) => ({ default: m.SkyEyePage })))
@@ -218,7 +219,10 @@ function App() {
           <Route key={r.path} path={r.path} element={<r.Component />} />
         ))}
         {adminModeEnabled && (
-          <Route path="/sky-eye" element={<SkyEyePage />} />
+          <>
+            <Route path="/sky-eye" element={<SkyEyePage />} />
+            <Route path="/ai-test-cards" element={<AiTestCardsPage />} />
+          </>
         )}
         </Routes>
     </Suspense>

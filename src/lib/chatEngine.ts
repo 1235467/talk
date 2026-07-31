@@ -381,24 +381,30 @@ async function runAiTurn(
     const nowDate = new Date(now)
     const scheduleText = describeUpcomingScheduleText(contact, nowDate)
     const memoryPromptOn = promptModuleEnabled(settings, 'memory')
-    const recentMemories = memoryPromptOn ? await recentMemoriesText(contact.id) : ''
-    const financeContext = featureActive(settings, 'career')
-      ? `\n【经济状况】你的可用余额：${await getBalance(contact.id)}；对方可用余额：${await getBalance(USER_WALLET_ID)}。未结清借款：${(await db.loans.filter(l => l.status === 'active' && (l.lenderId === contact.id || l.borrowerId === contact.id)).toArray()).map(l => `${l.borrowerId === contact.id ? '你欠对方' : '对方欠你'}${l.outstanding}`).join('；') || '无'}。所有金钱动作必须量力而行，不得凭空造钱。`
-      : ''
-    const socialMemories = memoryPromptOn ? await socialMemoriesText(contact.id) : ''
-    const sharedOriginalContext = memoryPromptOn ? await recentSharedOriginalContext([contact.id], settings.userNickname, {
-      maxMessages: 50,
-      maxChars: 8_000,
-      excludeConversationId: conversationId,
-    }) : ''
-    const lifeEventText = isModuleEnabled('lifeSimulation')
-      ? (await db.lifeEvents.where('contactId').equals(contact.id).reverse().sortBy('occurredAt')).slice(0, 4).map((event) => event.summary).join('；')
-      : ''
-    const experienceText = isModuleEnabled('lifeSimulation') ? await buildExperiencePromptSlice(contact.id, now) : ''
-    const worldbookTrace = featureActive(settings, 'worldview') ? await retrieveWorldbookTrace([
-      _triggeringUserText, proactiveContext, contact.name, contact.systemPrompt, contact.memoryFacts,
-      history.slice(-8).map((m) => m.content).join(' '),
-    ].filter(Boolean).join('\n')) : { text: '', matches: [] }
+    const [recentMemories, financeContext, socialMemories, sharedOriginalContext, lifeEventText, experienceText, worldbookTrace] = await Promise.all([
+      memoryPromptOn ? recentMemoriesText(contact.id) : Promise.resolve(''),
+      featureActive(settings, 'career')
+        ? Promise.all([
+            getBalance(contact.id),
+            getBalance(USER_WALLET_ID),
+            db.loans.filter(l => l.status === 'active' && (l.lenderId === contact.id || l.borrowerId === contact.id)).toArray(),
+          ]).then(([contactBalance, userBalance, loans]) => `\n【经济状况】你的可用余额：${contactBalance}；对方可用余额：${userBalance}。未结清借款：${loans.map(l => `${l.borrowerId === contact.id ? '你欠对方' : '对方欠你'}${l.outstanding}`).join('；') || '无'}。所有金钱动作必须量力而行，不得凭空造钱。`)
+        : Promise.resolve(''),
+      memoryPromptOn ? socialMemoriesText(contact.id) : Promise.resolve(''),
+      memoryPromptOn ? recentSharedOriginalContext([contact.id], settings.userNickname, {
+        maxMessages: 50,
+        maxChars: 8_000,
+        excludeConversationId: conversationId,
+      }) : Promise.resolve(''),
+      isModuleEnabled('lifeSimulation')
+        ? db.lifeEvents.where('contactId').equals(contact.id).reverse().sortBy('occurredAt').then(events => events.slice(0, 4).map((event) => event.summary).join('；'))
+        : Promise.resolve(''),
+      isModuleEnabled('lifeSimulation') ? buildExperiencePromptSlice(contact.id, now) : Promise.resolve(''),
+      featureActive(settings, 'worldview') ? retrieveWorldbookTrace([
+        _triggeringUserText, proactiveContext, contact.name, contact.systemPrompt, contact.memoryFacts,
+        history.slice(-8).map((m) => m.content).join(' '),
+      ].filter(Boolean).join('\n')) : Promise.resolve({ text: '', matches: [] }),
+    ])
     const worldbookText = worldbookTrace.text
     const relationshipText = `【你和对方的关系】${relationshipLine(
       featureActive(settings, 'relationship') ? (contact.relationshipBase || '朋友') : '朋友',
@@ -539,81 +545,12 @@ async function runAiTurn(
       signal: controller.signal,
       trace: { turnId: streamId, stage, conversationId },
     })
-    let logicReview = bubbles.length > 0 ? await runLogicReview('first_quality') : undefined
-    if (!turns.isCurrent(conversationId, streamId)) return
-    if (logicReview?.status === 'unavailable') {
-      qualityCheckDebug.reason = `审查降级：${logicReview.reason}`
-      console.warn(`[chat] 逻辑审查不可用，放行已解析回复 对方=${displayName(contact)} 原因=${logicReview.reason}`)
-    }
-    if (logicReview?.status === 'reject') {
-      qualityCheckDebug.detectedInvalid = true
-      qualityCheckDebug.reason = logicReview.reason
-      console.warn(`[chat] 逻辑自检要求主模型重写 对方=${displayName(contact)} 原因=${logicReview.reason}`)
-      rawText = await chatCompletion({
-        apiKey: settings.apiKey,
-        baseUrl: settings.baseUrl,
-        model: settings.model,
-        messages: coalesceConsecutiveRoles([
-          ...chatMessages,
-          { role: 'assistant', content: rawText },
-          { role: 'user', content: `上一版回复存在客观逻辑错误：${logicReview.reason}\n请依据原始上下文重写完整回复。仍只输出规定的角色纯文本格式，不要解释错误，不要输出JSON。` },
-        ]),
-        signal: controller.signal,
-        purpose: proactiveContext ? 'proactive' : 'chat',
-        automatic: !!proactiveContext,
-        thinking: 'disabled',
-        maxTokens: proactiveContext ? 700 : 800,
-        temperature: 0.75,
-        trace: { turnId: streamId, stage: 'second_chat', conversationId },
-      })
-      if (!turns.isCurrent(conversationId, streamId)) return
-      const rewrittenLocal = parseRawPrivateDraft(rawText, activeMood)
-      parsedTurn = rewrittenLocal
-      jsonRaw = serializePrivateTurn(rewrittenLocal)
-      if (rawPrivateDraftNeedsUtility(rawText, rewrittenLocal)) {
-        conversionPrompt = buildJsonConversionPrompt(rawText)
-        jsonRaw = await bestEffortUtilityCompletion({
-          apiKey: settings.apiKey,
-          baseUrl: settings.baseUrl,
-          model: settings.utilityModel,
-          messages: [
-            { role: 'system', content: conversionPrompt },
-            { role: 'user', content: '请执行上述转换，并且只输出指定的 JSON 对象。' },
-          ],
-          jsonMode: true,
-          signal: controller.signal,
-          purpose: proactiveContext ? 'proactive' : 'chat',
-          automatic: !!proactiveContext,
-          thinking: 'disabled',
-          temperature: 0.1,
-          maxTokens: 900,
-          trace: { turnId: streamId, stage: 'other', conversationId },
-        })
-        const converted = parseAiResponse(jsonRaw)
-        if (converted.bubbles.length > 0) parsedTurn = converted
-        else jsonRaw = serializePrivateTurn(rewrittenLocal)
-      }
-      finalRaw = jsonRaw
-      ;({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought } = parsedTurn)
-      qualityCheckDebug.repaired = true
-      logicReview = bubbles.length > 0 ? await runLogicReview('second_quality') : undefined
-      if (logicReview?.status === 'unavailable') {
-        qualityCheckDebug.reason = `二次审查降级：${logicReview.reason}`
-        console.warn(`[chat] 二次逻辑审查不可用，放行重写回复 对方=${displayName(contact)} 原因=${logicReview.reason}`)
-      } else if (logicReview?.status === 'reject') {
-        throw new Error(`主模型重写后仍未通过逻辑自检：${logicReview.reason || '未知原因'}`)
-      }
-    }
-    console.info(`[chat-perf] review-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)} repaired=${qualityCheckDebug.repaired ? 'yes' : 'no'}`)
     knowledgeQueries = Array.from(new Set([...initiallyRequestedKnowledge, ...knowledgeQueries])).slice(0, 2)
     if (featureActive(settings, 'knowledgeBase') && knowledgeQueries.length > 0) {
       const knowledge = await resolveKnowledgeQueries(knowledgeQueries, settings)
       if (knowledge.text) {
-        const review = qualityCheckDebug.repaired || qualityCheckDebug.detectedInvalid
-          ? `\n【上一版审查未通过】${qualityCheckDebug.reason || '逻辑或角色一致性有问题'}。重新回答时必须同时修正这个问题。`
-          : ''
         const enrichedMessages = chatMessages.map((message, index) => index === 0
-          ? { ...message, content: `${message.content}\n\n【针对陌生词汇的搜索结果】\n${knowledge.text}${review}\n你刚才对陌生词汇自然表示了疑问。现在根据可靠搜索结果重新回答用户，语气要自然，不要写成搜索报告，也不要提审查流程。` }
+          ? { ...message, content: `${message.content}\n\n【针对陌生词汇的搜索结果】\n${knowledge.text}\n你刚才对陌生词汇自然表示了疑问。现在根据可靠搜索结果重新回答用户，语气要自然，不要写成搜索报告，也不要提审查流程。` }
           : message)
         rawText = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, messages: enrichedMessages, signal: controller.signal, purpose: proactiveContext ? 'proactive' : 'chat', automatic: !!proactiveContext, thinking: 'disabled', temperature: 0.9, maxTokens: proactiveContext ? 700 : 800, trace: { turnId: streamId, stage: 'second_chat', conversationId } })
         const enrichedLocalTurn = parseRawPrivateDraft(rawText, turnMood || activeMood)
@@ -643,6 +580,23 @@ async function runAiTurn(
       engine.patch(conversationId, { error: proactiveContext ? '' : '对方这次没有正常回复 可以再发一条试试', aiTyping: false, typingLabel: undefined })
       return
     }
+    const logicReview = await runLogicReview('first_quality')
+    if (!turns.isCurrent(conversationId, streamId)) return
+    if (logicReview.status === 'unavailable') {
+      qualityCheckDebug.reason = `审查降级：${logicReview.reason}`
+      console.warn(`[chat] 逻辑审查不可用，放行已解析回复 对方=${displayName(contact)} 原因=${logicReview.reason}`)
+    } else if (logicReview.status === 'reject') {
+      qualityCheckDebug.detectedInvalid = true
+      qualityCheckDebug.reason = logicReview.reason
+      console.warn(`[chat] 最终回复未通过逻辑自检，改发兜底提示 对方=${displayName(contact)} 原因=${logicReview.reason || '未知原因'}`)
+      bubbles = [{ type: 'text', content: '我刚才没想清楚，能让我重新想一下吗？' }]
+      knowledgeQueries = []
+      turnMood = undefined
+      turnThought = undefined
+      finalRaw = serializePrivateTurn({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought })
+      jsonRaw = finalRaw
+    }
+    console.info(`[chat-perf] review-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)} repaired=no`)
     const aiTurnId = uuid()
     await db.aiTurns.add({
       id: aiTurnId,
