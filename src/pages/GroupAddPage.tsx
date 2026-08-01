@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
+import { isAiTestId } from '../lib/aiTestIsolation'
 import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
 import { AvatarPicker } from '../components/AvatarPicker'
@@ -14,7 +15,7 @@ const MIN_MEMBERS = 2
 
 export function GroupAddPage() {
   const navigate = useNavigate()
-  const contacts = useLiveQuery(() => db.contacts.toArray(), []) ?? []
+  const contacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? []).filter((item) => !isAiTestId(item.id))
 
   const [name, setName] = useState('')
   const [avatar, setAvatar] = useState(GROUP_AVATAR_DEFAULT)

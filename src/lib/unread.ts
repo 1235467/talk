@@ -3,6 +3,7 @@ import { liveQuery } from 'dexie'
 import { create } from 'zustand'
 import { db } from '../db/db'
 import type { Message } from '../types'
+import { isAiTestId } from './aiTestIsolation'
 
 /** Only incoming (assistant) messages count as unread — the user's own sent messages never do, regardless of lastReadAt. */
 export function unreadCountFor(lastReadAt: number | undefined, messages: Message[]): number {
@@ -31,8 +32,8 @@ function startUnreadTracking() {
   subscribed = true
   liveQuery(async () => {
     const [conversations, messages] = await Promise.all([
-      db.conversations.toArray(),
-      db.messages.toArray(),
+      db.conversations.toArray().then((items) => items.filter((item) => !isAiTestId(item.id))),
+      db.messages.toArray().then((items) => items.filter((item) => !isAiTestId(item.conversationId))),
     ])
     const messagesByConv = new Map<string, Message[]>()
     const lastMessageByConversation = new Map<string, Message>()

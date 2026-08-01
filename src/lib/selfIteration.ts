@@ -22,6 +22,7 @@ interface SelfIterationResult {
 
 const queue: SelfIterationTask[] = []
 let running = false
+let runtimeGeneration = 0
 
 function truncate(text: string, max: number): string {
   const trimmed = text.trim()
@@ -63,7 +64,7 @@ function buildLearningPrompt(opts: {
   return `${editable}\n\n固定输出协议：只输出JSON {"globalPrompt":"【用户表达习惯】...\\n【边界与偏好】...","contactPrompt":"【关系协商记录】..."}`
 }
 
-async function runTask(task: SelfIterationTask): Promise<void> {
+async function runTask(task: SelfIterationTask, generation: number): Promise<void> {
   if (!isModuleEnabled('selfIteration')) return
   const settings = useSettingsStore.getState()
   if (!settings.apiKey || !featureActive(settings, 'selfIteration')) return
@@ -95,6 +96,7 @@ async function runTask(task: SelfIterationTask): Promise<void> {
     jsonMode: true,
   })
   const parsed = parseResult(raw)
+  if (generation !== runtimeGeneration) return
   if (!parsed) {
     console.warn('[selfIteration] 学习结果解析失败', raw.slice(0, 200))
     return
@@ -120,7 +122,7 @@ async function drainQueue(): Promise<void> {
       const task = queue.shift()
       if (!task) continue
       try {
-        await runTask(task)
+        await runTask(task, runtimeGeneration)
       } catch (err) {
         console.warn('[selfIteration] 学习任务失败', err)
       }
@@ -135,4 +137,9 @@ export function enqueueSelfIterationTask(task: SelfIterationTask): void {
   if (!isModuleEnabled('selfIteration')) return
   queue.push(task)
   void drainQueue()
+}
+
+export function resetSelfIterationTasks(): void {
+  runtimeGeneration += 1
+  queue.splice(0, queue.length)
 }

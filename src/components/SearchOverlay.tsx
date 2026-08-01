@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db/db'
+import { isAiTestId } from '../lib/aiTestIsolation'
 import { Avatar } from './Avatar'
 import { excerptAround, highlightSegments, truncateName } from '../lib/search'
 import { formatListTime } from '../lib/time'
@@ -22,14 +23,14 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
   const q = query.trim()
   const lowerQ = q.toLowerCase()
 
-  const contacts = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_ARRAY
-  const groups = useLiveQuery(() => db.groups.toArray(), []) ?? EMPTY_ARRAY
-  const conversations = useLiveQuery(() => db.conversations.toArray(), []) ?? EMPTY_ARRAY
+  const contacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_ARRAY).filter((item) => !isAiTestId(item.id))
+  const groups = (useLiveQuery(() => db.groups.toArray(), []) ?? EMPTY_ARRAY).filter((item) => !isAiTestId(item.id))
+  const conversations = (useLiveQuery(() => db.conversations.toArray(), []) ?? EMPTY_ARRAY).filter((item) => !isAiTestId(item.id))
   // Only scan the (potentially large) messages table while actively searching, and let Dexie do the
   // content filter so we never pull the whole table into memory just because the overlay is open.
   const messages =
     useLiveQuery(
-      () => (lowerQ ? db.messages.filter((m) => m.content.toLowerCase().includes(lowerQ)).toArray() : Promise.resolve(EMPTY_MESSAGES)),
+      () => (lowerQ ? db.messages.filter((m) => !isAiTestId(m.conversationId) && m.content.toLowerCase().includes(lowerQ)).toArray() : Promise.resolve(EMPTY_MESSAGES)),
       [lowerQ],
     ) ?? EMPTY_MESSAGES
 

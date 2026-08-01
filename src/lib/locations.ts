@@ -1,4 +1,5 @@
 import { db } from '../db/db'
+import { isAiTestId } from './aiTestIsolation'
 import type { AcousticEdge, Contact, LocationAudibility, LocationNode, ScheduleBlock, ScheduleOverride, TerrainType } from '../types'
 import { createWorldMap, placeBuildings } from './locationMap'
 
@@ -162,7 +163,7 @@ export function resolveContactLocationAt(contact: Contact, now: Date, validLocat
 
 export async function syncContactLocationsAt(now = new Date()) {
   await ensureLocationsInitialized()
-  const [locations, contacts] = await Promise.all([db.locations.toArray(), db.contacts.toArray()])
+  const [locations, contacts] = await Promise.all([db.locations.toArray(), db.contacts.toArray().then((items) => items.filter((item) => !isAiTestId(item.id)))])
   const leafIds = new Set(locations.filter((item) => isLeafLocation(item.id, locations)).map((item) => item.id))
   const updates = contacts.map((contact) => ({ contact, resolved: resolveContactLocationAt(contact, now, leafIds) }))
     .filter(({ contact, resolved }) => contact.currentLocationId !== resolved.locationId || contact.locationSource !== resolved.source)
@@ -179,7 +180,7 @@ export interface LocationParticipants {
 
 export async function resolveLocationParticipants(locationId: string): Promise<LocationParticipants> {
   await ensureLocationsInitialized()
-  const [contacts, edges] = await Promise.all([db.contacts.toArray(), db.acousticEdges.toArray()])
+  const [contacts, edges] = await Promise.all([db.contacts.toArray().then((items) => items.filter((item) => !isAiTestId(item.id))), db.acousticEdges.toArray()])
   const audibleByLocation = new Map<string, 'clear' | 'muffled'>()
   for (const item of edges) {
     if (item.audibility === 'none') continue

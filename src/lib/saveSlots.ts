@@ -2,6 +2,9 @@ import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
 import { createBackup, restoreBackup, type TalkBackup } from './backup'
 import { useSettingsStore } from '../store/useSettingsStore'
+import { resetAllChatTurns } from './chatEngine'
+import { resetAllGroupChatTurns } from './groupChatEngine'
+import { resetSelfIterationTasks } from './selfIteration'
 
 export async function writeSaveSlot(slot: number, name: string) {
   if (slot < 1 || slot > 100) throw new Error('存档位无效')
@@ -15,6 +18,9 @@ export async function writeSaveSlot(slot: number, name: string) {
 export async function loadSaveSlot(slot: number) {
   const save = await db.saveSlots.where('slot').equals(slot).first()
   if (!save) throw new Error('该存档位为空')
+  resetAllChatTurns()
+  resetAllGroupChatTurns()
+  resetSelfIterationTasks()
   const snapshot = save.snapshot as TalkBackup
   await restoreBackup(snapshot)
   useSettingsStore.setState(snapshot.settings)

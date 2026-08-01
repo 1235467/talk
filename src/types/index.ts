@@ -421,6 +421,53 @@ export interface AiTurnDebug {
   createdAt: number
 }
 
+export type AiTestKind = 'conversation' | 'group' | 'moments' | 'sticker' | 'transfer' | 'gift' | 'image'
+export type AiTestExecutionMode = 'sequential' | 'isolated'
+export type AiTestSuiteStatus = 'draft' | 'running' | 'completed' | 'interrupted' | 'cancelled' | 'failed'
+export type AiTestCardStatus = 'pending' | 'running' | 'completed' | 'failed'
+
+export interface AiTestCardRecord {
+  id: string
+  order: number
+  description: string
+  userMessage: string
+  status: AiTestCardStatus
+  reply?: string
+  rawResponse?: string
+  context?: {
+    worldbookEntries: string[]
+    memorySummary: string
+    sections: Array<{ label: string; summary: string }>
+  }
+  error?: string
+  rating?: 'up' | 'down'
+  comment?: string
+  cloneContactIds?: string[]
+  cloneGroupId?: string
+  conversationId?: string
+  aiTurnId?: string
+  completedAt?: number
+}
+
+/** Persisted human-review artifact. Sandbox contacts/conversations remain separate and hidden until an administrator removes them. */
+export interface AiTestSuiteRecord {
+  id: string
+  kind: AiTestKind
+  executionMode: AiTestExecutionMode
+  status: AiTestSuiteStatus
+  title: string
+  scenarioLabel: string
+  targetContactId?: string
+  targetGroupId?: string
+  targetLabel: string
+  targetSnapshot: unknown
+  cards: AiTestCardRecord[]
+  currentCardIndex?: number
+  error?: string
+  createdAt: number
+  updatedAt: number
+}
+
 export interface PromptTrace {
   sections: Array<{ label: string; content: string }>
   worldbookMatches?: Array<{ id: string; title: string; score: number; chars: number }>
@@ -546,6 +593,18 @@ export interface InventoryItem {
   quantity?: number
   acquiredAt: number
   updatedAt?: number
+}
+
+/** Durable catalogue used by the shop's repurchase view. */
+export interface ShopPurchaseHistory {
+  productKey: string
+  name: string
+  description: string
+  icon: string
+  price: number
+  purchaseCount: number
+  firstPurchasedAt: number
+  lastPurchasedAt: number
 }
 
 export interface AppSettings {
@@ -934,10 +993,10 @@ export interface SavedPersona {
 }
 
 /**
- * Immutable snapshot of a persona creation. Unlike SavedPersona (which is a
+ * Snapshot of a persona creation. Unlike SavedPersona (which is a
  * user-managed draft library and participates in ordinary backups), creation
- * records are an append-only history that survives contact deletion and save
- * rollback. They are intentionally kept separate from Contact.
+ * records survive contact deletion and save rollback unless the user
+ * explicitly removes one. They are intentionally kept separate from Contact.
  */
 export interface PersonaCreationRecord {
   id: string

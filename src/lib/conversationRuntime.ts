@@ -5,6 +5,7 @@ export interface TurnController {
   setAbortController: (conversationId: string, controller: AbortController) => void
   addTimer: (conversationId: string, timer: ReturnType<typeof setTimeout>) => void
   trackTimers: (conversationId: string, timers: ReturnType<typeof setTimeout>[]) => void
+  resetAll: () => void
 }
 
 /**
@@ -41,6 +42,12 @@ export function createTurnController(): TurnController {
     },
     trackTimers(conversationId, pendingTimers) {
       timers.set(conversationId, pendingTimers)
+    },
+    resetAll() {
+      for (const conversationId of new Set([...streams.keys(), ...timers.keys(), ...abortControllers.keys()])) clearPending(conversationId)
+      streams.clear()
+      timers.clear()
+      abortControllers.clear()
     },
   }
 }

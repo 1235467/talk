@@ -152,13 +152,13 @@ test('settings page exports a complete Talk backup json', async ({ page }) => {
 
   const backup = JSON.parse(await import('node:fs/promises').then((fs) => fs.readFile(path!, 'utf8')))
   expect(backup.format).toBe('talk-backup')
-  expect(backup.schemaVersion).toBe(3)
+  expect(backup.schemaVersion).toBe(4)
   expect(backup.settings.userNickname).toBe('Backup User')
   expect(backup.tables.contacts).toHaveLength(1)
   expect(backup.tables.conversations).toHaveLength(1)
   expect(backup.tables.messages).toHaveLength(1)
   expect(Object.keys(backup.tables)).toEqual(
-    expect.arrayContaining(['stickers', 'moments', 'knowledgeEntries', 'savedWorldviews', 'worldbookEntries']),
+    expect.arrayContaining(['stickers', 'moments', 'knowledgeEntries', 'savedWorldviews', 'worldbookEntries', 'contactMemories', 'shopPurchaseHistory']),
   )
 })
 
@@ -685,6 +685,23 @@ test('saved personas can be deleted without touching creation history', async ({
   expect(counts).toEqual({ saved: 0, history: 1 })
 })
 
+test('persona creation history can be explicitly deleted', async ({ page }) => {
+  await page.goto('/#/contact/new')
+  await page.evaluate(async () => {
+    const { db } = await import('/src/db/db.ts')
+    const { useSettingsStore } = await import('/src/store/useSettingsStore.ts')
+    const state = useSettingsStore.getState()
+    state.setSettings({ enabledModules: [...new Set([...state.enabledModules, 'nuwaMode'])] })
+    await db.personaCreationRecords.add({ id: 'history-delete', name: '待删除历史', hobbies: [], personaSetting: '历史', persona: '历史', createdAt: 1 })
+  })
+  await page.reload()
+  await page.getByRole('button', { name: '女娲模式' }).click()
+  await page.getByRole('button', { name: /调用以前创建过的人设/ }).click()
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: '删除', exact: true }).click()
+  await expect(page.getByText('待删除历史')).toHaveCount(0)
+})
+
 test('chat explains long press once and remembers dismissal', async ({ page }) => {
   await page.goto('/#/')
   await seedSearchAndGroupFixture(page)
@@ -716,23 +733,65 @@ test('mobile touch jitter still opens the long-press message menu', async ({ pag
   await bubble.dispatchEvent('pointerup', { bubbles: true, pointerId: 8, pointerType: 'touch', clientX: 120, clientY: 310, isPrimary: true })
 })
 
-test('an exhausted warehouse item stays visible and can be repurchased', async ({ page }) => {
+test('conversation long press stays aligned and does not click through into chat', async ({ page }) => {
+  await page.goto('/#/')
+  await seedSearchAndGroupFixture(page)
+  await page.reload()
+  const row = page.locator('div.cursor-pointer').filter({ has: page.getByText('Alice Search', { exact: true }) })
+  await row.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'touch', clientX: 120, clientY: 180, isPrimary: true, buttons: 1 })
+  await page.waitForTimeout(600)
+  await row.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'touch', clientX: 120, clientY: 180, isPrimary: true })
+  await row.dispatchEvent('click', { bubbles: true })
+  await expect(page.getByRole('button', { name: '置顶会话' })).toBeVisible()
+  await expect(page).toHaveURL(/\/#\/$/)
+  const overlay = page.locator('.absolute.inset-0.z-40')
+  expect(await overlay.evaluate((element) => element.getBoundingClientRect().bottom)).toBeLessThanOrEqual(700)
+})
+
+test('discarded warehouse items remain available from shop repurchase history', async ({ page }) => {
   await page.goto('/#/warehouse')
   await page.evaluate(async () => {
     const { db } = await import('/src/db/db.ts')
     await db.walletAccounts.put({ ownerId: 'user', balance: 100, updatedAt: 1 })
-    await db.inventory.put({ id: 'empty-item', productKey: '["纪念品","测试","🎁",10]', name: '纪念品', description: '测试', icon: '🎁', price: 10, quantity: 0, acquiredAt: 1, updatedAt: 1 })
+    await db.inventory.put({ id: 'owned-item', productKey: '["纪念品","测试","🎁",10]', name: '纪念品', description: '测试', icon: '🎁', price: 10, acquiredAt: 1 })
+    await db.shopPurchaseHistory.put({ productKey: '["纪念品","测试","🎁",10]', name: '纪念品', description: '测试', icon: '🎁', price: 10, purchaseCount: 1, firstPurchasedAt: 1, lastPurchasedAt: 1 })
   })
   await page.reload()
-  await expect(page.getByText('已用完', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: '赠送' })).toBeDisabled()
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: '丢弃' }).click()
+  await expect(page.getByText('纪念品', { exact: true })).toHaveCount(0)
+  await page.goto('/#/shop')
   await page.getByRole('button', { name: '复购' }).click()
-  await expect(page.getByText('×1', { exact: true })).toBeVisible()
+  await expect(page.getByText('纪念品', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '购买', exact: true }).click()
   const result = await page.evaluate(async () => {
     const { db } = await import('/src/db/db.ts')
-    return { quantity: (await db.inventory.get('empty-item'))?.quantity, balance: (await db.walletAccounts.get('user'))?.balance }
+    return { inventoryCount: await db.inventory.count(), balance: (await db.walletAccounts.get('user'))?.balance }
   })
-  expect(result).toEqual({ quantity: 1, balance: 90 })
+  expect(result).toEqual({ inventoryCount: 1, balance: 90 })
+})
+
+test('contact card opens a personal moments feed and can remove the post completely', async ({ page }) => {
+  await page.goto('/#/')
+  await page.evaluate(async () => {
+    const { db } = await import('/src/db/db.ts')
+    await db.contacts.add({ id: 'moment-contact', name: '动态好友', avatar: '🙂', avatarColor: '#eee', systemPrompt: 'test', createdAt: 1, memoryFacts: '', memoryStyle: '', memoryUpdatedAt: 0, memoryMessageCursor: 0, warmth: 10, relationshipBase: '朋友', relationshipDynamic: '', lastMomentAt: 2 })
+    await db.moments.add({ id: 'personal-moment', contactId: 'moment-contact', content: '只看我的动态', createdAt: 2 })
+    await db.momentComments.add({ id: 'personal-comment', momentId: 'personal-moment', authorContactId: 'user', content: '评论', createdAt: 3 })
+    await db.momentLikes.add({ id: 'personal-like', momentId: 'personal-moment', likerId: 'user', createdAt: 3 })
+    await db.socialEvents.add({ id: 'personal-event', type: 'moment_commented', actorId: 'user', relatedContactIds: ['moment-contact'], momentId: 'personal-moment', summary: '评论', importance: 1, createdAt: 3 })
+  })
+  await page.goto('/#/contact/moment-contact')
+  await page.getByRole('button', { name: /TA的朋友圈/ }).click()
+  await expect(page).toHaveURL(/moments\?contact=moment-contact/)
+  await expect(page.getByText('只看我的动态')).toBeVisible()
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: '撤销' }).click()
+  const counts = await page.evaluate(async () => {
+    const { db } = await import('/src/db/db.ts')
+    return { moments: await db.moments.count(), comments: await db.momentComments.count(), likes: await db.momentLikes.count(), events: await db.socialEvents.count() }
+  })
+  expect(counts).toEqual({ moments: 0, comments: 0, likes: 0, events: 0 })
 })
 
 test('Nuwa AI polishing is reviewed and retries invalid form output', async ({ page }) => {

@@ -26,6 +26,7 @@ import { normalizeChatPageSize } from '../lib/chatPagination'
 import { resolveLocationParticipants, syncContactLocationsAt } from '../lib/locations'
 import { ArrowLeftRight, BriefcaseBusiness, CircleDollarSign, Gift, HandCoins, LoaderCircle, Package, Plus, ShoppingBag, Sparkles, Sticker as StickerIcon } from 'lucide-react'
 import { UiIcon } from '../components/UiIcon'
+import { isAiTestId } from '../lib/aiTestIsolation'
 
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_STICKERS: Sticker[] = []
@@ -45,6 +46,10 @@ export function ChatPage() {
   const shopEnabled = useModuleEnabled('shop')
   const warehouseEnabled = useModuleEnabled('warehouse')
   const desktop = Boolean(window.talkDesktop)
+  const hiddenTestConversation = isAiTestId(conversationId)
+  useEffect(() => {
+    if (hiddenTestConversation) void navigate('/ai-test-cards', { replace: true })
+  }, [hiddenTestConversation, navigate])
 
   const conversation = useLiveQuery(
     () => (conversationId ? db.conversations.get(conversationId) : undefined),
@@ -521,6 +526,7 @@ export function ChatPage() {
     }
   }
 
+  if (hiddenTestConversation) return null
   if (conversation === undefined) return null
   if (conversation === null) {
     return (

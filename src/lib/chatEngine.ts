@@ -221,6 +221,11 @@ export function stopAiTurn(conversationId: string): void {
   useChatEngineStore.getState().patch(conversationId, { aiTyping: false, typingLabel: undefined, error: '已由管理员停止本轮生成' })
 }
 
+export function resetAllChatTurns(): void {
+  turns.resetAll()
+  useChatEngineStore.setState({ states: {} })
+}
+
 function formatRecentConversationForReview(messages: Message[], contact: Contact): string {
   return messages
     .slice(-10)

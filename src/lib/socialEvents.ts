@@ -33,6 +33,9 @@ export async function recordSocialEvent(opts: {
 }): Promise<void> {
   const relatedContactIds = uniqueContactIds(opts.relatedContactIds)
   if (relatedContactIds.length === 0) return
+  // A moment may have been removed while an AI reaction was still being
+  // generated. Never recreate derived social data for a deleted post.
+  if (opts.momentId && !await db.moments.get(opts.momentId)) return
   const event: SocialEvent = {
     id: uuid(),
     type: opts.type,

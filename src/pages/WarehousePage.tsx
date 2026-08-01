@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
+import { isAiTestId } from '../lib/aiTestIsolation'
 import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
 import { displayName } from '../lib/contact'
@@ -10,20 +11,17 @@ import { formatCurrency } from '../lib/wallet'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { useModuleEnabled } from '../features'
 import { triggerAiTurn } from '../lib/chatEngine'
-import { USER_WALLET_ID } from '../lib/finance'
-import { consumeInventoryItem, inventoryQuantity, purchaseInventoryProduct } from '../lib/inventory'
+import { consumeInventoryItem, discardInventoryItem } from '../lib/inventory'
 import type { InventoryItem } from '../types'
 
 export function WarehousePage() {
   const navigate = useNavigate()
   const items = useLiveQuery(() => db.inventory.orderBy('acquiredAt').reverse().toArray(), []) ?? []
-  const contacts = useLiveQuery(() => db.contacts.toArray(), []) ?? []
+  const contacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? []).filter((item) => !isAiTestId(item.id))
   const stickers = useLiveQuery(() => db.stickers.toArray(), []) ?? []
   const settings = useSettingsStore()
-  const wallet = useLiveQuery(() => db.walletAccounts.get(USER_WALLET_ID), [])
   const shopEnabled = useModuleEnabled('shop')
   const [gifting, setGifting] = useState<InventoryItem | null>(null)
-  const [buyingId, setBuyingId] = useState('')
   const [toast, setToast] = useState('')
 
   useEffect(() => {
@@ -34,11 +32,6 @@ export function WarehousePage() {
 
   async function handleGift(contactId: string) {
     if (!gifting) return
-    if (inventoryQuantity(gifting) <= 0) {
-      setGifting(null)
-      setToast('这件物品已经用完了')
-      return
-    }
     const contact = contacts.find((c) => c.id === contactId)
     const conv = await db.conversations.where('contactId').equals(contactId).first()
     const consumed = await db.transaction('rw', db.inventory, db.messages, db.conversations, async () => {
@@ -68,21 +61,10 @@ export function WarehousePage() {
     void navigate(conv ? `/chat/${conv.id}` : '/contacts')
   }
 
-  async function handleRepurchase(item: InventoryItem) {
-    if (buyingId) return
-    if ((wallet?.balance ?? 0) < item.price) {
-      setToast('金币不够啦')
-      return
-    }
-    setBuyingId(item.id)
-    try {
-      await purchaseInventoryProduct(item, `复购：${item.name}`)
-      setToast(`已复购「${item.name}」`)
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : '复购失败')
-    } finally {
-      setBuyingId('')
-    }
+  async function handleDiscard(item: InventoryItem) {
+    if (!window.confirm(`确定丢弃「${item.name}」吗？丢弃后不会退还金币。`)) return
+    await discardInventoryItem(item.id)
+    setToast(`已丢弃「${item.name}」`)
   }
 
   return (
@@ -103,26 +85,19 @@ export function WarehousePage() {
                 <p className="truncate text-sm font-medium text-gray-900">{item.name}</p>
                 <p className="mt-0.5 line-clamp-2 text-xs text-gray-400">{item.description}</p>
                 <div className="mt-2 flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-xs text-gray-400">{formatCurrency(item.price, settings)}</p>
-                    <p className={`mt-0.5 text-[11px] ${inventoryQuantity(item) > 0 ? 'text-gray-500' : 'text-amber-600'}`}>
-                      {inventoryQuantity(item) > 0 ? `×${inventoryQuantity(item)}` : '已用完'}
-                    </p>
-                  </div>
+                  <p className="min-w-0 text-xs text-gray-400">{formatCurrency(item.price, settings)}</p>
                   <div className="flex gap-1">
                     <button
                       onClick={() => setGifting(item)}
-                      disabled={inventoryQuantity(item) <= 0}
-                      className="rounded-lg bg-gray-100 px-2 py-1 text-xs text-gray-700 disabled:text-gray-300"
+                      className="rounded-lg bg-gray-100 px-2 py-1 text-xs text-gray-700"
                     >
                       赠送
                     </button>
                     <button
-                      onClick={() => void handleRepurchase(item)}
-                      disabled={!!buyingId}
-                      className="rounded-lg bg-gray-900 px-2 py-1 text-xs text-white disabled:opacity-40"
+                      onClick={() => void handleDiscard(item)}
+                      className="rounded-lg bg-red-50 px-2 py-1 text-xs text-red-500"
                     >
-                      {buyingId === item.id ? '购买中' : '复购'}
+                      丢弃
                     </button>
                   </div>
                 </div>

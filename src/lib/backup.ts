@@ -4,7 +4,7 @@ import type { AppSettings } from '../types'
 import { ensureWalletsAfterRestore } from './finance'
 
 const BACKUP_FORMAT = 'talk-backup'
-const BACKUP_SCHEMA_VERSION = 3
+const BACKUP_SCHEMA_VERSION = 4
 
 export const BACKUP_TABLES = [
   'contacts',
@@ -24,8 +24,9 @@ export const BACKUP_TABLES = [
   'simulationState', 'contactLifeStates', 'lifeEvents', 'contactExperiences', 'aiUsageRecords',
   'aiTurns',
   'socialEvents',
+  'contactMemories',
   'locations', 'worldMaps', 'locationModuleState', 'acousticEdges',
-  'walletAccounts', 'walletTransactions', 'loans', 'jobListings', 'interviews', 'groupPlans', 'adminLogs', 'adminAiTraces', 'savedPersonas',
+  'walletAccounts', 'walletTransactions', 'loans', 'jobListings', 'interviews', 'groupPlans', 'adminLogs', 'adminAiTraces', 'savedPersonas', 'shopPurchaseHistory',
 ] as const
 
 export type BackupTableName = (typeof BACKUP_TABLES)[number]
@@ -64,10 +65,10 @@ export function assertTalkBackup(value: unknown): asserts value is TalkBackup {
   if (!value || typeof value !== 'object') throw new Error('备份文件格式不正确')
   const backup = value as Partial<TalkBackup>
   if (backup.format !== BACKUP_FORMAT) throw new Error('这不是 Talk 的备份文件')
-  if (![1, 2, BACKUP_SCHEMA_VERSION].includes(backup.schemaVersion as number)) throw new Error('备份版本暂不支持')
+  if (![1, 2, 3, BACKUP_SCHEMA_VERSION].includes(backup.schemaVersion as number)) throw new Error('备份版本暂不支持')
   if (!backup.tables || typeof backup.tables !== 'object') throw new Error('备份文件缺少数据表')
   for (const name of BACKUP_TABLES) {
-    if (['worldbookCollections','worldbookEntries','simulationState','contactLifeStates','lifeEvents','contactExperiences','aiUsageRecords','socialEvents','walletAccounts','walletTransactions','loans','jobListings','interviews','groupPlans','adminLogs','adminAiTraces','savedPersonas','locations','worldMaps','locationModuleState','acousticEdges'].includes(name) && backup.tables[name] === undefined) continue
+    if (['worldbookCollections','worldbookEntries','simulationState','contactLifeStates','lifeEvents','contactExperiences','aiUsageRecords','socialEvents','contactMemories','walletAccounts','walletTransactions','loans','jobListings','interviews','groupPlans','adminLogs','adminAiTraces','savedPersonas','shopPurchaseHistory','locations','worldMaps','locationModuleState','acousticEdges'].includes(name) && backup.tables[name] === undefined) continue
     if (!Array.isArray(backup.tables[name])) throw new Error(`备份文件缺少 ${name} 表`)
   }
 }

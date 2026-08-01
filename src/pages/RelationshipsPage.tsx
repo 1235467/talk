@@ -8,6 +8,7 @@ import { displayName } from '../lib/contact'
 import { warmthLabel } from '../lib/relationship'
 import { uniqueRelationPairs } from '../lib/contactRelations'
 import type { Contact } from '../types'
+import { isAiTestId } from '../lib/aiTestIsolation'
 
 const EMPTY_ARRAY: never[] = []
 
@@ -19,10 +20,10 @@ export function RelationshipsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const contacts = useMemo(
-    () => [...contactsRaw].sort((a, b) => (b.warmth ?? 0) - (a.warmth ?? 0)),
+    () => contactsRaw.filter((contact) => !isAiTestId(contact.id)).sort((a, b) => (b.warmth ?? 0) - (a.warmth ?? 0)),
     [contactsRaw],
   )
-  const contactById = useMemo(() => new Map(contactsRaw.map((c) => [c.id, c])), [contactsRaw])
+  const contactById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts])
 
   return (
     <div className="flex h-[var(--app-height)] flex-col overflow-hidden bg-[#f4f4f6]">

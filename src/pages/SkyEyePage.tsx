@@ -7,6 +7,7 @@ import { formatBubbleTime } from '../lib/time'
 import { useChatEngineStore, stopAiTurn } from '../lib/chatEngine'
 import { stopGroupAiTurn } from '../lib/groupChatEngine'
 import type { AdminAiTrace, AdminAiTraceStage } from '../types'
+import { isAiTestId } from '../lib/aiTestIsolation'
 
 const COLORS: Record<string, string> = { log: 'text-gray-600', info: 'text-blue-600', warn: 'text-amber-600', error: 'text-red-600' }
 const PAGE = 50
@@ -43,12 +44,12 @@ export function SkyEyePage() {
   const clearLogs = useConsoleCaptureStore((s) => s.clear)
   const states = useChatEngineStore((s) => s.states)
   const [logPage, setLogPage] = useState(0); const [turnPage, setTurnPage] = useState(0); const [level, setLevel] = useState('all'); const [query, setQuery] = useState(''); const [open, setOpen] = useState<string | null>(null)
-  const conversations = useLiveQuery(() => db.conversations.toArray(), []) ?? []
-  const traces = useLiveQuery(() => db.adminAiTraces.orderBy('createdAt').reverse().toArray(), []) ?? EMPTY_TRACES
+  const conversations = (useLiveQuery(() => db.conversations.toArray(), []) ?? []).filter((item) => !isAiTestId(item.id))
+  const traces = (useLiveQuery(() => db.adminAiTraces.orderBy('createdAt').reverse().toArray(), []) ?? EMPTY_TRACES).filter((item) => !isAiTestId(item.conversationId))
   const traceTurns = useMemo(() => groupTraces(traces), [traces])
   const shownLogs = useMemo(() => logs.slice().reverse().filter((log) => (level === 'all' || log.level === level) && log.message.toLowerCase().includes(query.toLowerCase())), [logs, level, query])
   const shownTurns = traceTurns.slice(turnPage * TRACE_PAGE, turnPage * TRACE_PAGE + TRACE_PAGE)
-  const active = Object.entries(states).filter(([, state]) => state.aiTyping)
+  const active = Object.entries(states).filter(([id, state]) => !isAiTestId(id) && state.aiTyping)
   const label = (id: string) => conversations.find((item) => item.id === id)?.groupId ? '群聊' : '私聊'
   return <div className="flex h-[var(--app-height)] flex-col overflow-hidden bg-[#f4f4f6]"><TopBar title="天眼 · 管理台" showBack /><div className="flex-1 overflow-y-auto pb-5">
     <section className="mt-3 bg-white px-4 py-4"><h2 className="mb-2 text-sm font-medium">运行控制</h2>{active.length === 0 ? <p className="text-xs text-gray-400">没有正在生成的 AI 回合。</p> : active.map(([id, state]) => <div key={id} className="mb-2 flex items-center justify-between rounded-lg bg-green-50 p-2 text-sm"><span>{label(id)} · {state.typingLabel || 'AI'} 正在生成</span><button type="button" onClick={() => conversations.find((c) => c.id === id)?.groupId ? stopGroupAiTurn(id) : stopAiTurn(id)} className="text-red-500">停止</button></div>)}</section>

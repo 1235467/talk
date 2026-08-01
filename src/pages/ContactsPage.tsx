@@ -8,6 +8,7 @@ import { SearchOverlay } from '../components/SearchOverlay'
 import { displayName } from '../lib/contact'
 import { createStrawmanContact } from '../lib/strawman'
 import { useSettingsStore } from '../store/useSettingsStore'
+import { isAiTestId } from '../lib/aiTestIsolation'
 
 const EMPTY_ARRAY: never[] = []
 
@@ -20,7 +21,7 @@ export function ContactsPage() {
   const adminModeEnabled = useSettingsStore((s) => s.adminModeEnabled)
   const contactsRaw = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_ARRAY
   const contacts = useMemo(
-    () => [...contactsRaw].sort((a, b) => displayName(a).localeCompare(displayName(b), 'zh')),
+    () => contactsRaw.filter((contact) => !isAiTestId(contact.id)).sort((a, b) => displayName(a).localeCompare(displayName(b), 'zh')),
     [contactsRaw],
   )
 

@@ -1,4 +1,5 @@
 import { db } from '../db/db'
+import { isAiTestId } from './aiTestIsolation'
 import { triggerAiTurn } from './chatEngine'
 import { weightedSampleWithoutReplacement } from './groupChat'
 import { describeCurrentSchedule, isPhoneAvailable } from './schedule'
@@ -42,8 +43,8 @@ export async function maybeTriggerProactiveMessage(settings: AppSettings): Promi
   try {
     if (!settings.apiKey || !canSendToday() || Math.random() > settings.proactiveProbability) return
     const now = Date.now()
-    const contacts = await db.contacts.toArray()
-    const conversations = await db.conversations.toArray()
+    const contacts = (await db.contacts.toArray()).filter((item) => !isAiTestId(item.id))
+    const conversations = (await db.conversations.toArray()).filter((item) => !isAiTestId(item.id))
     const byContact = new Map(conversations.filter((c) => c.contactId).map((c) => [c.contactId!, c]))
     const eligible = contacts.filter((c) => {
       const conv = byContact.get(c.id)

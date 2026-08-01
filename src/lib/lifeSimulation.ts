@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
+import { isAiTestId } from './aiTestIsolation'
 import { chatCompletionText as chatCompletion } from './deepseek'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { retrieveWorldbookContext } from './worldbook'
@@ -70,7 +71,7 @@ export async function runLifeSimulation(settings = useSettingsStore.getState()):
     const seed = state?.seed || uuid()
     const from = state?.lastSimulatedAt || now
     if (now - from < 15 * 60 * 1000) return
-    const contacts = await db.contacts.toArray()
+    const contacts = (await db.contacts.toArray()).filter((item) => !isAiTestId(item.id))
     if (contacts.length === 0) return
     const windows = lifeWindows(from, now)
     const newEvents: LifeEvent[] = []

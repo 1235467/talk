@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { isAiTestId } from '../lib/aiTestIsolation'
 
 export interface ChatNotification {
   id: string
@@ -23,6 +24,6 @@ export const useChatUiStore = create<ChatUiState>((set) => ({
   activeConversationId: null,
   setActiveConversation: (id) => set({ activeConversationId: id }),
   notification: null,
-  showNotification: (n) => set({ notification: n }),
+  showNotification: (n) => { if (!isAiTestId(n.conversationId)) set({ notification: n }) },
   dismissNotification: () => set({ notification: null }),
 }))

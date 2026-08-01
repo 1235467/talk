@@ -48,7 +48,7 @@ interface GeneratedPayload {
   cases?: Array<{ description?: unknown; userMessage?: unknown }>
 }
 
-interface SandboxIds {
+export interface SandboxIds {
   contactId: string
   conversationId: string
   memoryIds: string[]
@@ -111,7 +111,7 @@ export async function generateAiTestCases(
   }
 }
 
-async function createSandbox(source: Contact): Promise<SandboxIds> {
+export async function createSandbox(source: Contact): Promise<SandboxIds> {
   const suffix = crypto.randomUUID()
   const contactId = `ai-test-contact-${suffix}`
   const conversationId = `ai-test-conversation-${suffix}`
@@ -188,7 +188,7 @@ function readParsed(turn: AiTurnDebug): Record<string, unknown> {
   return turn.parsed && typeof turn.parsed === 'object' ? turn.parsed as Record<string, unknown> : {}
 }
 
-function resultFromTurn(testCase: GeneratedAiTestCase, turn: AiTurnDebug, messages: Message[]): CompletedAiTestCase {
+export function resultFromTurn(testCase: GeneratedAiTestCase, turn: AiTurnDebug, messages: Message[]): CompletedAiTestCase {
   const parsed = readParsed(turn)
   const bubbles = Array.isArray(parsed.parsedBubbles) ? parsed.parsedBubbles as AiBubble[] : []
   const promptTrace = parsed.promptTrace && typeof parsed.promptTrace === 'object' ? parsed.promptTrace as PromptTrace : undefined
@@ -210,7 +210,7 @@ function resultFromTurn(testCase: GeneratedAiTestCase, turn: AiTurnDebug, messag
   }
 }
 
-async function waitForTurn(conversationId: string, knownTurnIds: Set<string>, signal?: AbortSignal): Promise<AiTurnDebug> {
+export async function waitForTurn(conversationId: string, knownTurnIds: Set<string>, signal?: AbortSignal): Promise<AiTurnDebug> {
   const deadline = Date.now() + 8 * 60 * 1000
   while (Date.now() < deadline) {
     if (signal?.aborted) throw new DOMException('测试已取消', 'AbortError')
@@ -341,9 +341,10 @@ const isAiTestId = (value: unknown): value is string => typeof value === 'string
 
 /** Removes test sandboxes left behind when the browser process was killed before a suite's finally block ran. */
 export async function cleanupResidualAiTestData(): Promise<AiTestCleanupResult> {
-  const [allContacts, allConversations, allAccounts, allTransactions, allLoans, allMemories, allExperiences, allLifeEvents] = await Promise.all([
+  const [allContacts, allConversations, allGroups, allAccounts, allTransactions, allLoans, allMemories, allExperiences, allLifeEvents] = await Promise.all([
     db.contacts.toArray(),
     db.conversations.toArray(),
+    db.groups.toArray(),
     db.walletAccounts.toArray(),
     db.walletTransactions.toArray(),
     db.loans.toArray(),
@@ -353,6 +354,8 @@ export async function cleanupResidualAiTestData(): Promise<AiTestCleanupResult> 
   ])
   const temporaryContacts = allContacts.filter((item) => isAiTestId(item.id))
   const temporaryAccounts = allAccounts.filter((item) => isAiTestId(item.ownerId))
+  const temporaryGroups = allGroups.filter((item) => isAiTestId(item.id))
+  const temporaryGroupIds = new Set(temporaryGroups.map((item) => item.id))
   const temporaryContactIds = new Set([
     ...temporaryContacts.map((item) => item.id),
     ...allConversations.filter((item) => isAiTestId(item.contactId)).flatMap((item) => item.contactId ? [item.contactId] : []),
@@ -364,12 +367,12 @@ export async function cleanupResidualAiTestData(): Promise<AiTestCleanupResult> 
     ...allLifeEvents.flatMap((item) => [item.contactId, ...item.participantContactIds].filter(isAiTestId)),
   ])
   const temporaryConversationIds = new Set(allConversations
-    .filter((item) => isAiTestId(item.id) || (item.contactId ? temporaryContactIds.has(item.contactId) : false))
+    .filter((item) => isAiTestId(item.id) || (item.contactId ? temporaryContactIds.has(item.contactId) : false) || (item.groupId ? temporaryGroupIds.has(item.groupId) : false))
     .map((item) => item.id))
 
   for (const conversationId of temporaryConversationIds) stopAiTurn(conversationId)
 
-  const [messages, turns, memories, experiences, lifeEvents, lifeStates, relations, socialEvents, traces, transactions, loans] = await Promise.all([
+  const [messages, turns, memories, experiences, lifeEvents, lifeStates, relations, socialEvents, traces, transactions, loans, groupPlans] = await Promise.all([
     db.messages.filter((item) => isAiTestId(item.id) || temporaryConversationIds.has(item.conversationId)).toArray(),
     db.aiTurns.filter((item) => isAiTestId(item.id) || temporaryConversationIds.has(item.conversationId)).toArray(),
     Promise.resolve(allMemories.filter((item) => isAiTestId(item.id) || temporaryContactIds.has(item.contactId))),
@@ -381,6 +384,7 @@ export async function cleanupResidualAiTestData(): Promise<AiTestCleanupResult> 
     db.adminAiTraces.filter((item) => isAiTestId(item.id) || (item.conversationId ? temporaryConversationIds.has(item.conversationId) : false)).toArray(),
     Promise.resolve(allTransactions.filter((item) => isAiTestId(item.id) || isAiTestId(item.idempotencyKey) || (item.fromOwnerId ? temporaryContactIds.has(item.fromOwnerId) : false) || (item.toOwnerId ? temporaryContactIds.has(item.toOwnerId) : false))),
     Promise.resolve(allLoans.filter((item) => isAiTestId(item.id) || temporaryContactIds.has(item.lenderId) || temporaryContactIds.has(item.borrowerId))),
+    db.groupPlans.filter((item) => isAiTestId(item.id) || temporaryGroupIds.has(item.groupId)).toArray(),
   ])
 
   // A crash can happen after a test transfer changed the real user's balance.
@@ -409,8 +413,10 @@ export async function cleanupResidualAiTestData(): Promise<AiTestCleanupResult> 
     db.adminAiTraces.bulkDelete(traces.map((item) => item.id)),
     db.walletTransactions.bulkDelete(transactions.map((item) => item.id)),
     db.loans.bulkDelete(loans.map((item) => item.id)),
+    db.groupPlans.bulkDelete(groupPlans.map((item) => item.id)),
     db.walletAccounts.bulkDelete([...temporaryContactIds]),
     db.conversations.bulkDelete([...temporaryConversationIds]),
+    db.groups.bulkDelete([...temporaryGroupIds]),
     db.contacts.bulkDelete([...temporaryContactIds]),
   ])
 
@@ -420,7 +426,7 @@ export async function cleanupResidualAiTestData(): Promise<AiTestCleanupResult> 
     messages: messages.length,
     memories: memories.length + experiences.length + lifeEvents.length + lifeStates.length,
     financeRecords: temporaryAccounts.length + transactions.length + loans.length,
-    other: turns.length + relations.length + socialEvents.length + traces.length,
+    other: turns.length + relations.length + socialEvents.length + traces.length + temporaryGroups.length + groupPlans.length,
   }
   return { ...result, total: Object.values(result).reduce((sum, value) => sum + value, 0) }
 }

@@ -2,10 +2,11 @@ import { useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db/db'
+import { isAiTestId } from '../lib/aiTestIsolation'
 
 export function DesktopHomePage() {
   const navigate = useNavigate()
-  const newestConversation = useLiveQuery(() => db.conversations.orderBy('updatedAt').last(), [])
+  const newestConversation = useLiveQuery(() => db.conversations.orderBy('updatedAt').reverse().filter((item) => !isAiTestId(item.id)).first(), [])
   useEffect(() => {
     if (newestConversation) void navigate(`/chat/${newestConversation.id}`, { replace: true })
   }, [navigate, newestConversation])

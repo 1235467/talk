@@ -18,6 +18,7 @@ import { setPairedContactRelation } from '../lib/contactRelations'
 import { rememberInitialContactRelation } from '../lib/memory'
 import { Dice5 } from 'lucide-react'
 import { displayName } from '../lib/contact'
+import { isAiTestId } from '../lib/aiTestIsolation'
 import { pickAvatarCategory } from '../lib/avatarCategory'
 import { OCCUPATION_OPTIONS, employmentPatch } from '../lib/career'
 import { randomAnimeAvatar, searchPexelsPhoto } from '../lib/photoSearch'
@@ -71,7 +72,7 @@ interface RelationRow {
 export function ContactAddPage() {
   const navigate = useNavigate()
   const settings = useSettingsStore()
-  const existingContacts = useLiveQuery(() => db.contacts.toArray(), []) ?? []
+  const existingContacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? []).filter((item) => !isAiTestId(item.id))
   const savedPersonas = useLiveQuery(() => db.savedPersonas.orderBy('updatedAt').reverse().toArray(), []) ?? []
   const creationRecords = useLiveQuery(() => db.personaCreationRecords.orderBy('createdAt').reverse().toArray(), []) ?? []
 
@@ -342,6 +343,12 @@ issues 要用简短中文列出具体错误。` },
     await db.savedPersonas.delete(saved.id)
     const remainingCount = Math.max(0, savedPersonas.length - 1)
     setPersonaPage((page) => Math.min(page, Math.max(0, Math.ceil(remainingCount / 5) - 1)))
+  }
+
+  async function deleteCreationRecord(record: PersonaCreationRecord) {
+    const label = record.nickname || record.realName || record.name || '未命名人设'
+    if (!window.confirm(`确定删除以前创建过的人设“${label}”吗？\n已经创建的联系人不会受到影响。`)) return
+    await db.personaCreationRecords.delete(record.id)
   }
 
   function applyCreationRecord(record: PersonaCreationRecord) {
@@ -1173,7 +1180,7 @@ issues 要用简短中文列出具体错误。` },
         </button>
       </div>
 
-      {creationPickerOpen && <div className="absolute inset-0 z-40 flex items-center bg-black/30 p-4"><div className="max-h-[82%] w-full overflow-y-auto rounded-2xl bg-white p-4"><div className="mb-3 flex items-center justify-between"><div><h2 className="font-medium text-gray-900">以前创建过的人设</h2><p className="mt-1 text-[11px] text-gray-400">这些记录不会随联系人删除、回档或清空资料消失</p></div><button type="button" onClick={() => setCreationPickerOpen(false)} className="text-sm text-gray-500">关闭</button></div><div className="space-y-2">{creationRecords.map((record) => <button key={record.id} type="button" onClick={() => applyCreationRecord(record)} className="w-full rounded-xl bg-gray-50 px-3 py-3 text-left"><div className="flex items-center justify-between"><span className="text-sm font-medium text-gray-900">{record.nickname || record.name}</span><span className="text-[10px] text-gray-400">{new Date(record.createdAt).toLocaleString()}</span></div><p className="mt-1 line-clamp-2 text-xs text-gray-500">{record.personaSetting || record.persona}</p></button>)}{creationRecords.length === 0 && <p className="py-8 text-center text-sm text-gray-400">还没有创建记录</p>}</div></div></div>}
+      {creationPickerOpen && <div className="absolute inset-0 z-40 flex items-center bg-black/30 p-4"><div className="max-h-[82%] w-full overflow-y-auto rounded-2xl bg-white p-4"><div className="mb-3 flex items-center justify-between"><div><h2 className="font-medium text-gray-900">以前创建过的人设</h2><p className="mt-1 text-[11px] text-gray-400">不会自动删除，但你可以手动移除不需要的记录</p></div><button type="button" onClick={() => setCreationPickerOpen(false)} className="text-sm text-gray-500">关闭</button></div><div className="space-y-2">{creationRecords.map((record) => <div key={record.id} className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2"><button type="button" onClick={() => applyCreationRecord(record)} className="min-w-0 flex-1 py-1 text-left"><div className="flex items-center justify-between gap-2"><span className="truncate text-sm font-medium text-gray-900">{record.nickname || record.name}</span><span className="shrink-0 text-[10px] text-gray-400">{new Date(record.createdAt).toLocaleString()}</span></div><p className="mt-1 line-clamp-2 text-xs text-gray-500">{record.personaSetting || record.persona}</p></button><button type="button" onClick={() => void deleteCreationRecord(record)} className="shrink-0 rounded-lg px-2 py-2 text-xs text-red-500">删除</button></div>)}{creationRecords.length === 0 && <p className="py-8 text-center text-sm text-gray-400">还没有创建记录</p>}</div></div></div>}
 
       {personaPickerOpen && <div className="absolute inset-0 z-30 flex items-center bg-black/30 p-4"><div className="w-full rounded-2xl bg-white p-4"><div className="mb-3 flex items-center justify-between"><h2 className="font-medium">已保存的人设</h2><button type="button" onClick={() => setPersonaPickerOpen(false)} className="text-sm text-gray-500">关闭</button></div><div className="space-y-2">{savedPersonas.slice(personaPage * 5, personaPage * 5 + 5).map((saved, index) => <div key={saved.id} className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2"><button type="button" onClick={() => applySavedPersona(saved)} className="min-w-0 flex-1 py-1 text-left"><span className="block truncate text-sm text-gray-900">{saved.nickname || saved.realName || `未命名人设${personaPage * 5 + index + 1}`}</span><span className="mt-0.5 block text-[11px] text-gray-400">点击使用</span></button><button type="button" onClick={() => void deleteSavedPersona(saved)} className="rounded-lg px-2 py-2 text-xs text-red-500" aria-label={`删除${saved.nickname || saved.realName || '未命名人设'}`}>删除</button></div>)}{savedPersonas.length === 0 && <p className="py-6 text-center text-sm text-gray-400">还没有保存的人设</p>}</div><div className="mt-4 flex items-center justify-between"><button type="button" disabled={personaPage === 0} onClick={() => setPersonaPage((page) => page - 1)} className="text-sm text-gray-600 disabled:text-gray-300">上一页</button><span className="text-xs text-gray-400">{personaPage + 1} / {Math.max(1, Math.ceil(savedPersonas.length / 5))}</span><button type="button" disabled={(personaPage + 1) * 5 >= savedPersonas.length} onClick={() => setPersonaPage((page) => page + 1)} className="text-sm text-gray-600 disabled:text-gray-300">下一页</button></div></div></div>}
       {pickingAvatar && (

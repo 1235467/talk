@@ -21,7 +21,6 @@ import { CHAT_PAGE_SIZE_OPTIONS, normalizeChatPageSize } from '../lib/chatPagina
 import { ModelPicker } from '../components/ModelPicker'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { AI_PROVIDERS, AI_PROVIDER_OPTIONS, resolveChatCompletionsUrl, resolveModelsUrl, type AiProviderId } from '../lib/aiProviders'
-import { cleanupResidualAiTestData } from '../lib/aiTestCards'
 
 export function SettingsPage() {
   const navigate = useNavigate()
@@ -48,8 +47,6 @@ export function SettingsPage() {
     setSettings,
   } = useSettingsStore()
   const [confirmingWipe, setConfirmingWipe] = useState(false)
-  const [cleaningAiTests, setCleaningAiTests] = useState(false)
-  const [aiTestCleanupStatus, setAiTestCleanupStatus] = useState('')
   const [backupStatus, setBackupStatus] = useState('')
   const [restoringBackup, setRestoringBackup] = useState(false)
   const [backgroundCropSrc, setBackgroundCropSrc] = useState('')
@@ -65,7 +62,7 @@ export function SettingsPage() {
   const backgroundInputRef = useRef<HTMLInputElement | null>(null)
 
   async function handleWipeContacts() {
-    await Promise.all([db.messages.clear(), db.conversations.clear(), db.contacts.clear(), db.groups.clear(), db.moments.clear(), db.momentComments.clear(), db.momentLikes.clear(), db.contactRelations.clear(), db.contactMemories.clear(), db.socialEvents.clear(), db.groupPlans.clear(), db.contactLifeStates.clear(), db.lifeEvents.clear(), db.contactExperiences.clear(), db.simulationState.clear(), db.aiUsageRecords.clear(), db.aiTurns.clear(), db.adminLogs.clear(), db.adminAiTraces.clear()])
+    await Promise.all([db.messages.clear(), db.conversations.clear(), db.contacts.clear(), db.groups.clear(), db.moments.clear(), db.momentComments.clear(), db.momentLikes.clear(), db.contactRelations.clear(), db.contactMemories.clear(), db.socialEvents.clear(), db.groupPlans.clear(), db.contactLifeStates.clear(), db.lifeEvents.clear(), db.contactExperiences.clear(), db.simulationState.clear(), db.aiUsageRecords.clear(), db.aiTurns.clear(), db.aiTestSuites.clear(), db.adminLogs.clear(), db.adminAiTraces.clear()])
     void navigate('/contacts')
   }
 
@@ -151,20 +148,6 @@ export function SettingsPage() {
     endpointPreviewError = error instanceof Error ? error.message : String(error)
   }
 
-  async function handleCleanupAiTests() {
-    setCleaningAiTests(true)
-    setAiTestCleanupStatus('')
-    try {
-      const result = await cleanupResidualAiTestData()
-      setAiTestCleanupStatus(result.total > 0
-        ? `已清理 ${result.total} 条残留测试数据（联系人 ${result.contacts}、会话 ${result.conversations}、消息 ${result.messages}、记忆 ${result.memories}、财务 ${result.financeRecords}）。`
-        : '未发现残留测试数据。')
-    } catch (error) {
-      setAiTestCleanupStatus(`清理失败：${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      setCleaningAiTests(false)
-    }
-  }
 
   function persistConnection() {
     setSettings({ aiProvider: providerDraft, apiKey: apiKeyDraft.trim(), baseUrl: baseUrlDraft.trim(), model: modelDraft.trim() })
@@ -693,28 +676,6 @@ export function SettingsPage() {
             ariaLabel="切换管理员模式"
           />
         </div>
-        {adminModeEnabled && (
-          <>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => navigate('/ai-test-cards')}
-                className="rounded-lg bg-gray-100 px-2 py-2.5 text-sm text-gray-700 active:bg-gray-200"
-              >
-                打开 AI 自动测试卡片
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleCleanupAiTests()}
-                disabled={cleaningAiTests}
-                className="rounded-lg bg-red-50 px-2 py-2.5 text-sm text-red-600 active:bg-red-100 disabled:opacity-50"
-              >
-                {cleaningAiTests ? '清理中…' : '清理残留测试数据'}
-              </button>
-            </div>
-            {aiTestCleanupStatus && <p className="mt-2 text-[11px] leading-relaxed text-gray-500">{aiTestCleanupStatus}</p>}
-          </>
-        )}
       </section>
 
       <section className="mt-3 bg-white px-4 py-3">

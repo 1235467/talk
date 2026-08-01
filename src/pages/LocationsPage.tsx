@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db/db'
+import { isAiTestId } from '../lib/aiTestIsolation'
 import { TopBar } from '../components/TopBar'
 import { LocationMapCanvas } from '../components/LocationMapCanvas'
 import { Avatar } from '../components/Avatar'
@@ -27,7 +28,7 @@ export function LocationsPage() {
   const map = useLiveQuery(() => db.worldMaps.get('active'), [])
   const locations = useLiveQuery(() => db.locations.orderBy('sortOrder').toArray(), []) ?? EMPTY_LOCATIONS
   const state = useLiveQuery(() => db.locationModuleState.get('active'), [])
-  const contacts = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_CONTACTS
+  const contacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_CONTACTS).filter((item) => !isAiTestId(item.id))
   const active = locations.find((item) => item.id === state?.currentLocationId)
   const children = useMemo(() => selected ? childLocations(selected.id, locations) : [], [locations, selected])
   const counts = useMemo(() => locationCounts(contacts, locations), [contacts, locations])

@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate, useParams } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
+import { isAiTestId } from '../lib/aiTestIsolation'
 import { TopBar } from '../components/TopBar'
 import { UiIcon } from '../components/UiIcon'
 import { Avatar } from '../components/Avatar'
@@ -83,12 +84,13 @@ export function ContactCardPage() {
   const [relationDrafts, setRelationDrafts] = useState<Array<{ targetContactId: string; label: string }>>([])
 
   const contact = useLiveQuery(() => (contactId ? db.contacts.get(contactId) : undefined), [contactId])
-  const allContacts = useLiveQuery(() => db.contacts.toArray(), []) ?? []
+  const allContacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? []).filter((item) => !isAiTestId(item.id))
   const conversation = useLiveQuery(
     () => (contactId ? db.conversations.where('contactId').equals(contactId).first() : undefined),
     [contactId],
   )
   const contactWallet = useLiveQuery(() => contactId ? db.walletAccounts.get(contactId) : undefined, [contactId])
+  const momentCount = useLiveQuery(() => contactId ? db.moments.where('contactId').equals(contactId).count() : 0, [contactId]) ?? 0
   const lifeEvents = useLiveQuery(() => contactId ? db.lifeEvents.where('contactId').equals(contactId).reverse().sortBy('occurredAt') : [], [contactId]) ?? []
   const experiences = useLiveQuery(() => contactId ? db.contactExperiences.where('contactIds').equals(contactId).toArray() : [], [contactId]) ?? []
   const lifeState = useLiveQuery(() => contactId ? db.contactLifeStates.get(contactId) : undefined, [contactId])
@@ -642,6 +644,9 @@ export function ContactCardPage() {
       <div className="mt-3 flex flex-col gap-2 bg-white px-4 py-4">
         <button onClick={handleChat} className="w-full rounded-lg bg-gray-900 py-2.5 text-sm text-white">
           发消息
+        </button>
+        <button onClick={() => navigate(`/moments?contact=${contactId}`)} className="w-full rounded-lg bg-gray-100 py-2.5 text-sm text-gray-700">
+          TA的朋友圈（{momentCount}）
         </button>
         <button onClick={() => setMenuOpen(true)} className="w-full rounded-lg bg-gray-100 py-2.5 text-sm text-red-500">
           删除联系人

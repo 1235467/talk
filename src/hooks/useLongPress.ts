@@ -5,6 +5,7 @@ const MOVE_TOLERANCE_PX = 12
 export function useLongPress(onLongPress: () => void, ms = 450) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const startPoint = useRef<{ x: number; y: number; pointerId: number } | null>(null)
+  const suppressClick = useRef(false)
 
   const clear = () => {
     if (timer.current) clearTimeout(timer.current)
@@ -14,10 +15,14 @@ export function useLongPress(onLongPress: () => void, ms = 450) {
 
   const start = (event: ReactPointerEvent) => {
     clear()
+    suppressClick.current = false
     startPoint.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId }
     timer.current = setTimeout(() => {
       timer.current = null
-      if (startPoint.current) onLongPress()
+      if (startPoint.current) {
+        suppressClick.current = true
+        onLongPress()
+      }
     }, ms)
   }
 
@@ -36,6 +41,12 @@ export function useLongPress(onLongPress: () => void, ms = 450) {
     onPointerLeave: clear,
     onPointerCancel: clear,
     onPointerMove: onMove,
+    onClickCapture: (event: ReactMouseEvent) => {
+      if (!suppressClick.current) return
+      suppressClick.current = false
+      event.preventDefault()
+      event.stopPropagation()
+    },
     onContextMenu: (event: ReactMouseEvent) => event.preventDefault(),
   }
 }

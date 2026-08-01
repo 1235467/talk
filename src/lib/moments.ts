@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
+import { isAiTestId } from './aiTestIsolation'
 import { parseJsonLoose } from './aiProtocol'
 import { chatCompletionText as chatCompletion } from './deepseek'
 import { momentReactionProbability, uniqueRelationPairs } from './contactRelations'
@@ -244,6 +245,36 @@ export interface RefreshMomentsResult {
   message?: string
 }
 
+/** Read-only test path: uses the production Moments prompt/parser/reviewer but never writes a Moment or social event. */
+export async function runMomentTestSandbox(contact: Contact, settings: AppSettings, testInstruction: string): Promise<{ raw: string; reviewedRaw: string; parsed: unknown }> {
+  if (!settings.apiKey) throw new Error('还没有配置API Key')
+  if (!promptModuleEnabled(settings, 'moments')) throw new Error('朋友圈提示词模块已屏蔽')
+  const stickerNames = (await db.stickers.toArray()).map((item) => item.name)
+  const [privateMemories, socialMemories, events, originalContext] = await Promise.all([
+    recentMemoriesText(contact.id, 4),
+    socialMemoriesText(contact.id, 4),
+    recentSocialEventsText([contact.id], 3, false),
+    recentSharedOriginalContext([contact.id], settings.userNickname, { maxMessages: 45, maxChars: 6_500 }),
+  ])
+  const contexts = new Map([[contact.id, [originalContext, privateMemories, socialMemories, events, `【本次测试主题】${testInstruction}`].filter(Boolean).join('\n\n').slice(0, 10_500)]])
+  const worldbookPrompt = featureActive(settings, 'worldview')
+    ? (getPromptTemplate(settings, 'worldview', 'momentsRuntime', { worldbookEntries: await retrieveWorldbookContext(`${contact.name} ${contact.systemPrompt} ${contact.memoryFacts} ${testInstruction}`) }) ?? '')
+    : ''
+  const entries = [{ poster: contact, commenters: [] as ReactorPlan[], willHavePhoto: true }]
+  const raw = await chatCompletion({
+    apiKey: settings.apiKey,
+    baseUrl: settings.baseUrl,
+    model: settings.model,
+    messages: [{ role: 'system', content: buildMomentsPrompt(entries, worldbookPrompt, stickerNames, contexts, settings) }, { role: 'user', content: '请生成' }],
+    jsonMode: true,
+    purpose: 'moments',
+    automatic: false,
+  })
+  const personaContext = [worldbookPrompt, `Poster ${contact.name}: ${contact.systemPrompt}\nTrait: ${contact.personalityTrait || 'none'}\nShared history anchor: ${contact.sharedHistory || 'none'}`].filter(Boolean).join('\n\n')
+  const reviewedRaw = await reviewMomentPayload(settings, raw, '{"moments":[{"content":"...","imageKeyword":"...","comments":[]}]}', personaContext)
+  return { raw, reviewedRaw, parsed: parseMomentsResponse(reviewedRaw, [0]) }
+}
+
 /**
  * The whole "who posts, who reacts" decision lives in code (per the user's
  * explicit request for a random system, not left to the model's whim) — the
@@ -253,7 +284,7 @@ export interface RefreshMomentsResult {
 export async function refreshMoments(settings: AppSettings): Promise<RefreshMomentsResult> {
   if (!promptModuleEnabled(settings, 'moments')) return { postedCount: 0, message: '朋友圈提示词模块已屏蔽' }
   const startedAt = performance.now()
-  const contacts = await db.contacts.toArray()
+  const contacts = (await db.contacts.toArray()).filter((item) => !isAiTestId(item.id))
   if (contacts.length === 0) return { postedCount: 0, message: '还没有联系人' }
   if (!settings.apiKey) return { postedCount: 0, message: '还没有配置API Key' }
 
@@ -446,7 +477,7 @@ export async function postUserMoment(content: string, settings: AppSettings): Pr
   await db.moments.add({ id: momentId, contactId: 'user', content, createdAt: now })
 
   if (!settings.apiKey || !promptModuleEnabled(settings, 'moments')) return
-  const contacts = await db.contacts.toArray()
+  const contacts = (await db.contacts.toArray()).filter((item) => !isAiTestId(item.id))
   if (contacts.length === 0) return
 
   const plans = planUserMomentReactors(contacts)
@@ -501,6 +532,7 @@ export async function postUserMoment(content: string, settings: AppSettings): Pr
 
   let commentIndex = 0
   for (const plan of plans) {
+    if (!await db.moments.get(momentId)) return
     await db.momentLikes.add({ id: uuid(), momentId, likerId: plan.contact.id, createdAt: now })
     await recordSocialEvent({
       type: 'moment_liked',
@@ -586,7 +618,7 @@ export async function generateMomentReply(
     if (!moment) return
 
     const [allContacts, existingComments, stickers, privateMemories, socialMemories, events, originalContext] = await Promise.all([
-      db.contacts.toArray(),
+      db.contacts.toArray().then((items) => items.filter((item) => !isAiTestId(item.id))),
       db.momentComments.where('momentId').equals(momentId).sortBy('createdAt'),
       db.stickers.toArray(),
       recentMemoriesText(poster.id, 4),
@@ -631,6 +663,7 @@ export async function generateMomentReply(
     })
     const cleaned = cleanPlainReply(raw)
     if (!cleaned) return
+    if (!await db.moments.get(momentId)) return
 
     await db.momentComments.add({
       id: uuid(),
@@ -668,7 +701,7 @@ export async function generateMomentDiscussion(
   try {
     if (!settings.apiKey || !promptModuleEnabled(settings, 'moments')) return
     const [moment, contacts, comments] = await Promise.all([
-      db.moments.get(momentId), db.contacts.toArray(), db.momentComments.where('momentId').equals(momentId).sortBy('createdAt'),
+      db.moments.get(momentId), db.contacts.toArray().then((items) => items.filter((item) => !isAiTestId(item.id))), db.momentComments.where('momentId').equals(momentId).sortBy('createdAt'),
     ])
     if (!moment) return
     const byId = new Map(contacts.map((contact) => [contact.id, contact]))
@@ -707,6 +740,7 @@ export async function generateMomentDiscussion(
     }).slice(0, 3)
     if (directId && directId !== 'user' && candidateIds.includes(directId) && !output.some((item) => item.authorId === directId)) return
     for (const item of output) {
+      if (!await db.moments.get(momentId)) return
       const id = uuid()
       await db.momentComments.add({ id, momentId, authorContactId: item.authorId, content: item.content, replyToCommentId: item.replyToCommentId, createdAt: Date.now() })
       await recordSocialEvent({ type: 'moment_commented', actorId: item.authorId, targetId: posterContactId, relatedContactIds: Array.from(new Set([item.authorId, ...(posterContactId ? [posterContactId] : [])])), momentId, messageId: id, summary: `${names.get(item.authorId) || '某人'}参与了朋友圈讨论: ${item.content}`, importance: 2 })
@@ -718,6 +752,25 @@ export async function generateMomentDiscussion(
 
 function commentIdMarker(id: string | undefined): string {
   return id || 'unknown'
+}
+
+/** Removes a moment and every piece of derived social data attached to it. */
+export async function deleteMomentCompletely(momentId: string): Promise<boolean> {
+  const moment = await db.moments.get(momentId)
+  if (!moment) return false
+  await db.transaction('rw', db.moments, db.momentComments, db.momentLikes, db.socialEvents, db.contacts, async () => {
+    await db.momentComments.where('momentId').equals(momentId).delete()
+    await db.momentLikes.where('momentId').equals(momentId).delete()
+    const eventIds = await db.socialEvents.filter((event) => event.momentId === momentId).primaryKeys()
+    if (eventIds.length > 0) await db.socialEvents.bulkDelete(eventIds as string[])
+    await db.moments.delete(momentId)
+    if (moment.contactId !== 'user') {
+      const remaining = await db.moments.where('contactId').equals(moment.contactId).toArray()
+      const lastMomentAt = remaining.reduce((latest, item) => Math.max(latest, item.createdAt), 0)
+      await db.contacts.update(moment.contactId, { lastMomentAt: lastMomentAt || undefined })
+    }
+  })
+  return true
 }
 
 /**

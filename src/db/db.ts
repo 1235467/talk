@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 import type {
   AiTurnDebug,
+  AiTestSuiteRecord,
   Contact,
   ContactMemory,
   ContactRelationLink,
@@ -16,7 +17,7 @@ import type {
   WorldbookCollection,
   WorldbookEntry,
   SimulationState, ContactLifeState, LifeEvent, ContactExperience, AiUsageRecord,
-  SocialEvent, GroupPlan, AdminLogRecord, AdminAiTrace, SaveSlot, SavedPersona, PersonaCreationRecord,
+  SocialEvent, GroupPlan, AdminLogRecord, AdminAiTrace, SaveSlot, SavedPersona, PersonaCreationRecord, ShopPurchaseHistory,
   Sticker,
   WalletAccount, WalletTransaction, Loan, JobListing, InterviewSession,
   LocationNode, WorldMapRecord, LocationModuleState, AcousticEdge,
@@ -43,6 +44,7 @@ export class TalkDB extends Dexie {
   contactExperiences!: Table<ContactExperience, string>
   aiUsageRecords!: Table<AiUsageRecord, string>
   aiTurns!: Table<AiTurnDebug, string>
+  aiTestSuites!: Table<AiTestSuiteRecord, string>
   socialEvents!: Table<SocialEvent, string>
   contactMemories!: Table<ContactMemory, string>
   walletAccounts!: Table<WalletAccount, string>
@@ -56,6 +58,7 @@ export class TalkDB extends Dexie {
   saveSlots!: Table<SaveSlot, string>
   savedPersonas!: Table<SavedPersona, string>
   personaCreationRecords!: Table<PersonaCreationRecord, string>
+  shopPurchaseHistory!: Table<ShopPurchaseHistory, string>
   locations!: Table<LocationNode, string>
   worldMaps!: Table<WorldMapRecord, string>
   locationModuleState!: Table<LocationModuleState, string>
@@ -313,6 +316,44 @@ export class TalkDB extends Dexie {
     })
     this.version(30).stores({
       contactExperiences: 'id, kind, memoryTier, startedAt, endedAt, importance, *contactIds',
+    })
+    this.version(31).stores({
+      aiTestSuites: 'id, status, kind, createdAt, updatedAt',
+    })
+    // Restore one-card-per-item inventory while keeping a separate catalogue
+    // for products that can be repurchased from the shop.
+    this.version(32).stores({
+      inventory: 'id, acquiredAt',
+      shopPurchaseHistory: '&productKey, lastPurchasedAt',
+    }).upgrade(async (tx) => {
+      const inventory = tx.table('inventory')
+      const history = tx.table('shopPurchaseHistory')
+      const items = await inventory.toArray() as Array<Record<string, any>>
+      const normalize = (value: unknown) => (typeof value === 'string' || typeof value === 'number' ? String(value) : '').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+      for (const item of items) {
+        const productKey = typeof item.productKey === 'string' && item.productKey
+          ? item.productKey
+          : JSON.stringify([normalize(item.name), normalize(item.description), String(item.icon ?? '').trim(), Math.round(Number(item.price || 0) * 100) / 100])
+        const quantity = Number.isFinite(item.quantity) ? Math.max(0, Math.floor(item.quantity)) : 1
+        await history.put({
+          productKey,
+          name: String(item.name || ''),
+          description: String(item.description || ''),
+          icon: String(item.icon || ''),
+          price: Number(item.price || 0),
+          purchaseCount: Math.max(1, quantity),
+          firstPurchasedAt: Number(item.acquiredAt || Date.now()),
+          lastPurchasedAt: Number(item.updatedAt || item.acquiredAt || Date.now()),
+        })
+        if (quantity === 0) {
+          await inventory.delete(item.id)
+          continue
+        }
+        await inventory.put({ ...item, productKey, quantity: undefined, updatedAt: undefined })
+        for (let index = 1; index < quantity; index += 1) {
+          await inventory.add({ ...item, id: crypto.randomUUID(), productKey, quantity: undefined, updatedAt: undefined, acquiredAt: Number(item.acquiredAt || Date.now()) + index })
+        }
+      }
     })
   }
 }

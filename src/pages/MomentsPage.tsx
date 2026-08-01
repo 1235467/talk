@@ -3,11 +3,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
+import { isAiTestId } from '../lib/aiTestIsolation'
 import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { displayName } from '../lib/contact'
-import { generateMomentDiscussion, parseCommentSticker, postUserMoment, refreshMoments } from '../lib/moments'
+import { deleteMomentCompletely, generateMomentDiscussion, parseCommentSticker, postUserMoment, refreshMoments } from '../lib/moments'
 import { recordSocialEvent } from '../lib/socialEvents'
 import { resizeImageDataUrl } from '../lib/image'
 import { formatListTime } from '../lib/time'
@@ -20,9 +21,10 @@ export function MomentsPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const focusMomentId = searchParams.get('focus')
+  const filterContactId = searchParams.get('contact')
   const settings = useSettingsStore()
   const moments = useLiveQuery(() => db.moments.orderBy('createdAt').reverse().toArray(), []) ?? EMPTY_ARRAY
-  const contacts = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_ARRAY
+  const contacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_ARRAY).filter((item) => !isAiTestId(item.id))
   const likes = useLiveQuery(() => db.momentLikes.toArray(), []) ?? EMPTY_ARRAY
   const comments = useLiveQuery(() => db.momentComments.toArray(), []) ?? EMPTY_ARRAY
   const stickers = useLiveQuery(() => db.stickers.toArray(), []) ?? EMPTY_ARRAY
@@ -37,15 +39,18 @@ export function MomentsPage() {
   const coverInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    if (filterContactId) return
     settings.setSettings({ momentsLastReadAt: Date.now() })
     // only mark read when entering the page; new items arriving while here
     // are visible immediately through live queries.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [filterContactId])
 
   const contactById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts])
   const stickerByName = useMemo(() => new Map(stickers.map((s) => [s.name, s])), [stickers])
   const stickerNames = useMemo(() => stickers.map((s) => s.name), [stickers])
+  const filterContact = filterContactId ? contactById.get(filterContactId) : undefined
+  const visibleMoments = filterContactId ? moments.filter((moment) => moment.contactId === filterContactId) : moments
 
   const likesByMoment = useMemo(() => {
     const map = new Map<string, MomentLike[]>()
@@ -176,13 +181,19 @@ export function MomentsPage() {
     }
   }
 
+  async function handleDeleteMoment(momentId: string) {
+    if (!window.confirm('确定撤销这条朋友圈吗？点赞、评论和相关动态也会一起删除。')) return
+    await deleteMomentCompletely(momentId)
+    setCommentingId((current) => current === momentId ? null : current)
+  }
+
   return (
     <div data-page-kind="moments" className="relative flex h-[var(--app-height)] flex-col overflow-hidden bg-[#ededed]">
       <TopBar
-        title="朋友圈"
+        title={filterContact ? `${displayName(filterContact)}的朋友圈` : '朋友圈'}
         showBack
         right={
-          <div className="flex items-center">
+          !filterContactId ? <div className="flex items-center">
             <button
               onClick={() => setComposerOpen((v) => !v)}
               aria-label="发一条朋友圈"
@@ -198,12 +209,12 @@ export function MomentsPage() {
             >
               <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
             </button>
-          </div>
+          </div> : undefined
         }
       />
       <div className="moments-scroll flex-1 overflow-y-auto">
 
-      <div className="moments-cover relative shrink-0" style={{ height: '40vh' }} onClick={() => coverInput.current?.click()}>
+      {filterContact ? <div className="flex items-center gap-3 bg-white px-4 py-5"><Avatar avatar={filterContact.avatar} color={filterContact.avatarColor} size={56} /><div><p className="ui-font-display text-base font-medium text-gray-900">{displayName(filterContact)}</p><p className="mt-1 text-xs text-gray-400">共 {visibleMoments.length} 条动态</p></div></div> : <div className="moments-cover relative shrink-0" style={{ height: '40vh' }} onClick={() => coverInput.current?.click()}>
         {settings.momentsCoverPhoto ? (
           <img src={settings.momentsCoverPhoto} alt="" className="h-full w-full object-cover" />
         ) : (
@@ -225,7 +236,7 @@ export function MomentsPage() {
           </button>
         </div>
         <input ref={coverInput} type="file" accept="image/*" onChange={handleCoverFile} className="hidden" />
-      </div>
+      </div>}
 
       {composerOpen && (
         <div className="border-b border-gray-100 bg-white px-4 py-3">
@@ -260,10 +271,10 @@ export function MomentsPage() {
       {message && <p className="bg-white px-4 py-2 text-center text-xs text-gray-400">{message}</p>}
 
       <div className="flex-1">
-        {moments.length === 0 ? (
-          <p className="bg-white py-10 text-center text-sm text-gray-400">还没有动态 点右上角刷新试试</p>
+        {visibleMoments.length === 0 ? (
+          <p className="bg-white py-10 text-center text-sm text-gray-400">{filterContact ? 'TA还没有发布过朋友圈' : '还没有动态 点右上角刷新试试'}</p>
         ) : (
-          moments.map((m) => {
+          visibleMoments.map((m) => {
             const isUserPost = m.contactId === 'user'
             const poster = isUserPost ? undefined : contactById.get(m.contactId)
             if (!isUserPost && !poster) return null
@@ -297,7 +308,7 @@ export function MomentsPage() {
                       />
                     )}
                     <div className="mt-2 flex items-center justify-between">
-                      <span className="text-[11px] text-gray-400">{formatListTime(m.createdAt)}</span>
+                      <div className="flex items-center gap-2"><span className="text-[11px] text-gray-400">{formatListTime(m.createdAt)}</span><button type="button" onClick={() => void handleDeleteMoment(m.id)} className="text-[11px] text-red-500">撤销</button></div>
                       <div className="flex items-center gap-3">
                         <button
                           onClick={() => {

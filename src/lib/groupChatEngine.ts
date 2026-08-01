@@ -120,6 +120,10 @@ export function stopGroupAiTurn(conversationId: string): void {
   useChatEngineStore.getState().patch(conversationId, { aiTyping: false, typingLabel: undefined, error: '已由管理员停止本轮群聊生成' })
 }
 
+export function resetAllGroupChatTurns(): void {
+  turns.resetAll()
+}
+
 function parseCompressedGroupMemory(raw: string): string | null {
   const parsed = parseJsonLoose<{ memory?: unknown }>(raw)
   return typeof parsed?.memory === 'string' && parsed.memory.trim() ? parsed.memory.trim() : null

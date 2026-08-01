@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
+import { isAiTestId } from './aiTestIsolation'
 import { useSettingsStore } from '../store/useSettingsStore'
 import type { WalletOwnerId, WalletTransactionKind } from '../types'
 
@@ -30,7 +31,7 @@ async function ensureWalletAccounts(settings: LegacyWalletSettings): Promise<voi
       const migrated = await db.walletTransactions.where('idempotencyKey').equals('legacy-wallet-migration').first()
       if (amount && !migrated) await db.walletTransactions.add({ id: uuid(), idempotencyKey: 'legacy-wallet-migration', kind: 'migration', toOwnerId: USER_WALLET_ID, amount, status: 'completed', createdAt: Date.now(), completedAt: Date.now() })
     }
-    for (const contact of await db.contacts.toArray()) {
+    for (const contact of (await db.contacts.toArray()).filter((item) => !isAiTestId(item.id))) {
       if (!(await db.walletAccounts.get(contact.id))) await db.walletAccounts.add({ ownerId: contact.id, balance: 0, updatedAt: Date.now() })
     }
   })
@@ -123,7 +124,7 @@ export async function claimDailySalaries(date = localDateKey()): Promise<DailySa
   settings.setSettings({ userLastSalaryDate: date })
   let contactAmount = 0
   let contactCount = 0
-  for (const c of await db.contacts.toArray()) {
+  for (const c of (await db.contacts.toArray()).filter((item) => !isAiTestId(item.id))) {
     if (!c.occupation || !c.monthlySalary) continue
     const amount = Math.max(1, Math.round(c.monthlySalary / 30))
     await transferFunds({ to: c.id, amount, kind: 'salary', note: `${c.occupation}工资`, idempotencyKey: `salary:${c.id}:${date}` })

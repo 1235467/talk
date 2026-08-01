@@ -14,6 +14,7 @@ import { useSettingsStore } from '../store/useSettingsStore'
 import { ALL_MODULES } from '../features'
 import { uiThemeName } from '../lib/uiTheme'
 import { UiIcon } from './UiIcon'
+import { isAiTestId } from '../lib/aiTestIsolation'
 
 const EMPTY: never[] = []
 
@@ -129,7 +130,7 @@ function ConversationList({ query }: { query: string }) {
   const rows = useMemo(() => {
     const contactById = new Map(contacts.map((contact) => [contact.id, contact]))
     const groupById = new Map(groups.map((group) => [group.id, group]))
-    return conversations.map((conversation) => {
+    return conversations.filter((conversation) => !isAiTestId(conversation.id) && !isAiTestId(conversation.contactId) && !isAiTestId(conversation.groupId)).map((conversation) => {
       const contact = conversation.contactId ? contactById.get(conversation.contactId) : undefined
       const group = conversation.groupId ? groupById.get(conversation.groupId) : undefined
       if (!contact && !group) return null
@@ -158,7 +159,7 @@ function ContactList({ query }: { query: string }) {
   const navigate = useNavigate()
   const location = useLocation()
   const contacts = useLiveQuery(() => db.contacts.orderBy('createdAt').reverse().toArray(), []) ?? EMPTY
-  const filtered = contacts.filter((contact) => displayName(contact).toLowerCase().includes(query.trim().toLowerCase()))
+  const filtered = contacts.filter((contact) => !isAiTestId(contact.id) && displayName(contact).toLowerCase().includes(query.trim().toLowerCase()))
   return <>
     <button type="button" className="desktop-list-row" onClick={() => navigate('/contact/new')}><span className="desktop-add-avatar"><UiIcon name="users" size={21} /></span><span className="desktop-list-copy"><strong>添加联系人</strong><small>创建一位新的 AI 联系人</small></span></button>
     {filtered.map((contact) => <button type="button" key={contact.id} className={`desktop-list-row ${location.pathname === `/contact/${contact.id}` ? 'active' : ''}`} onClick={() => navigate(`/contact/${contact.id}`)}><Avatar avatar={contact.avatar} color={contact.avatarColor} size={48} /><span className="desktop-list-copy"><strong>{displayName(contact)}</strong><small>{contact.relationshipBase || '朋友'} · 认识于 {formatListTime(contact.createdAt)}</small></span></button>)}
@@ -169,14 +170,16 @@ function DiscoverList({ query }: { query: string }) {
   const navigate = useNavigate()
   const location = useLocation()
   const enabledModules = useSettingsStore((state) => state.enabledModules)
+  const adminModeEnabled = useSettingsStore((state) => state.adminModeEnabled)
   const entries = useMemo(() => {
     const result = [{ to: '/moments', label: '朋友圈', icon: '◉', note: '查看朋友们的最新动态' }, { to: '/social-inbox', label: '互动收件箱', icon: '✦', note: '点赞、评论与回复' }]
+    if (adminModeEnabled) result.push({ to: '/ai-test-cards', label: 'AI 自动测试', icon: '🧪', note: '后台运行人工评测用例' })
     for (const module of ALL_MODULES) {
       if (!enabledModules.includes(module.id)) continue
       for (const entry of module.discoverEntries ?? []) result.push({ ...entry, note: '功能模块' })
     }
     return [...new Map(result.map((entry) => [entry.to, entry])).values()].filter((entry) => entry.label.includes(query.trim()))
-  }, [enabledModules, query])
+  }, [adminModeEnabled, enabledModules, query])
   return <>{entries.map((entry) => <button type="button" key={entry.to} className={`desktop-list-row ${location.pathname === entry.to ? 'active' : ''}`} onClick={() => navigate(entry.to)}><span className="desktop-menu-avatar"><UiIcon name={entry.icon} size={20} /></span><span className="desktop-list-copy"><strong>{entry.label}</strong><small>{entry.note}</small></span></button>)}</>
 }
 

@@ -13,6 +13,7 @@ import { displayName } from '../lib/contact'
 import { previewForMessage } from '../lib/messagePreview'
 import { useLastMessageByConversation, useUnreadByConversation } from '../lib/unread'
 import { useSettingsStore } from '../store/useSettingsStore'
+import { isAiTestId } from '../lib/aiTestIsolation'
 
 const EMPTY_ARRAY: never[] = []
 
@@ -35,6 +36,7 @@ export function MessagesPage() {
     const groupById = new Map(groups.map((g) => [g.id, g]))
     const locationById = new Map(locations.map((location) => [location.id, location]))
     return conversations
+      .filter((conversation) => !isAiTestId(conversation.id) && !isAiTestId(conversation.contactId) && !isAiTestId(conversation.groupId))
       .filter((conversation) => locationEnabled || !conversation.systemPinned)
       .map((conv) => {
         const lastMessage = lastMessageByConversation.get(conv.id)
@@ -80,7 +82,7 @@ export function MessagesPage() {
   const menuConv = rows.find((r) => r.conv.id === menuFor)?.conv
 
   return (
-    <div className="relative flex min-h-full flex-col">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
       <TopBar
         title="消息"
         showSearch
@@ -97,7 +99,7 @@ export function MessagesPage() {
           </button>
         }
       />
-      <div className="flex-1">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {rows.length === 0 && (
           <p className="px-4 py-10 text-center text-sm text-gray-400">
             还没有会话 去"联系人"页添加一个联系人开始聊天吧
