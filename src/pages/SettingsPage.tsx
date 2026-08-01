@@ -505,7 +505,7 @@ export function SettingsPage() {
       </section>
 
       <section className="mt-3 bg-white px-4 py-3">
-        <h2 className="mb-2 text-xs font-medium text-gray-400">联网搜索（Tavily，仅供知识库定时更新使用）</h2>
+        <h2 className="mb-2 text-xs font-medium text-gray-400">联网搜索（Tavily，用于资料库联网补全）</h2>
         <label className="mb-1 block text-xs text-gray-500">Tavily API Key</label>
         <div className="relative mb-2">
           <input
@@ -543,7 +543,7 @@ export function SettingsPage() {
           </p>
         )}
         <p className="mt-2 text-[11px] text-gray-400">
-          去 tavily.com 免费注册可以拿到一个key 只用来定时给"世界设定"页面的知识库搜索最新的网络热梗/番剧/游戏资讯 平时聊天不会用到
+          去 tavily.com 免费注册可以拿到一个key，用于把网络热梗、番剧、游戏和其他搜索资料保存到资料库；聊天遇到陌生词时也可以按需补全
         </p>
       </section>
 
@@ -664,7 +664,7 @@ export function SettingsPage() {
           }}
         />
         <p className="mt-2 text-[11px] leading-relaxed text-gray-400">
-          备份包含联系人、人设、聊天记录、朋友圈、表情包、仓库、知识库、世界观收藏和当前设置。设置里如果保存过 API Key，备份文件里也会带上，请不要发给别人。
+          备份包含联系人、人设、聊天记录、朋友圈、表情包、仓库、资料库、世界观存档和当前设置。设置里如果保存过 API Key，备份文件里也会带上，请不要发给别人。
         </p>
         {backupStatus && <p className="mt-2 text-xs text-gray-500">{backupStatus}</p>}
       </section>

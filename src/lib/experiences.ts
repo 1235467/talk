@@ -3,7 +3,7 @@ import { db } from '../db/db'
 import type { AppSettings, Contact, ContactExperience, ContactLifeState } from '../types'
 import { chatCompletionText as chatCompletion } from './deepseek'
 import { parseJsonLoose } from './aiProtocol'
-import { selectedWorldbookEntriesText, foundationalWorldviewText } from './worldbook'
+import { selectedWorldbookEntriesText, retrieveWorldbookContext } from './worldbook'
 import { uniqueRelationPairs } from './contactRelations'
 import { displayName } from './contact'
 import { isPhoneAvailable } from './schedule'
@@ -107,7 +107,7 @@ export async function ensureOfflineExperiences(opts: {
 
   const [worldbook, candidatePlan, lifeState] = await Promise.all([
     Promise.all([
-      foundationalWorldviewText(),
+      retrieveWorldbookContext(`${contact.name}\n${contact.systemPrompt}\n${contact.schedule?.map((block) => `${block.location} ${block.activity}`).join('\n') || ''}`, { worldviewId: contact.worldviewId, maxEntries: 8, maxChars: 5000, includeHighPriorityFallback: true }),
       selectedWorldbookEntriesText(contact.worldbookEntryIds ?? []),
     ]).then((parts) => parts.filter(Boolean).join('\n\n')),
     interactionCandidates(contact, from, to),
@@ -123,7 +123,7 @@ export async function ensureOfflineExperiences(opts: {
 【区间】${new Date(from).toLocaleString()} 至 ${new Date(to).toLocaleString()}，共${durationText(gap)}
 【区间日程】\n${scheduleSlice(contact, from, to)}
 【开始状态】${lifeState ? `${lifeState.location}；${lifeState.activity}；精力${lifeState.energy}；压力${lifeState.stress}；${lifeState.situation || ''}` : '暂无，谨慎补全'}
-${worldbook ? `【绑定世界书与底层世界观】\n${worldbook.slice(0, 5000)}` : ''}
+${worldbook ? `【所属世界正史与创建参考资料】\n${worldbook.slice(0, 5000)}` : ''}
 【唯一允许考虑的互动对象】\n${candidatePlan.text}
 
 规则：

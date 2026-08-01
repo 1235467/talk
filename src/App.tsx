@@ -11,6 +11,7 @@ import { NotificationBanner } from './components/NotificationBanner'
 import { AppErrorBoundary } from './components/AppErrorBoundary'
 import { DesktopLayout } from './components/DesktopLayout'
 import { DesktopHomePage } from './pages/DesktopHomePage'
+import { DesktopContactsPage } from './pages/DesktopContactsPage'
 import { ensureWallets } from './lib/finance'
 import { ensureLegacyWorldviewMigrated } from './lib/worldbook'
 import { syncContactLocationsAt } from './lib/locations'
@@ -200,7 +201,7 @@ function App() {
         <Routes>
         <Route element={desktop ? <Outlet /> : <TabLayout />}>
           <Route path="/" element={desktop ? <DesktopHomePage /> : <MessagesPage />} />
-          <Route path="/contacts" element={<ContactsPage />} />
+          <Route path="/contacts" element={desktop ? <DesktopContactsPage /> : <ContactsPage />} />
           <Route path="/discover" element={<DiscoverPage />} />
           <Route path="/me" element={<MePage />} />
         </Route>

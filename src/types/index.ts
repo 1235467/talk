@@ -68,6 +68,8 @@ export interface Contact {
   locationSource?: 'schedule' | 'manual' | 'fallback'
   /** Worldbook entries explicitly bound when this contact was created. */
   worldbookEntryIds?: string[]
+  /** The single canonical world used for this contact's private runtime. */
+  worldviewId?: string
   /** End of the latest time range already covered by offline experience completion. */
   experienceCursorAt?: number
 }
@@ -287,10 +289,12 @@ export interface Group {
   /** The location module reuses the normal Talk group engine and settings. */
   kind?: 'standard' | 'location'
   locationId?: string
+  /** Groups are single-world scenes; every member must belong to this world. */
+  worldviewId?: string
 }
 
 // ---- optional location module ----
-export type TerrainType = 'river' | 'grassland' | 'beach' | 'mountain' | 'urban' | 'rural'
+export type TerrainType = 'river' | 'grassland' | 'beach' | 'hill' | 'mountain' | 'urban' | 'rural'
 
 export interface LocationMapBinding {
   x: number
@@ -309,6 +313,8 @@ export interface LocationNode {
   name: string
   kind: string
   description: string
+  /** User-authored notes kept separate from the public place description. */
+  note?: string
   access: 'public' | 'restricted' | 'private'
   mapBinding?: LocationMapBinding
   userCreated?: boolean
@@ -670,6 +676,11 @@ export interface AppSettings {
   // ---- worldview (see lib/prompt.ts buildWorldviewDraftPrompt) ----
   worldview: string // shared world-setting text injected into every persona's prompt (chat, group chat, moments) once confirmed; empty until the user sets one
   worldbookMigrationCompleted?: boolean
+  /** Default for new contacts and unbound generation surfaces; existing contacts keep their own world. */
+  defaultWorldviewId?: string
+  /** Compress a single library source only when it exceeds this threshold. */
+  autoCompressLibraryImports?: boolean
+  libraryCompressionThresholdTokens?: number
   // ---- knowledge base (see lib/knowledgeBase.ts) ----
   knowledgeQueryLog?: { date: string; count: number } // rolling daily counter backing the cap on reactive keyword-triggered knowledge lookups, keyed by local date
   // ---- admin/dev tooling (see lib/consoleCapture.ts + SkyEyePage) ----
@@ -756,6 +767,27 @@ export interface KnowledgeEntry {
   content: string
   sourceQuery: string // the original search keyword/topic (e.g. "崩坏：星穹铁道") — this is what dedup compares against, since `topic` is an unrelated sub-headline the model invents per fact
   fetchedAt: number // when this was gathered — surfaced in prompts so the model knows how fresh it is
+}
+
+export type LibrarySourceType = 'character-card' | 'worldbook' | 'web' | 'manual' | 'legacy'
+
+/** Source material kept verbatim. Library content is reference material, never canon by itself. */
+export interface LibraryItem {
+  id: string
+  packageId?: string
+  parentId?: string
+  sourceType: LibrarySourceType
+  title: string
+  content: string
+  keywords: string[]
+  sourceLabel?: string
+  sourceFileName?: string
+  sourceUrl?: string
+  fetchedAt?: number
+  rawData?: Record<string, unknown>
+  createdAt: number
+  updatedAt: number
+  lastUsedAt?: number
 }
 
 /** Legacy saved whole-world snapshots retained for backup compatibility; new settings use WorldbookEntry. */
@@ -1081,6 +1113,7 @@ export interface ContactGenerationInput {
   initialWarmth?: number
   customPersonalityTraits?: CustomPersonalityTrait[]
   relations: ContactGenerationRelationInput[]
+  worldviewId?: string
   selectedWorldbookEntryIds: string[]
   importedWorldbook?: { collection: WorldbookCollection; entries: WorldbookEntry[] }
   importedFirstMessage?: string

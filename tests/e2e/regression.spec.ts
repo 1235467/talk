@@ -152,14 +152,84 @@ test('settings page exports a complete Talk backup json', async ({ page }) => {
 
   const backup = JSON.parse(await import('node:fs/promises').then((fs) => fs.readFile(path!, 'utf8')))
   expect(backup.format).toBe('talk-backup')
-  expect(backup.schemaVersion).toBe(5)
+  expect(backup.schemaVersion).toBe(6)
   expect(backup.settings.userNickname).toBe('Backup User')
   expect(backup.tables.contacts).toHaveLength(1)
   expect(backup.tables.conversations).toHaveLength(1)
   expect(backup.tables.messages).toHaveLength(1)
   expect(Object.keys(backup.tables)).toEqual(
-    expect.arrayContaining(['stickers', 'moments', 'knowledgeEntries', 'savedWorldviews', 'worldbookEntries', 'contactMemories', 'shopPurchaseHistory', 'contactGenerationTasks']),
+    expect.arrayContaining(['stickers', 'moments', 'knowledgeEntries', 'libraryItems', 'savedWorldviews', 'worldbookEntries', 'contactMemories', 'shopPurchaseHistory', 'contactGenerationTasks']),
   )
+})
+
+test('desktop settings sidebar exposes the experience mode switch', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'talkDesktop', {
+      configurable: true,
+      value: {
+        minimize() {},
+        toggleMaximize() {},
+        close() {},
+        isMaximized: async () => false,
+        onMaximizedChange: () => () => {},
+      },
+    })
+  })
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/#/settings')
+
+  const entry = page.locator('.desktop-sidebar').getByRole('button', { name: /体验模式/ })
+  await expect(entry).toBeVisible()
+  await expect(entry).toContainText('自由模式')
+  await entry.click()
+
+  await expect(page).toHaveURL(/#\/experience-mode$/)
+  await expect(page.locator('.desktop-sidebar').getByRole('button', { name: /体验模式/ })).toHaveClass(/active/)
+  await expect(page.getByRole('heading', { name: '沉浸模式' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '自由模式' })).toBeVisible()
+})
+
+test('desktop contacts live only in the sidebar while the main pane stays contextual', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'talkDesktop', {
+      configurable: true,
+      value: {
+        minimize() {},
+        toggleMaximize() {},
+        close() {},
+        isMaximized: async () => false,
+        onMaximizedChange: () => () => {},
+      },
+    })
+  })
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/#/contacts')
+  await page.evaluate(async () => {
+    const { db } = await import('/src/db/db.ts')
+    for (const table of db.tables) await table.clear()
+    await db.contacts.add({
+      id: 'desktop-contact', name: '左栏联系人', avatar: '🙂', avatarColor: '#e5f7ef', systemPrompt: 'test', createdAt: 1,
+      memoryFacts: '', memoryStyle: '', memoryUpdatedAt: 0, memoryMessageCursor: 0, warmth: 15, relationshipBase: '朋友', relationshipDynamic: '',
+    })
+    await db.contactGenerationTasks.add({
+      id: 'desktop-generation', experienceMode: 'free', method: 'precision', status: 'awaiting_review', stageLabel: '初稿已完成，待确认',
+      input: {
+        personalityTags: [], ageRange: '', gender: '', relationship: '', occupation: '', hobbies: [], personalityTrait: '', roleDescription: '', personaSetting: '', sharedHistory: '', avatar: '', avatarManuallySet: false,
+        initialWarmthMode: 'auto', relations: [], selectedWorldbookEntryIds: [], careerEnabled: true, relationshipEnabled: true, locationEnabled: true,
+      },
+      provider: 'custom', baseUrl: '', model: '', utilityModel: '', attempt: 1, createdAt: 2, updatedAt: 2,
+    })
+  })
+  await page.reload()
+
+  const sidebar = page.locator('.desktop-sidebar')
+  const main = page.locator('.desktop-main')
+  await expect(sidebar.getByRole('button', { name: /添加联系人/ })).toBeVisible()
+  await expect(sidebar.getByRole('button', { name: /初稿已完成，待确认/ })).toBeVisible()
+  await expect(sidebar.getByRole('button', { name: /左栏联系人/ })).toBeVisible()
+  await expect(main.getByText('从左侧选择联系人、添加联系人或查看生成任务。')).toBeVisible()
+  await expect(main.getByRole('button', { name: /添加联系人/ })).toHaveCount(0)
+  await expect(main.getByText('左栏联系人')).toHaveCount(0)
 })
 
 test('settings page restores contacts and settings from a backup file', async ({ page }) => {
@@ -853,6 +923,7 @@ test('Nuwa AI polishing is reviewed and retries invalid form output', async ({ p
       baseUrl: 'https://nuwa-form.test',
       model: 'nuwa-main-test',
       utilityModel: 'nuwa-review-test',
+      defaultWorldviewId: 'nuwa-collection',
       enabledModules: [...new Set([...state.enabledModules, 'nuwaMode', 'worldview'])],
     })
   })

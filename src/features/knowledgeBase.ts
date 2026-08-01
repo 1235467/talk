@@ -5,10 +5,10 @@ const KnowledgeBasePage = lazy(() => import('../pages/KnowledgeBasePage').then((
 
 export const knowledgeBaseModule: FeatureModule = {
   id: 'knowledgeBase',
-  name: '知识库',
+  name: '资料库',
   icon: '📚',
-  description: 'AI遇到不了解的热梗/番剧/游戏时自动搜索补充知识',
+  description: '统一保存角色卡、外部世界书、联网结果和手写资料',
   parentId: 'character-soul',
-  routes: [{ path: '/knowledge-base', component: KnowledgeBasePage }],
-  discoverEntries: [{ to: '/knowledge-base', icon: '📚', label: '知识库' }],
+  routes: [{ path: '/library', component: KnowledgeBasePage }, { path: '/knowledge-base', component: KnowledgeBasePage }],
+  discoverEntries: [{ to: '/library', icon: '📚', label: '资料库' }],
 }

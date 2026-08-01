@@ -453,6 +453,9 @@ body {
 .desktop-list-top time { color: #a3a7ad; font-size: 11px; }
 .desktop-add-avatar, .desktop-menu-avatar { display: grid; width: 48px; height: 48px; flex: 0 0 48px; place-items: center; border-radius: 11px; background: #e4f3e8; color: #27332c; font-size: 21px; }
 .desktop-menu-avatar { background: #e8ebee; font-size: 18px; }
+.desktop-generation-avatar.failed { background: #fef2f2; color: #ef4444; }
+.desktop-generation-avatar.ready { background: #f0fdf4; color: #16a34a; }
+.desktop-generation-avatar.working { background: var(--ui-special-soft); color: var(--ui-special-ink); }
 
 .desktop-main { min-width: 0; min-height: 0; overflow: hidden; background: #f4f5f6; }
 .desktop-main > * { height: 100% !important; min-height: 0 !important; }

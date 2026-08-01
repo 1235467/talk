@@ -27,7 +27,7 @@ export const PARENT_MODULES: ParentModule[] = [
     id: 'character-soul',
     name: '角色灵魂',
     icon: '✨',
-    description: '世界观、知识库、好感度、特色人格、心情系统、读心与AI内部意图',
+    description: '世界观、资料库、好感度、特色人格、心情系统、读心与AI内部意图',
   },
   {
     id: 'chat-assist',

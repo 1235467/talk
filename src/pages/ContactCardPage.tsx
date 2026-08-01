@@ -86,10 +86,27 @@ export function ContactCardPage() {
 
   const contact = useLiveQuery(() => (contactId ? db.contacts.get(contactId) : undefined), [contactId])
   const allContacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? []).filter((item) => !isAiTestId(item.id))
+  const worldviews = useLiveQuery(() => db.worldbookCollections.orderBy('updatedAt').reverse().toArray(), []) ?? []
   const conversation = useLiveQuery(
     () => (contactId ? db.conversations.where('contactId').equals(contactId).first() : undefined),
     [contactId],
   )
+
+  async function changeWorldview(nextWorldviewId: string) {
+    if (!contact || nextWorldviewId === contact.worldviewId) return
+    const affected = (await db.groups.toArray()).filter((group) => group.memberContactIds.includes(contact.id) && (group.worldviewId || settings.defaultWorldviewId) !== nextWorldviewId)
+    const nextName = worldviews.find((world) => world.id === nextWorldviewId)?.name || '新世界'
+    if (affected.length && !window.confirm(`切换到“${nextName}”后，${displayName(contact)}会被移出 ${affected.length} 个不同世界的群聊；群里只剩一人时会自动解散。继续吗？`)) return
+    await db.contacts.update(contact.id, { worldviewId: nextWorldviewId })
+    for (const group of affected) {
+      const remaining = group.memberContactIds.filter((id) => id !== contact.id)
+      if (remaining.length <= 1) {
+        const conv = await db.conversations.where('groupId').equals(group.id).first()
+        if (conv) { await db.messages.where('conversationId').equals(conv.id).delete(); await db.conversations.delete(conv.id) }
+        await db.groups.delete(group.id)
+      } else await db.groups.update(group.id, { memberContactIds: remaining })
+    }
+  }
   const contactWallet = useLiveQuery(() => contactId ? db.walletAccounts.get(contactId) : undefined, [contactId])
   const momentCount = useLiveQuery(() => contactId ? db.moments.where('contactId').equals(contactId).count() : 0, [contactId]) ?? 0
   const lifeEvents = useLiveQuery(() => contactId ? db.lifeEvents.where('contactId').equals(contactId).reverse().sortBy('occurredAt') : [], [contactId]) ?? []
@@ -282,6 +299,8 @@ export function ContactCardPage() {
           </p>
         )}
       </section>
+
+      {!immersiveMode && <section className="mt-3 bg-white px-4 py-4"><h3 className="mb-2 text-xs font-medium text-gray-400">所属世界</h3><select value={contact.worldviewId || settings.defaultWorldviewId || ''} onChange={(event) => void changeWorldview(event.target.value)} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800">{worldviews.map((world) => <option key={world.id} value={world.id}>{world.name}</option>)}</select><p className="mt-2 text-[11px] leading-relaxed text-gray-400">修改后会移出不同世界的群聊；群里只剩一人时自动解散。</p></section>}
 
       {lifeSimulationEnabled && (
         <section className="mt-3 bg-white px-4 py-4">

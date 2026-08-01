@@ -251,11 +251,11 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
     const query = [input.personalityTags.join(' '), input.ageRange, input.gender, input.relationship, input.occupation, input.hobbies.join(' '), input.roleDescription, input.personaSetting].filter(Boolean).join('\n')
     const [selectedText, retrievedText] = await Promise.all([
       selectedWorldbookEntriesText(input.selectedWorldbookEntryIds),
-      retrieveWorldbookContext(query, { maxEntries: 8, maxChars: 6500, includeHighPriorityFallback: true }),
+      retrieveWorldbookContext(query, { maxEntries: 8, maxChars: 6500, includeHighPriorityFallback: true, worldviewId: input.worldviewId }),
     ])
     worldbookText = [
-      selectedText ? `【用户明确选择的世界书正史】\n${selectedText}` : '',
-      input.importedWorldbook?.entries.length ? `【角色卡内嵌世界书正史】\n${input.importedWorldbook.entries.map((entry) => `【${entry.title}】\n${entry.content}`).join('\n\n')}` : '',
+      selectedText ? `【用户明确选择的资料库参考资料】\n${selectedText}` : '',
+      input.importedWorldbook?.entries.length ? `【角色卡内嵌世界书参考资料】\n${input.importedWorldbook.entries.map((entry) => `【${entry.title}】\n${entry.content}`).join('\n\n')}` : '',
       retrievedText,
     ].filter(Boolean).join('\n\n')
     task.worldbookText = worldbookText
@@ -423,11 +423,7 @@ async function commitTask(task: ContactGenerationTask) {
   const byName = new Map(contacts.flatMap((contact) => [contact.name, contact.realName, contact.nickname, displayName(contact)].filter((name): name is string => !!name).map((name) => [name.trim().toLocaleLowerCase(), contact.id] as const)))
 
   try {
-  await db.transaction('rw', [db.contacts, db.conversations, db.messages, db.contactRelations, db.contactMemories, db.contactExperiences, db.personaCreationRecords, db.worldbookCollections, db.worldbookEntries, db.contactGenerationTasks], async () => {
-    if (input.importedWorldbook) {
-      await db.worldbookCollections.put(input.importedWorldbook.collection)
-      await db.worldbookEntries.bulkPut(input.importedWorldbook.entries)
-    }
+  await db.transaction('rw', [db.contacts, db.conversations, db.messages, db.contactRelations, db.contactMemories, db.contactExperiences, db.personaCreationRecords, db.contactGenerationTasks], async () => {
     const contact: Contact = {
       id: contactId,
       name: parsed.name,
@@ -455,6 +451,7 @@ async function commitTask(task: ContactGenerationTask) {
       schedule: parsed.schedule,
       scheduleOverrides: [],
       mbti: parsed.mbti || undefined,
+      worldviewId: input.worldviewId,
       worldbookEntryIds: boundWorldbookEntryIds,
       experienceCursorAt: now,
       ...(input.careerEnabled && (input.occupation || parsed.occupation) ? employmentPatch(input.occupation || parsed.occupation || '', parsed.monthlySalary ?? 6000) : {}),

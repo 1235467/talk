@@ -1,7 +1,8 @@
 import { db } from '../db/db'
 import { isAiTestId } from './aiTestIsolation'
 import type { AcousticEdge, Contact, LocationAudibility, LocationNode, ScheduleBlock, ScheduleOverride, TerrainType } from '../types'
-import { createUpgradedWorldMap, createWorldMap, placeBuildings } from './locationMap'
+import { createUpgradedWorldMap, createWorldMap, defaultTerrainsForIcon, MAP_GENERATOR_VERSION, MAP_SIZE, placeBuildings } from './locationMap'
+import { useSettingsStore } from '../store/useSettingsStore'
 
 export const LOCATION_GROUP_ID = 'talk-location-group'
 export const LOCATION_CONVERSATION_ID = 'talk-location-conversation'
@@ -12,13 +13,27 @@ const seed = (id: string, parentId: string | undefined, name: string, kind: stri
 
 const LOCATION_SEEDS: LocationSeed[] = [
   seed('city', undefined, '临江市', 'world', '一座临河而建的现代城市。', 0),
-  seed('home', 'city', '家', 'residence', '安静的私人住所。', 10, 'private'),
+  seed('home', 'city', '我的家', 'residence', '安静的私人住所。', 10, 'private'),
   seed('home-living', 'home', '客厅', 'living-room', '适合休息和闲聊的客厅。', 11, 'private'),
   seed('home-kitchen', 'home', '厨房', 'kitchen', '连着客厅的开放式厨房。', 12, 'private'),
+  seed('riverside-apartment', 'city', '临江公寓', 'apartment', '靠近江岸的城市公寓。', 14),
+  seed('riverside-apartment-lobby', 'riverside-apartment', '公寓大堂', 'lobby', '住户和访客经过的一层大堂。', 15),
+  seed('riverside-apartment-room', 'riverside-apartment', '住户楼层', 'apartment-floor', '分布着不同住户房间的楼层。', 16, 'restricted'),
+  seed('youth-apartment', 'city', '青年公寓', 'apartment', '许多年轻上班族居住的公寓。', 17),
+  seed('youth-apartment-room', 'youth-apartment', '住户楼层', 'apartment-floor', '相对紧凑而便利的居住空间。', 18, 'restricted'),
+  seed('student-dorm', 'city', '学生宿舍', 'dormitory', '供学生住宿的宿舍楼。', 19, 'restricted'),
+  seed('student-dorm-room', 'student-dorm', '宿舍楼层', 'dorm-floor', '学生们日常生活的宿舍区域。', 20, 'restricted'),
+  seed('old-residences', 'city', '老城区住宅', 'apartment', '街巷密集、生活气息浓厚的旧住宅区。', 21),
+  seed('old-residences-lane', 'old-residences', '居民巷', 'residential-lane', '连接旧住宅楼的安静巷道。', 22),
+  seed('villa-district', 'city', '郊外别墅区', 'villa', '位于丘陵边缘的低密度住宅区。', 23, 'restricted'),
+  seed('villa-district-lane', 'villa-district', '林荫住宅道', 'villa-lane', '通向各栋住宅的林荫道路。', 24, 'restricted'),
   seed('school', 'city', '临江学校', 'school', '有教室、食堂和操场的校园。', 20, 'restricted'),
   seed('school-classroom', 'school', '教室', 'classroom', '上课与自习的教室。', 21, 'restricted'),
   seed('school-canteen', 'school', '食堂', 'canteen', '学生们集中用餐的地方。', 22),
   seed('school-playground', 'school', '操场', 'playground', '适合运动与散步的开阔场地。', 23),
+  seed('university', 'city', '临江大学', 'university', '临江市规模最大的综合大学。', 24),
+  seed('university-library', 'university', '大学图书馆', 'library', '安静宽敞的大学图书馆。', 25),
+  seed('university-campus', 'university', '校园广场', 'campus-square', '连接教学楼和宿舍区的广场。', 26),
   seed('office', 'city', '临江中心', 'office', '城市里的办公楼。', 25),
   seed('office-floor', 'office', '办公区', 'office-floor', '安静忙碌的开放办公区。', 26, 'restricted'),
   seed('office-lobby', 'office', '大堂', 'lobby', '办公楼的一层公共大堂。', 27),
@@ -29,27 +44,58 @@ const LOCATION_SEEDS: LocationSeed[] = [
   seed('hospital', 'city', '市立医院', 'hospital', '提供门诊和住院服务的医院。', 40),
   seed('hospital-lobby', 'hospital', '医院大厅', 'lobby', '患者与访客往来的大厅。', 41),
   seed('hospital-clinic', 'hospital', '门诊室', 'clinic', '安静的门诊诊室。', 42, 'restricted'),
+  seed('city-hall', 'city', '市政中心', 'city-hall', '处理城市公共事务的行政中心。', 43),
+  seed('police', 'city', '临江警察局', 'police', '负责城区治安与公共安全。', 44, 'restricted'),
+  seed('station', 'city', '临江车站', 'station', '连接城区和外地的综合车站。', 45),
+  seed('commercial-street', 'city', '临江商业街', 'market', '餐饮、零售和夜间活动集中的街区。', 46),
+  seed('commercial-street-restaurant', 'commercial-street', '餐厅街', 'restaurant-street', '汇集不同餐馆的小街。', 47),
+  seed('commercial-street-cafe', 'commercial-street', '街角咖啡馆', 'cafe', '适合短暂休息和见面的咖啡馆。', 48),
+  seed('market', 'city', '晴川市场', 'market', '附近居民采购日常用品的市场。', 49),
   seed('park', 'city', '临河公园', 'park', '沿河修建的城市公园。', 50),
   seed('park-lawn', 'park', '中央草坪', 'lawn', '适合散步、晒太阳和野餐。', 51),
   seed('park-riverside', 'park', '滨河步道', 'river-walk', '沿着河岸延伸的步行道。', 52),
+  seed('cinema', 'city', '临江电影院', 'cinema', '位于商业区的多厅电影院。', 55),
+  seed('harbor', 'city', '临江码头', 'harbor', '沿江货运与客运共用的码头。', 57),
   seed('beach', 'city', '白沙湾', 'beach', '城市近郊的公共沙滩。', 60),
   seed('beach-boardwalk', 'beach', '海滨步道', 'boardwalk', '能看见海面的木质步道。', 61),
   seed('mountain', 'city', '雾岭', 'mountain', '位于城市边缘的山地景区。', 70),
   seed('mountain-lookout', 'mountain', '山顶观景台', 'lookout', '可以俯瞰城市的观景台。', 71),
+  seed('hills', 'city', '青岚丘陵', 'hill', '城市西北侧起伏舒缓的丘陵。', 72),
+  seed('hills-trail', 'hills', '丘陵步道', 'hill-trail', '沿缓坡延伸的郊野步道。', 73),
   seed('farm', 'city', '晴川农场', 'farm', '位于乡村区域的农场。', 80, 'restricted'),
   seed('farm-field', 'farm', '农田', 'farmland', '开阔的田地。', 81, 'restricted'),
+  seed('village', 'city', '南溪村', 'village', '位于城市南侧的近郊村庄。', 84),
+  seed('village-square', 'village', '村口广场', 'village-square', '村民日常聚集的小广场。', 85),
+  seed('industrial-park', 'city', '临江工业园', 'factory', '位于下游郊区的产业园区。', 88, 'restricted'),
+  seed('industrial-park-gate', 'industrial-park', '园区入口', 'factory-gate', '人员车辆进出工业园的入口。', 89, 'restricted'),
 ]
 
 const ROOT_SPECS: Array<{ id: string; allowedTerrains: TerrainType[]; buildingCategory: string }> = [
   { id: 'home', allowedTerrains: ['urban', 'rural'], buildingCategory: 'residence' },
+  { id: 'riverside-apartment', allowedTerrains: ['urban'], buildingCategory: 'apartment' },
+  { id: 'youth-apartment', allowedTerrains: ['urban'], buildingCategory: 'apartment' },
+  { id: 'student-dorm', allowedTerrains: ['urban'], buildingCategory: 'dormitory' },
+  { id: 'old-residences', allowedTerrains: ['urban'], buildingCategory: 'apartment' },
+  { id: 'villa-district', allowedTerrains: ['rural', 'grassland', 'hill'], buildingCategory: 'villa' },
   { id: 'school', allowedTerrains: ['urban'], buildingCategory: 'school' },
+  { id: 'university', allowedTerrains: ['urban'], buildingCategory: 'university' },
   { id: 'office', allowedTerrains: ['urban'], buildingCategory: 'office' },
   { id: 'mall', allowedTerrains: ['urban'], buildingCategory: 'mall' },
   { id: 'hospital', allowedTerrains: ['urban'], buildingCategory: 'hospital' },
+  { id: 'city-hall', allowedTerrains: ['urban'], buildingCategory: 'city-hall' },
+  { id: 'police', allowedTerrains: ['urban'], buildingCategory: 'police' },
+  { id: 'station', allowedTerrains: ['urban', 'rural'], buildingCategory: 'station' },
+  { id: 'commercial-street', allowedTerrains: ['urban'], buildingCategory: 'market' },
+  { id: 'market', allowedTerrains: ['urban', 'rural'], buildingCategory: 'market' },
   { id: 'park', allowedTerrains: ['grassland'], buildingCategory: 'park' },
+  { id: 'cinema', allowedTerrains: ['urban'], buildingCategory: 'cinema' },
+  { id: 'harbor', allowedTerrains: ['beach', 'grassland', 'rural'], buildingCategory: 'harbor' },
   { id: 'beach', allowedTerrains: ['beach'], buildingCategory: 'beach' },
   { id: 'mountain', allowedTerrains: ['mountain'], buildingCategory: 'scenic' },
+  { id: 'hills', allowedTerrains: ['hill'], buildingCategory: 'hill' },
   { id: 'farm', allowedTerrains: ['rural'], buildingCategory: 'farm' },
+  { id: 'village', allowedTerrains: ['rural', 'grassland'], buildingCategory: 'village' },
+  { id: 'industrial-park', allowedTerrains: ['urban', 'rural'], buildingCategory: 'factory' },
 ]
 
 const edge = (fromLocationId: string, toLocationId: string, audibility: LocationAudibility): AcousticEdge => ({
@@ -76,16 +122,45 @@ let initialization: Promise<void> | undefined
 export function ensureLocationsInitialized() {
   if (!initialization) initialization = (async () => {
     const existingMap = await db.worldMaps.get('active')
-    const map = existingMap ?? createWorldMap(MAP_SEED)
-    if (!existingMap) await db.worldMaps.put(map)
     const existingLocations = await db.locations.toArray()
     const existingLocationIds = new Set(existingLocations.map((item) => item.id))
     const missingLocations = LOCATION_SEEDS.filter((item) => !existingLocationIds.has(item.id))
-    if (missingLocations.length) {
-      const bindings = placeBuildings(map, ROOT_SPECS)
-      const now = Date.now()
-      await db.locations.bulkPut(missingLocations.map((item) => ({ ...item, mapBinding: bindings.get(item.id), createdAt: now, updatedAt: now })))
+    const builtInRootIds = new Set(ROOT_SPECS.map((item) => item.id))
+    const missingRoot = missingLocations.some((item) => builtInRootIds.has(item.id))
+    const shouldRebuild = !existingMap || existingMap.generatorVersion < MAP_GENERATOR_VERSION || existingMap.width !== MAP_SIZE || existingMap.height !== MAP_SIZE || missingRoot
+    const map = !existingMap ? createWorldMap(MAP_SEED) : shouldRebuild ? createUpgradedWorldMap(existingMap) : existingMap
+    const now = Date.now()
+    const merged = [...existingLocations, ...missingLocations.map((item) => ({ ...item, createdAt: now, updatedAt: now } as LocationNode))]
+
+    if (shouldRebuild) {
+      const builtInSpecs = new Map(ROOT_SPECS.map((item) => [item.id, item]))
+      const roots = merged.filter((item) => item.mapBinding || builtInSpecs.has(item.id))
+      const specs = roots.map((item) => builtInSpecs.get(item.id) ?? {
+        id: item.id,
+        allowedTerrains: item.mapBinding?.allowedTerrains ?? defaultTerrainsForIcon(item.mapBinding?.iconId ?? item.mapBinding?.buildingCategory ?? 'custom'),
+        buildingCategory: item.mapBinding?.buildingCategory ?? item.mapBinding?.iconId ?? 'custom',
+      })
+      const bindings = placeBuildings(map, specs)
+      if (bindings.size !== specs.length) throw new Error(`地图空间不足，无法安排：${specs.filter((item) => !bindings.has(item.id)).map((item) => item.id).join('、')}`)
+      await db.transaction('rw', db.worldMaps, db.locations, async () => {
+        await db.worldMaps.put(map)
+        await db.locations.bulkPut(merged.map((item) => {
+          const binding = bindings.get(item.id)
+          return {
+            ...item,
+            mapBinding: binding ? { ...binding, iconId: item.mapBinding?.iconId ?? binding.iconId, customIconDataUrl: item.mapBinding?.customIconDataUrl } : item.mapBinding,
+            updatedAt: now,
+          }
+        }))
+      })
+    } else if (missingLocations.length) {
+      await db.locations.bulkPut(missingLocations.map((item) => ({ ...item, createdAt: now, updatedAt: now })))
     }
+
+    const nickname = useSettingsStore.getState().userNickname.trim()
+    const homeName = nickname && nickname !== '我' ? `${nickname}的家` : '我的家'
+    const home = await db.locations.get('home')
+    if (home && home.name !== homeName) await db.locations.update('home', { name: homeName, updatedAt: now })
     const existingEdgeIds = new Set((await db.acousticEdges.toArray()).map((item) => item.id))
     const missingEdges = ACOUSTIC_SEEDS.filter((item) => !existingEdgeIds.has(item.id))
     if (missingEdges.length) await db.acousticEdges.bulkPut(missingEdges)
@@ -119,8 +194,6 @@ function activeSchedule(contact: Contact, now: Date): ScheduleBlock | ScheduleOv
 }
 
 const KEYWORD_LOCATIONS: Array<[RegExp, string[]]> = [
-  [/卧室|客厅|家里|在家|住宅|睡觉/, ['home-living', 'home-kitchen']],
-  [/厨房|做饭/, ['home-kitchen']],
   [/学校|教室|上课|自习/, ['school-classroom']],
   [/食堂|吃饭|午餐|晚餐/, ['school-canteen', 'mall-cafe']],
   [/操场|体育课|运动/, ['school-playground', 'park-lawn']],
@@ -134,6 +207,8 @@ const KEYWORD_LOCATIONS: Array<[RegExp, string[]]> = [
   [/山|登山|观景/, ['mountain-lookout']],
   [/农场|农田/, ['farm-field']],
 ]
+
+const NPC_HOME_LOCATIONS = ['riverside-apartment-room', 'youth-apartment-room', 'student-dorm-room', 'old-residences-lane', 'villa-district-lane']
 
 function stableHash(value: string) {
   let hash = 2166136261
@@ -155,9 +230,14 @@ export function resolveContactLocationAt(contact: Contact, now: Date, validLocat
   const schedule = activeSchedule(contact, now)
   if (schedule?.locationId && validLocationIds.has(schedule.locationId)) return { locationId: schedule.locationId, source: 'schedule' }
   const timeKey = `${localDateKey(now)}:${schedule?.id ?? Math.floor(now.getHours() / 4)}`
-  const mapped = mapNaturalLocation(`${schedule?.location ?? ''} ${schedule?.activity ?? ''}`, contact.id, timeKey, validLocationIds)
+  const scheduleText = `${schedule?.location ?? ''} ${schedule?.activity ?? ''}`
+  if (/卧室|家里|在家|住宅|睡觉|休息/.test(scheduleText)) {
+    const homes = NPC_HOME_LOCATIONS.filter((id) => validLocationIds.has(id))
+    if (homes.length) return { locationId: homes[stableHash(contact.id) % homes.length], source: 'schedule' }
+  }
+  const mapped = mapNaturalLocation(scheduleText, contact.id, timeKey, validLocationIds)
   if (mapped) return { locationId: mapped, source: 'schedule' }
-  const fallback = ['home-living', 'mall-atrium', 'park-lawn', 'office-lobby'].filter((id) => validLocationIds.has(id))
+  const fallback = [...NPC_HOME_LOCATIONS, 'mall-atrium', 'park-lawn', 'office-lobby'].filter((id) => validLocationIds.has(id))
   return { locationId: fallback[stableHash(`${contact.id}:${timeKey}`) % fallback.length] ?? [...validLocationIds][0], source: 'fallback' }
 }
 
@@ -214,29 +294,31 @@ export function locationCounts(contacts: Contact[], locations: LocationNode[]) {
   return aggregate
 }
 
-/** Explicit, non-destructive-in-intent upgrade. Call only after the user confirms. */
-export async function upgradeLocationMap() {
+/** Rebuild terrain and redistribute every top-level marker without deleting place data. */
+export async function regenerateLocationMap(seed = `talk-location-map-${Date.now()}`) {
   await ensureLocationsInitialized()
   const current = await db.worldMaps.get('active')
-  if (!current || current.generatorVersion >= 2) return current
-  const next = createUpgradedWorldMap(current)
+  if (!current) return undefined
+  const next = createUpgradedWorldMap(current, seed)
   const roots = (await db.locations.toArray()).filter((item) => item.mapBinding)
-  const generated = roots.filter((item) => !item.userCreated)
-  const bindings = placeBuildings(next, generated.map((item) => ({
+  const bindings = placeBuildings(next, roots.map((item) => ({
     id: item.id,
-    allowedTerrains: item.mapBinding!.allowedTerrains,
+    allowedTerrains: item.mapBinding!.allowedTerrains.length ? item.mapBinding!.allowedTerrains : defaultTerrainsForIcon(item.mapBinding!.iconId ?? item.mapBinding!.buildingCategory),
     buildingCategory: item.mapBinding!.buildingCategory,
   })))
+  if (bindings.size !== roots.length) throw new Error('这次生成没有足够的合法空位，请重试')
   await db.transaction('rw', db.worldMaps, db.locations, async () => {
     await db.worldMaps.put(next)
     for (const location of roots) {
       const binding = bindings.get(location.id)
       if (binding) await db.locations.update(location.id, { mapBinding: { ...binding, iconId: location.mapBinding?.iconId ?? binding.iconId, customIconDataUrl: location.mapBinding?.customIconDataUrl }, updatedAt: Date.now() })
-      else if (location.mapBinding) await db.locations.update(location.id, { mapBinding: { ...location.mapBinding, x: Math.max(0, Math.min(next.width - 1, Math.round(location.mapBinding.x / current.width * next.width))), y: Math.max(0, Math.min(next.height - 1, Math.round(location.mapBinding.y / current.height * next.height))) }, updatedAt: Date.now() })
     }
   })
   return next
 }
+
+/** Legacy alias retained for older callers and imported UI state. */
+export const upgradeLocationMap = regenerateLocationMap
 
 export async function enterLocation(locationId: string) {
   await syncContactLocationsAt(new Date())
@@ -245,10 +327,12 @@ export async function enterLocation(locationId: string) {
   const participants = await resolveLocationParticipants(location.id)
   const now = Date.now()
   const existingGroup = await db.groups.get(LOCATION_GROUP_ID)
+  const worldviewId = existingGroup?.worldviewId || useSettingsStore.getState().defaultWorldviewId || participants.activeMembers[0]?.worldviewId
+  const worldMembers = participants.activeMembers.filter((contact) => (contact.worldviewId || useSettingsStore.getState().defaultWorldviewId) === worldviewId)
   await db.transaction('rw', db.groups, db.conversations, db.locationModuleState, async () => {
     await db.groups.put({
       id: LOCATION_GROUP_ID, name: '地点群聊', avatar: '📍', avatarColor: '#7c3aed',
-      memberContactIds: participants.activeMembers.map((contact) => contact.id),
+      memberContactIds: worldMembers.map((contact) => contact.id), worldviewId,
       memory: existingGroup?.memory, vibe: existingGroup?.vibe,
       speakerLimit: existingGroup?.speakerLimit ?? 3, allowAiChatter: existingGroup?.allowAiChatter ?? true,
       energyLevel: existingGroup?.energyLevel ?? 'normal', memoryTurnCount: existingGroup?.memoryTurnCount,

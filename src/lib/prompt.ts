@@ -230,7 +230,7 @@ export function buildPersonaGenerationPrompt(answers: PersonaAnswers, avatarCate
   const worldbookBlock = worldbookText.trim() ? `
 
 【本次角色生成最高优先级世界观】
-以下内容是用户为这个角色明确选择或由启用中的世界书检索得到的正史硬约束。角色身份、种族、经历、能力边界、关系、生活方式和行为逻辑必须与其一致；不得只提到一嘴，也不得用现实常识或自由发挥覆盖。
+以下内容包含用户为这个角色明确选择的参考资料，以及角色所属世界中检索到的正史硬约束。世界正史必须约束角色身份、种族、经历、能力边界、关系、生活方式和行为逻辑；参考资料用于可靠补全，不得冒充已经确认的世界事实。
 ${worldbookText.trim()}` : ''
 
   return `${editable}${worldbookBlock}

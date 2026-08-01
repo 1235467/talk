@@ -19,6 +19,7 @@
     "src/pages/AppearancePage.tsx",
     "src/pages/ContactCardPage.tsx",
     "src/pages/ContactsPage.tsx",
+    "src/pages/DesktopContactsPage.tsx",
     "src/pages/DesktopHomePage.tsx",
     "src/pages/DiscoverPage.tsx",
     "src/pages/ExperienceModePage.tsx",

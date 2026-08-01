@@ -286,11 +286,12 @@ export function MomentsPage() {
             const userLiked = momentLikes.some((l) => l.likerId === 'user')
             return (
               <div key={m.id} className={`border-b border-gray-100 bg-white px-4 py-3 ${m.id === focusMomentId ? 'ring-2 ring-inset ring-[var(--ui-success)]' : ''}`}>
-                <div className="flex gap-3">
+                <div className="flex items-start gap-3">
                   <button
                     type="button"
                     aria-label={isUserPost ? '编辑个人信息' : `查看${posterName}资料`}
                     onClick={() => navigate(isUserPost ? '/profile/edit' : `/contact/${poster!.id}`)}
+                    className="shrink-0 self-start"
                   >
                     <Avatar avatar={posterAvatar} color={posterAvatarColor} size={40} />
                   </button>

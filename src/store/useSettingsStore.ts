@@ -69,6 +69,9 @@ export const useSettingsStore = create<SettingsState>()(
       tavilyApiKey: envTavilyKey,
       worldview: '',
       worldbookMigrationCompleted: false,
+      defaultWorldviewId: undefined,
+      autoCompressLibraryImports: true,
+      libraryCompressionThresholdTokens: 2000,
       pexelsApiKey: envPexelsKey,
       stickerProvider: envGiphyKey ? 'giphy' : 'none',
       stickerProviders: initialStickerProviders(),
@@ -120,6 +123,8 @@ export const useSettingsStore = create<SettingsState>()(
         }
         if (typeof next.topInsetAdjustmentPx !== 'number') next.topInsetAdjustmentPx = 0
         if (typeof next.worldbookMigrationCompleted !== 'boolean') next.worldbookMigrationCompleted = false
+        if (typeof next.autoCompressLibraryImports !== 'boolean') next.autoCompressLibraryImports = true
+        if (typeof next.libraryCompressionThresholdTokens !== 'number') next.libraryCompressionThresholdTokens = 2000
         if (typeof next.automaticAiDailyCap !== 'number') next.automaticAiDailyCap = 0
         if (typeof next.animationsEnabled !== 'boolean') next.animationsEnabled = true
         next.chatPageSize = normalizeChatPageSize(next.chatPageSize)

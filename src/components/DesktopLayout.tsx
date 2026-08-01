@@ -24,7 +24,7 @@ function sectionForPath(path: string): DesktopSection {
   if (path === '/' || path.startsWith('/chat/')) return 'messages'
   if (path.startsWith('/contact') || path.startsWith('/group')) return 'contacts'
   if (path === '/sky-eye') return 'sky-eye'
-  if (path === '/me' || path === '/appearance' || path.startsWith('/settings') || path.startsWith('/profile') || path.startsWith('/stickers') || path === '/modules') return 'settings'
+  if (path === '/me' || path === '/appearance' || path === '/experience-mode' || path.startsWith('/settings') || path.startsWith('/profile') || path.startsWith('/stickers') || path === '/modules') return 'settings'
   return 'discover'
 }
 
@@ -159,9 +159,16 @@ function ContactList({ query }: { query: string }) {
   const navigate = useNavigate()
   const location = useLocation()
   const contacts = useLiveQuery(() => db.contacts.orderBy('createdAt').reverse().toArray(), []) ?? EMPTY
+  const generationTasks = useLiveQuery(() => db.contactGenerationTasks.orderBy('createdAt').reverse().toArray(), []) ?? EMPTY
+  const activeTasks = generationTasks.filter((task) => !['cancelled', 'completed'].includes(task.status))
   const filtered = contacts.filter((contact) => !isAiTestId(contact.id) && displayName(contact).toLowerCase().includes(query.trim().toLowerCase()))
   return <>
     <button type="button" className="desktop-list-row" onClick={() => navigate('/contact/new')}><span className="desktop-add-avatar"><UiIcon name="users" size={21} /></span><span className="desktop-list-copy"><strong>添加联系人</strong><small>创建一位新的 AI 联系人</small></span></button>
+    {activeTasks.map((task) => {
+      const title = task.experienceMode === 'immersive' ? '正在寻找联系人' : task.method === 'precision' ? '精细创建 · 女娲模式' : '正在生成联系人'
+      const statusClass = task.status === 'failed' ? 'failed' : task.status === 'awaiting_review' ? 'ready' : 'working'
+      return <button type="button" key={task.id} className={`desktop-list-row ${location.pathname === `/contact-generation/${task.id}` ? 'active' : ''}`} onClick={() => navigate(`/contact-generation/${task.id}`)}><span className={`desktop-menu-avatar desktop-generation-avatar ${statusClass}`}>{task.status === 'failed' ? '!' : task.status === 'awaiting_review' ? '✓' : '◌'}</span><span className="desktop-list-copy"><strong>{title}</strong><small>{task.stageLabel}</small></span></button>
+    })}
     {filtered.map((contact) => <button type="button" key={contact.id} className={`desktop-list-row ${location.pathname === `/contact/${contact.id}` ? 'active' : ''}`} onClick={() => navigate(`/contact/${contact.id}`)}><Avatar avatar={contact.avatar} color={contact.avatarColor} size={48} /><span className="desktop-list-copy"><strong>{displayName(contact)}</strong><small>{contact.relationshipBase || '朋友'} · 认识于 {formatListTime(contact.createdAt)}</small></span></button>)}
   </>
 }
@@ -189,6 +196,7 @@ function SettingsList({ query }: { query: string }) {
   const settings = useSettingsStore()
   const entries = [
     { to: '/profile/edit', label: settings.userNickname, note: '编辑个人信息', avatar: settings.userAvatar },
+    { to: '/experience-mode', label: '体验模式', note: settings.experienceMode === 'immersive' ? '沉浸模式' : '自由模式', icon: '◈' },
     { to: '/appearance', label: '软件风格切换', note: `${uiThemeName(settings.uiTheme)} · ${settings.themeMode === 'dark' ? '深色' : '浅色'}`, icon: '◐' },
     { to: '/settings', label: '通用设置', note: '模型、数据与隐私', icon: '⚙' },
     { to: '/modules', label: '功能模块', note: '启用或关闭扩展功能', icon: '▦' },

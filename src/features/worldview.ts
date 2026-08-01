@@ -6,13 +6,13 @@ const WorldbookCollectionPage = lazy(() => import('../pages/WorldbookCollectionP
 
 export const worldviewModule: FeatureModule = {
   id: 'worldview',
-  name: '世界书',
+  name: '世界观',
   icon: '📖',
-  description: '共享世界观设定，注入到所有AI的对话和朋友圈中',
+  description: '管理多个正史存档；每次生成只使用联系人或群聊所属的一个世界',
   parentId: 'character-soul',
   routes: [
     { path: '/world-settings', component: WorldSettingsPage },
     { path: '/world-settings/:collectionId', component: WorldbookCollectionPage },
   ],
-  discoverEntries: [{ to: '/world-settings', icon: '📖', label: '世界书' }],
+  discoverEntries: [{ to: '/world-settings', icon: '📖', label: '世界观' }],
 }

@@ -23,6 +23,7 @@ import { customTraitsValidationError, hasOverlappingCustomTraitRules } from '../
 import { characterCardPersonaText, parseSillyTavernCharacterCard } from '../lib/characterCardImport'
 import { parseWorldbookFile, type ParsedWorldbookImport } from '../lib/worldbookImport'
 import { createContactGenerationTask } from '../lib/contactGenerationTasks'
+import { storeCharacterCardInLibrary } from '../lib/library'
 import { CONTACT_RELATION_LABELS, HOBBY_TAG_OPTIONS, PERSONALITY_TRAIT_OPTIONS, type ContactRelationLabel, type CustomPersonalityTrait, type PersonaCreationRecord } from '../types'
 import {
   AGE_RANGE_OPTIONS,
@@ -55,6 +56,7 @@ export function ContactAddPage() {
   const existingContacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? []).filter((item) => !isAiTestId(item.id))
   const savedPersonas = useLiveQuery(() => db.savedPersonas.orderBy('updatedAt').reverse().toArray(), []) ?? []
   const creationRecords = useLiveQuery(() => db.personaCreationRecords.orderBy('createdAt').reverse().toArray(), []) ?? []
+  const worldviews = useLiveQuery(() => db.worldbookCollections.orderBy('updatedAt').reverse().toArray(), []) ?? []
 
   const [tags, setTags] = useState<string[]>([])
   const [customTag, setCustomTag] = useState('')
@@ -103,6 +105,7 @@ export function ContactAddPage() {
   const [importedFirstMessage, setImportedFirstMessage] = useState('')
   const [importedCardName, setImportedCardName] = useState('')
   const [pendingCardWorldbook, setPendingCardWorldbook] = useState<ParsedWorldbookImport | null>(null)
+  const [selectedWorldviewId, setSelectedWorldviewId] = useState(settings.defaultWorldviewId ?? '')
 
   useEffect(() => {
     if (settings.experienceMode === 'immersive' && isNuwaMode) {
@@ -110,6 +113,11 @@ export function ContactAddPage() {
       setPersonaDraft(null)
     }
   }, [settings.experienceMode, isNuwaMode])
+
+  useEffect(() => {
+    if (!selectedWorldviewId && worldviews[0]) setSelectedWorldviewId(settings.defaultWorldviewId || worldviews[0].id)
+  }, [selectedWorldviewId, settings.defaultWorldviewId, worldviews])
+  const compatibleContacts = existingContacts.filter((contact) => (contact.worldviewId || settings.defaultWorldviewId) === (selectedWorldviewId || settings.defaultWorldviewId))
 
   async function importCharacterCard(file: File) {
     try {
@@ -124,9 +132,11 @@ export function ContactAddPage() {
       setNuwaPersonaSetting(characterCardPersonaText(card))
       setImportedFirstMessage(card.firstMessage)
       setImportedCardName(file.name)
-      try { setPendingCardWorldbook(await parseWorldbookFile(file)) } catch { setPendingCardWorldbook(null) }
+      let cardLore: ParsedWorldbookImport | null = null
+      try { cardLore = await parseWorldbookFile(file); setPendingCardWorldbook(cardLore) } catch { setPendingCardWorldbook(null) }
+      await storeCharacterCardInLibrary({ name: card.name, content: characterCardPersonaText(card), keywords: card.tags, rawData: card.raw, sourceFileName: file.name }, cardLore ?? undefined)
       if (card.avatarDataUrl) { setAvatar(card.avatarDataUrl); setAvatarManuallySet(true) }
-      setError('角色卡已读取。请检查设定并生成初稿；内嵌世界书可在世界书选择器中绑定。')
+      setError('角色卡已保存到资料库并载入。请检查设定后生成初稿；内嵌世界书只作为本次参考资料，不会自动写入世界观。')
     } catch (importError) {
       setError(importError instanceof Error ? importError.message : String(importError))
     } finally {
@@ -173,7 +183,7 @@ export function ContactAddPage() {
     if (!featureActive(settings, 'worldview')) return ''
     const [selectedText, retrievedText] = await Promise.all([
       selectedWorldbookEntriesText(selectedWorldbookEntryIds),
-      retrieveWorldbookContext(query, { maxEntries: 8, maxChars: 6500, includeHighPriorityFallback: true }),
+      retrieveWorldbookContext(query, { maxEntries: 8, maxChars: 6500, includeHighPriorityFallback: true, worldviewId: selectedWorldviewId }),
     ])
     return [
       selectedText ? `【用户为本次角色生成明确勾选的世界观——最高语义优先级】\n${selectedText}` : '',
@@ -406,7 +416,7 @@ issues 要用简短中文列出具体错误。` },
 
   function addRelationRow() {
     const taken = new Set(relationRows.map((r) => r.targetContactId))
-    const firstAvailable = existingContacts.find((c) => !taken.has(c.id))
+    const firstAvailable = compatibleContacts.find((c) => !taken.has(c.id))
     if (!firstAvailable) return
     setRelationRows((prev) => [
       ...prev,
@@ -489,6 +499,7 @@ issues 要用简短中文列出具体错误。` },
           initialWarmth: isNuwaMode ? draftOverride?.initialWarmth : customInitialWarmth,
           customPersonalityTraits: isNuwaMode ? effectiveNuwaTraits() : undefined,
           relations: values.relationRows.map((row) => ({ targetContactId: row.targetContactId, label: row.label })),
+          worldviewId: selectedWorldviewId || settings.defaultWorldviewId,
           selectedWorldbookEntryIds,
           importedWorldbook: pendingCardWorldbook ?? undefined,
           importedFirstMessage,
@@ -528,7 +539,7 @@ issues 要用简短中文列出具体错误。` },
 
   function completelyRandom() {
     const pick = <T,>(items: readonly T[]) => items[Math.floor(Math.random() * items.length)]
-    const randomRows: RelationRow[] = existingContacts.filter(() => Math.random() < 0.35).map((contact) => ({ key: uuid(), targetContactId: contact.id, label: pick(CONTACT_RELATION_LABELS) }))
+    const randomRows: RelationRow[] = compatibleContacts.filter(() => Math.random() < 0.35).map((contact) => ({ key: uuid(), targetContactId: contact.id, label: pick(CONTACT_RELATION_LABELS) }))
     const randomOccupation = careerEnabled ? pick(OCCUPATION_OPTIONS) : ''
     const values = { tags: [pick(PERSONALITY_TAG_OPTIONS), pick(PERSONALITY_TAG_OPTIONS)].filter((v, i, a) => a.indexOf(v) === i), ageRange: pick(AGE_RANGE_OPTIONS), gender: pick(GENDER_OPTIONS.filter((x) => x !== '不限')), relationship: pick(RELATIONSHIP_OPTIONS), personalityTrait: personalityEnabled ? pick(PERSONALITY_TRAIT_OPTIONS.filter((x) => x.value !== '无')).value : '', hobbies: [...HOBBY_TAG_OPTIONS].sort(() => Math.random() - 0.5).slice(0, 1 + Math.floor(Math.random() * 4)), occupation: randomOccupation, relationRows: randomRows }
     setTags(values.tags); setAgeRange(values.ageRange); setGender(values.gender); setRelationship(values.relationship); setPersonalityTrait(values.personalityTrait); setHobbies(values.hobbies); setOccupation(randomOccupation); setRelationRows(randomRows); setInitialWarmthMode('auto')
@@ -548,7 +559,7 @@ issues 要用简短中文列出具体错误。` },
           <p className="px-2 pb-1 pt-2 text-[11px] leading-relaxed text-gray-400">帮我找人会随机补全所有未选择的项目；精细创建（女娲模式）会先生成可修改的完整初稿。</p>
         </div> : <div className="mb-4 rounded-xl border border-[var(--ui-special-border)] bg-[var(--ui-special-soft)] px-3 py-3"><p className="text-sm font-medium text-[var(--ui-special-ink)]">帮我找人</p><p className="mt-1 text-xs leading-relaxed text-[var(--ui-special-ink)]">只需选择你在意的条件，其他资料会在寻找过程中自然确定。</p></div>}
         {!isNuwaMode && <button type="button" onClick={completelyRandom} disabled={generating} className="mb-4 flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 py-3 text-sm font-medium text-white transition active:scale-[.98] disabled:opacity-50"><Dice5 size={17} />完全随机寻找</button>}
-        {settings.experienceMode === 'free' && <><button type="button" onClick={() => characterCardInputRef.current?.click()} disabled={generating} className="mb-4 w-full rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface-2)] py-2.5 text-sm text-[var(--ui-text-2)] disabled:opacity-50">导入 SillyTavern 角色卡</button>
+        {settings.experienceMode === 'free' && <><button type="button" onClick={() => characterCardInputRef.current?.click()} disabled={generating} className="mb-4 w-full rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface-2)] py-2.5 text-sm text-[var(--ui-text-2)] disabled:opacity-50">导入角色卡到资料库并创建</button>
         <input ref={characterCardInputRef} type="file" accept=".png,.json,application/json,image/png" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importCharacterCard(file) }} />
         {importedCardName && <p className="-mt-2 mb-4 break-all text-[11px] text-[var(--ui-text-3)]">已载入：{importedCardName}</p>}</>}
         {isNuwaMode && <p className="mb-2 text-xs text-[var(--ui-special-ink)]">女娲模式：先写初稿建议和你确定的设定，AI只补全仍为空的内容。</p>}
@@ -773,7 +784,7 @@ issues 要用简短中文列出具体错误。` },
                     onChange={(e) => updateRelationRow(row.key, { targetContactId: e.target.value })}
                     className="flex-1 rounded-lg border border-gray-200 px-2 py-1.5 text-xs"
                   >
-                    {existingContacts.map((c) => (
+                    {compatibleContacts.map((c) => (
                       <option key={c.id} value={c.id}>
                         {displayName(c)}
                       </option>
@@ -814,12 +825,13 @@ issues 要用简短中文列出具体错误。` },
             className="mb-4 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
           />
         </>}
+        {settings.experienceMode === 'free' && <label className="mb-4 block text-xs font-medium text-gray-400">TA生活在哪个世界？<select value={selectedWorldviewId} onChange={(event) => { setSelectedWorldviewId(event.target.value); setRelationRows([]) }} className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800"><option value="">请选择世界观</option>{worldviews.map((world) => <option key={world.id} value={world.id}>{world.name}{settings.defaultWorldviewId === world.id ? '（默认）' : ''}</option>)}</select><span className="mt-1 block text-[11px] font-normal leading-relaxed text-gray-400">私聊、朋友圈和离线经历每次只读取这个世界的正史。</span></label>}
         {settings.experienceMode === 'free' && <section className="mb-4 rounded-xl border border-[var(--ui-special-border)] bg-[var(--ui-special-soft)] p-3">
           <div className="flex items-center justify-between gap-3">
-            <div><p className="text-sm font-medium text-[var(--ui-special-ink)]">本次生成的额外世界观</p><p className="mt-1 text-[11px] leading-relaxed text-[var(--ui-special-ink)]">从任意世界书集合选择条目，作为本次角色生成的最高优先级正史；不会修改运行时开关。</p></div>
-            <button type="button" onClick={() => setWorldbookSelectorOpen(true)} className="shrink-0 rounded-lg bg-[var(--ui-special)] px-3 py-2 text-xs text-white">选择条目</button>
+            <div><p className="text-sm font-medium text-[var(--ui-special-ink)]">本次生成的参考资料</p><p className="mt-1 text-[11px] leading-relaxed text-[var(--ui-special-ink)]">从资料库选择角色卡、外部世界书或联网资料，只用于生成这个人物，不会自动写入世界正史。</p></div>
+            <button type="button" onClick={() => setWorldbookSelectorOpen(true)} className="shrink-0 rounded-lg bg-[var(--ui-special)] px-3 py-2 text-xs text-white">选择资料</button>
           </div>
-          <p className="mt-2 text-xs text-[var(--ui-special-ink)]">{selectedWorldbookEntryIds.length ? `已选择 ${selectedWorldbookEntryIds.length} 个条目` : '暂未额外选择，将使用启用中的底层世界观和自动命中的条目'}</p>
+          <p className="mt-2 text-xs text-[var(--ui-special-ink)]">{selectedWorldbookEntryIds.length ? `已选择 ${selectedWorldbookEntryIds.length} 条资料` : '暂未额外选择，将使用所属世界的正史生成'}</p>
         </section>}
         <label className="mb-2 block text-xs font-medium text-gray-400">{draftMode ? '角色说明 / 初稿建议' : '补充说明（可选）'}</label>
         <textarea
@@ -832,7 +844,7 @@ issues 要用简短中文列出具体错误。` },
 
         {isNuwaMode && (
           <div className="mt-2">
-            <p className="mb-2 text-[11px] leading-relaxed text-gray-500">这里告诉 AI 你希望补全的方向、重点和边界。AI 会结合初稿建议、下方已填设定和启用中的世界书，只补空白项，不改动你已经填写的内容。</p>
+            <p className="mb-2 text-[11px] leading-relaxed text-gray-500">这里告诉 AI 你希望补全的方向、重点和边界。AI 会结合初稿建议、下方已填设定、所选资料和角色所属世界，只补空白项，不改动你已经填写的内容。</p>
             <button type="button" onClick={() => void polishNuwaPersona()} disabled={polishingPersona || generating} className="w-full rounded-lg bg-[var(--ui-special)] px-3 py-2 text-xs text-white disabled:opacity-50">{polishingPersona ? 'AI补全中…' : 'AI补全'}</button>
             {error && <p className="mt-2 text-xs leading-relaxed text-red-500">{error}</p>}
           </div>

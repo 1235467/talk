@@ -3,7 +3,7 @@ import { useSettingsStore } from '../store/useSettingsStore'
 import type { WorldbookCollection, WorldbookEntry } from '../types'
 
 export interface WorldbookMatch { entry: WorldbookEntry; score: number }
-export interface WorldbookRetrievalOptions { maxEntries?: number; maxChars?: number; includeHighPriorityFallback?: boolean }
+export interface WorldbookRetrievalOptions { maxEntries?: number; maxChars?: number; includeHighPriorityFallback?: boolean; worldviewId?: string }
 
 let lastLoggedMatchSignature = ''
 let lastLoggedMatchAt = 0
@@ -39,12 +39,13 @@ export function rankWorldbookEntries(entries: WorldbookEntry[], query: string): 
     .sort((a, b) => b.score - a.score || b.entry.priority - a.entry.priority || b.entry.updatedAt - a.entry.updatedAt)
 }
 
-async function enabledEntries(): Promise<{ entries: WorldbookEntry[]; collections: Map<string, WorldbookCollection> }> {
+async function enabledEntries(worldviewId?: string): Promise<{ entries: WorldbookEntry[]; collections: Map<string, WorldbookCollection> }> {
   const [collectionsList, entries] = await Promise.all([db.worldbookCollections.toArray(), db.worldbookEntries.toArray()])
   const collections = new Map(collectionsList.map((collection) => [collection.id, collection]))
+  const selectedId = worldviewId || useSettingsStore.getState().defaultWorldviewId || collectionsList.find((collection) => collection.enabled)?.id || collectionsList[0]?.id
   return {
     collections,
-    entries: entries.filter((entry) => entry.enabled && (collections.get(entry.collectionId)?.enabled ?? entry.collectionId === 'default-worldbook')),
+    entries: entries.filter((entry) => entry.enabled && entry.collectionId === selectedId),
   }
 }
 
@@ -54,8 +55,8 @@ function renderEntry(entry: WorldbookEntry, collections: Map<string, WorldbookCo
   return `【${label}】\n${entry.content}`
 }
 
-export async function foundationalWorldviewText() {
-  const { entries, collections } = await enabledEntries()
+export async function foundationalWorldviewText(worldviewId?: string) {
+  const { entries, collections } = await enabledEntries(worldviewId)
   const foundational = entries.filter((entry) => entry.foundationalWorldview).sort((a, b) => b.priority - a.priority || (a.sourceOrder ?? 0) - (b.sourceOrder ?? 0))
   if (!foundational.length) return ''
   return `【底层世界观——全局最高优先级正史】\n以下规则默认约束所有主要内容生成，不得被现实常识、普通世界书或自由发挥覆盖。\n${foundational.map((entry) => renderEntry(entry, collections)).join('\n\n')}`
@@ -64,7 +65,7 @@ export async function foundationalWorldviewText() {
 export async function retrieveWorldbookTrace(query: string, opts: WorldbookRetrievalOptions = {}) {
   const maxEntries = opts.maxEntries ?? 6
   const maxChars = opts.maxChars ?? 5000
-  const { entries, collections } = await enabledEntries()
+  const { entries, collections } = await enabledEntries(opts.worldviewId)
   const ranked = rankWorldbookEntries(entries, query)
   const foundational = ranked.filter((match) => match.entry.foundationalWorldview)
   const ordinaryRanked = ranked.filter((match) => !match.entry.foundationalWorldview)
@@ -114,26 +115,33 @@ export async function retrieveWorldbookContext(query: string, opts: WorldbookRet
 
 export async function selectedWorldbookEntriesText(ids: string[]) {
   if (!ids.length) return ''
-  const [entries, collectionsList] = await Promise.all([db.worldbookEntries.bulkGet(ids), db.worldbookCollections.toArray()])
+  const [libraryItems, entries, collectionsList] = await Promise.all([db.libraryItems.bulkGet(ids), db.worldbookEntries.bulkGet(ids), db.worldbookCollections.toArray()])
   const collections = new Map(collectionsList.map((collection) => [collection.id, collection]))
-  return entries.filter((entry): entry is WorldbookEntry => !!entry).map((entry) => renderEntry(entry, collections)).join('\n\n')
+  const libraryText = libraryItems.filter((item): item is NonNullable<typeof item> => !!item).map((item) => `【资料库 / ${item.title}】\n${item.content}`)
+  const legacyText = entries.filter((entry): entry is WorldbookEntry => !!entry).map((entry) => renderEntry(entry, collections))
+  return [...libraryText, ...legacyText].join('\n\n')
 }
 
 export async function ensureLegacyWorldviewMigrated(): Promise<void> {
   const settings = useSettingsStore.getState()
-  if (settings.worldbookMigrationCompleted) return
+  const existingCollections = await db.worldbookCollections.toArray()
+  if (settings.worldbookMigrationCompleted && existingCollections.length) {
+    if (!settings.defaultWorldviewId) settings.setSettings({ defaultWorldviewId: existingCollections.find((item) => item.enabled)?.id || existingCollections[0].id })
+    return
+  }
   const content = settings.worldview.trim()
-  if (content) {
-    const now = Date.now()
+  const now = Date.now()
+  const collectionId = existingCollections[0]?.id || 'default-worldbook'
+  if (!existingCollections.length || content) {
     await db.transaction('rw', db.worldbookCollections, db.worldbookEntries, async () => {
       await db.worldbookCollections.put({
-        id: 'default-worldbook', name: '默认世界书', enabled: true, sourceType: 'manual', createdAt: now, updatedAt: now,
+        id: collectionId, name: existingCollections[0]?.name || '默认现实世界', enabled: true, sourceType: 'manual', createdAt: existingCollections[0]?.createdAt || now, updatedAt: now,
       })
-      await db.worldbookEntries.put({
-        id: 'legacy-worldview', collectionId: 'default-worldbook', title: '旧世界设定', content, keywords: [], enabled: true,
+      if (content) await db.worldbookEntries.put({
+        id: 'legacy-worldview', collectionId, title: '旧世界设定', content, keywords: [], enabled: true,
         foundationalWorldview: true, priority: 100, createdAt: now, updatedAt: now,
       })
     })
   }
-  settings.setSettings({ worldview: '', worldbookMigrationCompleted: true })
+  settings.setSettings({ worldview: '', worldbookMigrationCompleted: true, defaultWorldviewId: settings.defaultWorldviewId || collectionId })
 }

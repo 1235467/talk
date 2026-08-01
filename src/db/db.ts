@@ -9,6 +9,7 @@ import type {
   Group,
   InventoryItem,
   KnowledgeEntry,
+  LibraryItem,
   Message,
   Moment,
   MomentComment,
@@ -35,6 +36,7 @@ export class TalkDB extends Dexie {
   contactRelations!: Table<ContactRelationLink, string>
   groups!: Table<Group, string>
   knowledgeEntries!: Table<KnowledgeEntry, string>
+  libraryItems!: Table<LibraryItem, string>
   savedWorldviews!: Table<SavedWorldview, string>
   worldbookCollections!: Table<WorldbookCollection, string>
   worldbookEntries!: Table<WorldbookEntry, string>
@@ -358,6 +360,58 @@ export class TalkDB extends Dexie {
     })
     this.version(33).stores({
       contactGenerationTasks: 'id, status, createdAt, updatedAt',
+    })
+    // Unified source library. Existing worldbook/knowledge rows are copied,
+    // never removed: old backups and in-flight generation tasks stay valid.
+    this.version(34).stores({
+      libraryItems: 'id, packageId, parentId, sourceType, updatedAt, *keywords',
+      contacts: 'id, name, worldviewId, createdAt',
+      groups: 'id, kind, worldviewId, locationId, createdAt',
+    }).upgrade(async (tx) => {
+      const now = Date.now()
+      const collections = await tx.table('worldbookCollections').toArray() as Array<Record<string, any>>
+      const entries = await tx.table('worldbookEntries').toArray() as Array<Record<string, any>>
+      const library = tx.table('libraryItems')
+      for (const entry of entries) {
+        const collection = collections.find((item) => item.id === entry.collectionId)
+        await library.put({
+          id: `legacy-worldbook:${entry.id}`,
+          packageId: `legacy-collection:${entry.collectionId || 'default'}`,
+          sourceType: 'worldbook',
+          title: String(entry.title || '未命名世界书条目'),
+          content: String(entry.content || ''),
+          keywords: Array.isArray(entry.keywords) ? entry.keywords : [],
+          sourceLabel: String(collection?.sourceLabel || collection?.name || '旧世界书'),
+          sourceFileName: typeof collection?.sourceFileName === 'string' ? collection.sourceFileName : undefined,
+          rawData: entry.rawData,
+          createdAt: Number(entry.createdAt || now),
+          updatedAt: Number(entry.updatedAt || now),
+        })
+      }
+      const knowledge = await tx.table('knowledgeEntries').toArray() as Array<Record<string, any>>
+      for (const item of knowledge) await library.put({
+        id: `legacy-knowledge:${item.id}`,
+        sourceType: 'web',
+        title: String(item.topic || item.sourceQuery || '联网资料'),
+        content: String(item.content || ''),
+        keywords: item.sourceQuery ? [String(item.sourceQuery)] : [],
+        sourceLabel: '旧知识库',
+        fetchedAt: Number(item.fetchedAt || now),
+        createdAt: Number(item.fetchedAt || now),
+        updatedAt: Number(item.fetchedAt || now),
+      })
+      let defaultWorldId = String(collections.find((item) => item.enabled)?.id || collections[0]?.id || '')
+      if (!defaultWorldId) {
+        defaultWorldId = 'default-worldview'
+        await tx.table('worldbookCollections').put({ id: defaultWorldId, name: '默认现实世界', enabled: true, sourceType: 'manual', createdAt: now, updatedAt: now })
+      }
+      const contacts = await tx.table('contacts').toArray() as Array<Record<string, any>>
+      for (const contact of contacts) if (!contact.worldviewId) await tx.table('contacts').update(contact.id, { worldviewId: defaultWorldId })
+      const groups = await tx.table('groups').toArray() as Array<Record<string, any>>
+      for (const group of groups) if (!group.worldviewId) {
+        const firstMember = contacts.find((contact) => Array.isArray(group.memberContactIds) && group.memberContactIds.includes(contact.id))
+        await tx.table('groups').update(group.id, { worldviewId: firstMember?.worldviewId || defaultWorldId })
+      }
     })
   }
 }

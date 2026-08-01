@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { createWorldMap, generateStructuredTerrain, generateTerrain, placeBuildings } from './locationMap'
+import { createWorldMap, generateStructuredTerrain, generateTerrain, isLocationPlacementAvailable, placeBuildings } from './locationMap'
 
 describe('location map', () => {
   it('generates the same terrain for the same seed', () => {
     expect(generateTerrain('talk-map')).toEqual(generateTerrain('talk-map'))
-    expect(generateTerrain('talk-map')).toHaveLength(32 * 32)
+    expect(generateTerrain('talk-map')).toHaveLength(48 * 48)
   })
 
   it('places buildings only on allowed terrain and keeps them separated', () => {
@@ -17,18 +17,29 @@ describe('location map', () => {
     const result = placeBuildings(map, specs)
     const rows = [...result.values()]
     expect(rows).toHaveLength(specs.length)
-    for (const row of rows) expect(row.allowedTerrains).toContain(map.tiles[row.y * 32 + row.x])
+    for (const row of rows) expect(row.allowedTerrains).toContain(map.tiles[row.y * map.width + row.x])
     for (let a = 0; a < rows.length; a += 1) for (let b = a + 1; b < rows.length; b += 1) {
       expect(Math.max(Math.abs(rows[a].x - rows[b].x), Math.abs(rows[a].y - rows[b].y))).toBeGreaterThanOrEqual(3)
     }
   })
 
-  it('builds a structured v2 river city with roads and stable macro regions', () => {
+  it('builds a larger structured pixel city with distinct hills and mountains', () => {
     const map = createWorldMap('structured-city')
-    expect(map.generatorVersion).toBe(2)
+    expect(map.generatorVersion).toBe(3)
+    expect(map.width).toBe(48)
+    expect(map.height).toBe(48)
     expect(map.roads?.length).toBeGreaterThanOrEqual(3)
-    expect(map.tiles.filter((tile) => tile === 'river').length).toBeGreaterThan(50)
-    expect(map.tiles.filter((tile) => tile === 'urban').length).toBeGreaterThan(80)
+    expect(map.tiles.filter((tile) => tile === 'river').length).toBeGreaterThan(100)
+    expect(map.tiles.filter((tile) => tile === 'urban').length).toBeGreaterThan(900)
+    expect(map.tiles.filter((tile) => tile === 'hill').length).toBeGreaterThan(50)
+    expect(map.tiles.filter((tile) => tile === 'mountain').length).toBeGreaterThan(30)
     expect(generateStructuredTerrain('structured-city')).toEqual(generateStructuredTerrain('structured-city'))
+  })
+
+  it('blocks the complete three-by-three area around another marker', () => {
+    const map = createWorldMap('spacing')
+    const locations = [{ id: 'one', name: '地点', kind: 'custom', description: '', access: 'public' as const, sortOrder: 1, createdAt: 1, updatedAt: 1, mapBinding: { x: 10, y: 10, allowedTerrains: ['urban' as const], buildingCategory: 'custom' } }]
+    expect(isLocationPlacementAvailable({ x: 11, y: 11 }, locations, map)).toBe(false)
+    expect(isLocationPlacementAvailable({ x: 12, y: 10 }, locations, map)).toBe(true)
   })
 })

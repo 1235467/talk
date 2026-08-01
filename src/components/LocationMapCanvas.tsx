@@ -1,33 +1,36 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Layers, LocateFixed } from 'lucide-react'
+import { Layers, LocateFixed, Plus } from 'lucide-react'
 import { Avatar } from './Avatar'
-import { getLocationIcon, getLocationTheme } from '../lib/locationThemes'
-import { TERRAIN_LABELS } from '../lib/locationMap'
+import { getLocationIcon } from '../lib/locationIcons'
+import { TERRAIN_COLORS, TERRAIN_LABELS } from '../lib/locationMap'
 import type { Contact, LocationNode, TerrainType, WorldMapRecord } from '../types'
 
 const CELL = 22
 const MAX_SCALE = 2.6
 interface Point { x: number; y: number }
 
-function terrainDetail(context: CanvasRenderingContext2D, terrain: TerrainType, x: number, y: number, cell: number, texture: ReturnType<typeof getLocationTheme>['texture']) {
+function terrainDetail(context: CanvasRenderingContext2D, terrain: TerrainType, x: number, y: number, cell: number) {
   const left = x * cell, top = y * cell
   context.save()
-  context.globalAlpha = texture === 'future' ? .42 : .26
+  context.globalAlpha = .28
   if (terrain === 'river') {
     context.strokeStyle = '#fff'; context.lineWidth = 1
     context.beginPath(); context.moveTo(left + 4, top + 8); context.quadraticCurveTo(left + 10, top + 5, left + 18, top + 8); context.stroke()
   } else if (terrain === 'mountain') {
-    context.fillStyle = texture === 'ink' ? '#314d3b' : '#4b5c4d'
+    context.fillStyle = '#435445'
     context.beginPath(); context.moveTo(left + 3, top + 18); context.lineTo(left + 11, top + 4); context.lineTo(left + 20, top + 18); context.closePath(); context.fill()
     context.strokeStyle = '#fff'; context.beginPath(); context.moveTo(left + 8, top + 9); context.lineTo(left + 11, top + 4); context.lineTo(left + 14, top + 9); context.stroke()
+  } else if (terrain === 'hill') {
+    context.fillStyle = '#526d45'
+    context.beginPath(); context.moveTo(left + 2, top + 17); context.quadraticCurveTo(left + 10, top + 5, left + 20, top + 17); context.closePath(); context.fill()
   } else if (terrain === 'urban') {
-    context.fillStyle = texture === 'future' ? '#8f7cff' : '#fff'
+    context.fillStyle = '#fff'
     context.fillRect(left + 3, top + 4, 6, 6); context.fillRect(left + 12, top + 9, 7, 8)
   } else if (terrain === 'rural') {
     context.strokeStyle = '#fff'; context.lineWidth = 1
     context.beginPath(); context.moveTo(left + 2, top + 7); context.lineTo(left + 20, top + 3); context.moveTo(left + 3, top + 15); context.lineTo(left + 20, top + 11); context.stroke()
   } else if (terrain === 'grassland' && (x * 7 + y * 11) % 9 === 0) {
-    context.fillStyle = texture === 'fantasy' ? '#365b42' : '#39744a'
+    context.fillStyle = '#39744a'
     context.beginPath(); context.arc(left + 11, top + 12, 3.2, 0, Math.PI * 2); context.fill()
   } else if (terrain === 'beach') {
     context.fillStyle = '#fff'; context.beginPath(); context.arc(left + 7, top + 8, 1, 0, Math.PI * 2); context.arc(left + 15, top + 15, .8, 0, Math.PI * 2); context.fill()
@@ -35,16 +38,18 @@ function terrainDetail(context: CanvasRenderingContext2D, terrain: TerrainType, 
   context.restore()
 }
 
-export function LocationMapCanvas({ map, locations, activeLocationId, contacts = [], selectedLocationId, editing = false, placementMode = false, onBuildingClick, onMapClick }: {
+export function LocationMapCanvas({ map, locations, activeLocationId, contacts = [], selectedLocationId, draftPoint, editing = false, placementMode = false, onBuildingClick, onMapClick, onConfirmDraft }: {
   map: WorldMapRecord
   locations: LocationNode[]
   activeLocationId?: string
   contacts?: Contact[]
   selectedLocationId?: string
+  draftPoint?: { x: number; y: number }
   editing?: boolean
   placementMode?: boolean
   onBuildingClick: (location: LocationNode) => void
   onMapClick?: (point: { x: number; y: number }) => void
+  onConfirmDraft?: () => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -58,8 +63,6 @@ export function LocationMapCanvas({ map, locations, activeLocationId, contacts =
   const coverScale = Math.max(viewport.width / mapWidth, viewport.height / mapHeight)
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState<Point>({ x: 0, y: 0 })
-  const theme = getLocationTheme(map.themeId)
-  const backgroundUrl = map.customBackgroundDataUrl ?? theme.backgroundUrl
   const roots = useMemo(() => locations.filter((location) => location.mapBinding), [locations])
   const byId = useMemo(() => new Map(locations.map((item) => [item.id, item])), [locations])
   const rootFor = useCallback((id?: string) => {
@@ -98,7 +101,7 @@ export function LocationMapCanvas({ map, locations, activeLocationId, contacts =
   }, [mapHeight, mapWidth, roots])
 
   const resetToCurrent = useCallback(() => {
-    const next = Math.max(minScale, Math.min(MAX_SCALE, Math.max(.82, coverScale)))
+    const next = Math.max(minScale, Math.min(MAX_SCALE, Math.max(.96, coverScale)))
     const focus = focusPoint(activeRoot)
     setScale(next)
     setOffset(clamp({ x: viewport.width / 2 - focus.x * next, y: viewport.height / 2 - focus.y * next }, next))
@@ -129,19 +132,19 @@ export function LocationMapCanvas({ map, locations, activeLocationId, contacts =
     context.clearRect(0, 0, mapWidth, mapHeight)
     for (let y = 0; y < map.height; y += 1) for (let x = 0; x < map.width; x += 1) {
       const terrain = map.tiles[y * map.width + x] ?? 'grassland'
-      context.fillStyle = theme.palette[terrain]
+      context.fillStyle = TERRAIN_COLORS[terrain]
       context.fillRect(x * CELL, y * CELL, CELL + .6, CELL + .6)
-      terrainDetail(context, terrain, x, y, CELL, theme.texture)
+      terrainDetail(context, terrain, x, y, CELL)
     }
     for (const road of map.roads ?? []) {
       if (road.points.length < 2) continue
       context.lineJoin = 'round'; context.lineCap = 'round'
-      context.strokeStyle = theme.roadEdge; context.lineWidth = road.kind === 'primary' ? 8 : 5
+      context.strokeStyle = '#aab1a8'; context.lineWidth = road.kind === 'primary' ? 8 : 5
       context.beginPath(); road.points.forEach((point, index) => index ? context.lineTo((point.x + .5) * CELL, (point.y + .5) * CELL) : context.moveTo((point.x + .5) * CELL, (point.y + .5) * CELL)); context.stroke()
-      context.strokeStyle = theme.road; context.lineWidth = road.kind === 'primary' ? 5 : 3
+      context.strokeStyle = '#f1eee4'; context.lineWidth = road.kind === 'primary' ? 5 : 3
       context.stroke()
     }
-  }, [map, mapHeight, mapWidth, theme])
+  }, [map, mapHeight, mapWidth])
 
   const local = (clientX: number, clientY: number) => {
     const rect = hostRef.current!.getBoundingClientRect()
@@ -155,7 +158,7 @@ export function LocationMapCanvas({ map, locations, activeLocationId, contacts =
   // Explicit matrix keeps screen-space translation independent from zoom.
   const transform = `matrix(${scale},0,0,${scale},${offset.x},${offset.y})`
 
-  return <div ref={hostRef} data-testid="location-map" data-ui-scope="special" className={`relative h-full touch-none overflow-hidden ${placementMode ? 'cursor-crosshair' : ''}`} style={{ backgroundColor: theme.palette.grassland }}
+  return <div ref={hostRef} data-testid="location-map" data-ui-scope="special" className={`relative h-full touch-none overflow-hidden ${placementMode ? 'cursor-crosshair' : ''}`} style={{ backgroundColor: TERRAIN_COLORS.grassland }}
     onWheel={(event) => { event.preventDefault(); zoom(scale * (event.deltaY > 0 ? .9 : 1.1), local(event.clientX, event.clientY)) }}
     onPointerDown={(event) => { if ((event.target as HTMLElement).closest('button')) return; event.currentTarget.setPointerCapture(event.pointerId); const point = local(event.clientX, event.clientY); pointers.current.set(event.pointerId, point); gesture.current = { start: point, offset, moved: false } }}
     onPointerMove={(event) => {
@@ -177,8 +180,7 @@ export function LocationMapCanvas({ map, locations, activeLocationId, contacts =
       pointers.current.delete(event.pointerId); gesture.current = { moved: false }
       if (!wasMoved && editing && onMapClick && !(event.target as HTMLElement).closest('button')) onMapClick({ x: Math.max(0, Math.min(map.width - 1, Math.floor((point.x - offset.x) / scale / CELL))), y: Math.max(0, Math.min(map.height - 1, Math.floor((point.y - offset.y) / scale / CELL))) })
     }}>
-    {backgroundUrl && <img src={backgroundUrl} alt={map.customBackgroundDataUrl ? '自定义地图背景' : `${theme.name}地图背景`} draggable={false} className="pointer-events-none absolute left-0 top-0 origin-top-left object-cover" style={{ width: mapWidth, height: mapHeight, maxWidth: 'none', maxHeight: 'none', transform }} />}
-    <canvas ref={canvasRef} className={`pointer-events-none absolute left-0 top-0 origin-top-left shadow-xl ${backgroundUrl ? 'opacity-0' : ''}`} style={{ transform }} />
+    <canvas ref={canvasRef} className="pointer-events-none absolute left-0 top-0 origin-top-left shadow-xl" style={{ transform }} />
     <div className="pointer-events-none absolute inset-0">
       {roots.map((location) => {
         const binding = location.mapBinding!, current = activeRoot?.id === location.id, selected = selectedLocationId === location.id
@@ -193,8 +195,9 @@ export function LocationMapCanvas({ map, locations, activeLocationId, contacts =
         </button>
       })}
     </div>
+    {draftPoint && <button type="button" aria-label="在这里新增地点" onPointerDown={(event) => event.stopPropagation()} onClick={onConfirmDraft} className="absolute z-20 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-gray-900 text-white shadow-xl" style={{ left: offset.x + (draftPoint.x + .5) * CELL * scale, top: offset.y + (draftPoint.y + .5) * CELL * scale }}><Plus size={22} /></button>}
     <button type="button" aria-label="地图图例" onClick={() => setLegendOpen((value) => !value)} className="absolute right-3 top-3 z-20 flex h-11 w-11 items-center justify-center rounded-xl bg-white text-gray-800 shadow-lg"><Layers size={21} /></button>
-    {legendOpen && <div className="absolute right-3 top-16 z-20 w-40 rounded-2xl bg-white p-3 shadow-xl"><p className="mb-2 text-xs font-semibold text-gray-800">{theme.name} · 图例</p><div className="grid grid-cols-2 gap-2">{Object.entries(theme.palette).map(([terrain, color]) => <span key={terrain} className="flex items-center gap-1.5 text-[10px] text-gray-600"><i className="h-3 w-3 rounded-sm" style={{ backgroundColor: color }} />{TERRAIN_LABELS[terrain as TerrainType]}</span>)}</div></div>}
+    {legendOpen && <div className="absolute right-3 top-16 z-20 w-40 rounded-2xl bg-white p-3 shadow-xl"><p className="mb-2 text-xs font-semibold text-gray-800">像素城市 · 图例</p><div className="grid grid-cols-2 gap-2">{Object.entries(TERRAIN_COLORS).map(([terrain, color]) => <span key={terrain} className="flex items-center gap-1.5 text-[10px] text-gray-600"><i className="h-3 w-3 rounded-sm" style={{ backgroundColor: color }} />{TERRAIN_LABELS[terrain as TerrainType]}</span>)}</div></div>}
     <button type="button" aria-label="回到当前位置" onClick={resetToCurrent} className="absolute bottom-5 right-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-white text-gray-800 shadow-xl"><LocateFixed size={23} /></button>
     {placementMode && <div className="pointer-events-none absolute inset-x-10 top-4 z-20 rounded-full bg-gray-900/90 px-4 py-2 text-center text-xs text-white shadow">点击地图选择新的位置</div>}
   </div>

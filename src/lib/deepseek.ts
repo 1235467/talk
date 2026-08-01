@@ -8,7 +8,6 @@ import { db } from '../db/db'
 import type { AdminAiTraceStage, AiUsagePurpose } from '../types'
 import { friendlyConnectionError, httpFailureMessage, parseJsonText, requireApiKey, requireHttpUrl } from './connectionError'
 import { useSettingsStore } from '../store/useSettingsStore'
-import { foundationalWorldviewText } from './worldbook'
 import { appFetch } from './appFetch'
 import {
   AI_PROVIDERS,
@@ -97,21 +96,6 @@ export async function testConnection(
   } catch (err) {
     return { ok: false, message: friendlyConnectionError(err, 'AI 接口') }
   }
-}
-
-const FOUNDATIONAL_PURPOSES = new Set<AiUsagePurpose>(['chat', 'proactive', 'moments', 'lifeSimulation', 'persona', 'other'])
-
-async function messagesWithFoundationalWorldview(messages: ChatMessage[], model: string, purpose: AiUsagePurpose): Promise<ChatMessage[]> {
-  const settings = useSettingsStore.getState()
-  if (model !== settings.model || !FOUNDATIONAL_PURPOSES.has(purpose)) return messages
-  if (messages.some((message) => message.content.includes('【底层世界观——全局最高优先级正史】'))) return messages
-  const worldview = await foundationalWorldviewText()
-  if (!worldview) return messages
-  const next = messages.map((message) => ({ ...message }))
-  const systemIndex = next.findIndex((message) => message.role === 'system')
-  if (systemIndex >= 0) next[systemIndex].content = `${worldview}\n\n${next[systemIndex].content}`
-  else next.unshift({ role: 'system', content: worldview })
-  return next
 }
 
 export type ChatCompletionStatus = 'ok' | 'empty' | 'blocked' | 'length' | 'malformed'
@@ -273,7 +257,7 @@ export async function chatCompletion(opts: ChatCompletionOptions): Promise<ChatC
   const automatic = opts.automatic ?? false
   const provider = opts.provider ?? useSettingsStore.getState().aiProvider ?? 'deepseek'
   if (automatic) await assertAutomaticAiBudget()
-  const messages = await messagesWithFoundationalWorldview(opts.messages, opts.model, purpose)
+  const messages = opts.messages
   const inputTokens = messages.reduce((sum, message) => sum + estimateTokens(message.content), 0)
   try {
   const key = requireApiKey(opts.apiKey, 'AI')
@@ -338,7 +322,7 @@ export async function chatCompletionText(opts: ChatCompletionOptions): Promise<s
 
 export async function chatCompletionStream(opts: ChatCompletionOptions & { onDelta: (text: string) => void }): Promise<string> {
   const purpose = opts.purpose ?? 'other'
-  const messages = await messagesWithFoundationalWorldview(opts.messages, opts.model, purpose)
+  const messages = opts.messages
   const inputTokens = messages.reduce((sum, message) => sum + estimateTokens(message.content), 0)
   const key = requireApiKey(opts.apiKey, 'AI')
   const provider = opts.provider ?? useSettingsStore.getState().aiProvider ?? 'deepseek'

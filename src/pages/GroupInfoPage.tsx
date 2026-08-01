@@ -9,7 +9,6 @@ import { displayName } from '../lib/contact'
 import { activeIntents } from '../lib/intent'
 import { buildUserProfileText } from '../lib/chatEngine'
 import { buildGroupJsonConversionPrompt, buildGroupRawChatPrompt, buildLocationRawChatPrompt } from '../lib/groupChat'
-import { knowledgeDigestText } from '../lib/knowledgeBase'
 import { describeCurrentTime } from '../lib/time'
 import { isModuleEnabled } from '../features'
 import { useSettingsStore } from '../store/useSettingsStore'
@@ -134,14 +133,14 @@ export function GroupInfoPage() {
   const allContacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_CONTACTS).filter((item) => !isAiTestId(item.id))
   const membersRaw = useLiveQuery(() => (group ? db.contacts.bulkGet(group.memberContactIds) : []), [group])
   const stickers = useLiveQuery(() => db.stickers.toArray(), []) ?? []
-  const knowledgeEntries = useLiveQuery(() => db.knowledgeEntries.toArray(), []) ?? []
-  const members = useMemo(() => locationParticipants?.activeMembers ?? (membersRaw ?? []).filter((c): c is Contact => !!c), [locationParticipants, membersRaw])
+  const groupWorldview = useLiveQuery(() => group?.worldviewId ? db.worldbookCollections.get(group.worldviewId) : undefined, [group?.worldviewId])
+  const members = useMemo(() => locationParticipants?.activeMembers.filter((contact) => (contact.worldviewId || settings.defaultWorldviewId) === (group?.worldviewId || settings.defaultWorldviewId)) ?? (membersRaw ?? []).filter((c): c is Contact => !!c), [group?.worldviewId, locationParticipants, membersRaw, settings.defaultWorldviewId])
 
   const addableContacts = useMemo(() => {
     if (!group) return []
     const memberIds = new Set(group.memberContactIds)
-    return allContacts.filter((c) => !memberIds.has(c.id))
-  }, [allContacts, group])
+    return allContacts.filter((c) => !memberIds.has(c.id) && (c.worldviewId || settings.defaultWorldviewId) === (group.worldviewId || settings.defaultWorldviewId))
+  }, [allContacts, group, settings.defaultWorldviewId])
 
   const promptPreviewSpeakers = useMemo(() => {
     if (!group) return []
@@ -166,7 +165,7 @@ export function GroupInfoPage() {
           targetedContextText: '【预览】这里会放入用户本轮@、回复对象等定向上下文。',
           recentEventsText: '【预览】这里会放入最近朋友圈/群聊等社交事件。',
           worldviewText: isModuleEnabled('worldview') ? '【运行时按群聊内容检索世界书条目；此预览不固定命中结果】' : undefined,
-          knowledgeDigestText: isModuleEnabled('knowledgeBase') ? (knowledgeDigestText(knowledgeEntries) || undefined) : undefined,
+          knowledgeDigestText: undefined,
           selfIterationGlobalText: isModuleEnabled('selfIteration') ? settings.selfIterationGlobalPrompt : undefined,
           speakerMemoriesMap: new Map(),
           enabledModules: settings.enabledModules,
@@ -215,9 +214,9 @@ export function GroupInfoPage() {
 
   async function handleRemoveMember(contactId: string) {
     if (!group || group.memberContactIds.length <= 1) return
-    await db.groups.update(group.id, {
-      memberContactIds: group.memberContactIds.filter((id) => id !== contactId),
-    })
+    const remaining = group.memberContactIds.filter((id) => id !== contactId)
+    if (remaining.length <= 1) { await handleDisband(); return }
+    await db.groups.update(group.id, { memberContactIds: remaining })
   }
 
   async function handleDisband() {
@@ -251,6 +250,7 @@ export function GroupInfoPage() {
           <button onClick={group.kind === 'location' ? undefined : openNameEditor} className="ui-font-display text-[15px] font-medium text-gray-900 underline-offset-2 active:underline">
             {group.kind === 'location' ? `${group.name} · ${groupLocation?.name ?? '未选择地点'}` : group.name}
           </button>
+          {group.kind !== 'location' && <p className="text-xs text-gray-400">所属世界：{groupWorldview?.name || '默认世界'}</p>}
           <p className="text-xs text-gray-400">{members.length} 位成员</p>
         </section>
 

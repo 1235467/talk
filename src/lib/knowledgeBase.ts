@@ -158,6 +158,7 @@ export async function resolveKnowledgeQueries(queries: string[], settings: AppSe
       if (entries.length > 0) {
         const now = Date.now()
         for (const e of entries) await db.knowledgeEntries.add({ id: uuid(), sourceQuery: e.sourceQuery, topic: e.topic, content: e.content, fetchedAt: now })
+        for (const e of entries) await db.libraryItems.add({ id: uuid(), sourceType: 'web', title: e.topic, content: e.content, keywords: e.sourceQuery ? [e.sourceQuery] : [], sourceLabel: 'Tavily 联网搜索', fetchedAt: now, createdAt: now, updatedAt: now })
         await pruneOldKnowledgeEntries(now)
         recordKnowledgeQueriesSent(newTopics.length)
         searched = true
@@ -196,6 +197,7 @@ export async function searchKnowledgeTopic(topic: string, settings: AppSettings)
   const now = Date.now()
   for (const e of entries) {
     await db.knowledgeEntries.add({ id: uuid(), sourceQuery: e.sourceQuery, topic: e.topic, content: e.content, fetchedAt: now })
+    await db.libraryItems.add({ id: uuid(), sourceType: 'web', title: e.topic, content: e.content, keywords: e.sourceQuery ? [e.sourceQuery] : [], sourceLabel: 'Tavily 联网搜索', fetchedAt: now, createdAt: now, updatedAt: now })
   }
   await pruneOldKnowledgeEntries(now)
   return { addedCount: entries.length }

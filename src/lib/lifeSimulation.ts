@@ -48,16 +48,24 @@ function nextState(contact: Contact, current: ContactLifeState | undefined, even
 async function polishVisible(events: LifeEvent[], settings: AppSettings): Promise<Map<string, string>> {
   const fallback = new Map(events.map((e) => [e.id, e.summary]))
   if (!settings.apiKey || events.length === 0 || !featureActive(settings, 'lifeSimulation')) return fallback
-  try {
-    const world = featureActive(settings, 'worldview') ? await retrieveWorldbookContext(events.map((e) => e.summary).join('\n'), { maxEntries: 3, maxChars: 1600 }) : ''
+  const contactIds = [...new Set(events.map((event) => event.contactId))]
+  const contacts = await db.contacts.bulkGet(contactIds)
+  const worldByContact = new Map(contacts.filter((contact): contact is Contact => !!contact).map((contact) => [contact.id, contact.worldviewId]))
+  const batches = new Map<string, LifeEvent[]>()
+  for (const event of events) {
+    const worldId = worldByContact.get(event.contactId) || settings.defaultWorldviewId || ''
+    batches.set(worldId, [...(batches.get(worldId) ?? []), event])
+  }
+  for (const [worldviewId, batch] of batches) try {
+    const world = featureActive(settings, 'worldview') ? await retrieveWorldbookContext(batch.map((event) => event.summary).join('\n'), { maxEntries: 3, maxChars: 1600, worldviewId }) : ''
     const worldPrompt = world ? getPromptTemplate(settings, 'worldview', 'lifeRuntime', { worldbookEntries: world }) : ''
-    const lifeContext = `${worldPrompt || ''}\n事件：${JSON.stringify(events.map((e) => ({ id: e.id, summary: e.summary })))}`
+    const lifeContext = `${worldPrompt || ''}\n事件：${JSON.stringify(batch.map((event) => ({ id: event.id, summary: event.summary })))}`
     const editable = getPromptTemplate(settings, 'lifeSimulation', 'polish', { lifeContext })!
     const raw = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.utilityModel, purpose: 'lifeSimulation', automatic: true, jsonMode: true, messages: [{ role: 'system', content: `${editable}\n\n固定输出协议：只输出JSON {"items":[{"id":"事件id","text":"文案"}]}` }, { role: 'user', content: '请润色' }] })
     const parsed = JSON.parse(raw) as { items?: Array<{ id?: string; text?: string }> }
     for (const item of parsed.items ?? []) if (item.id && typeof item.text === 'string' && fallback.has(item.id)) fallback.set(item.id, item.text.trim().slice(0, 120))
   } catch {
-    // A deterministic event is still better than losing the character's timeline.
+    // A deterministic event is still better than losing one world's timeline.
   }
   return fallback
 }

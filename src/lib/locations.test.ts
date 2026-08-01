@@ -31,6 +31,17 @@ async function clearDatabase() {
 beforeEach(clearDatabase)
 
 describe('location runtime', () => {
+  it('creates a large city, names the user home, and keeps fallback NPCs out of it', async () => {
+    useSettingsStore.getState().setSettings({ userNickname: '小河' })
+    await ensureLocationsInitialized()
+    const [map, home, locations] = await Promise.all([db.worldMaps.get('active'), db.locations.get('home'), db.locations.toArray()])
+    expect(map).toMatchObject({ width: 48, height: 48, generatorVersion: 3 })
+    expect(home?.name).toBe('小河的家')
+    const leafIds = new Set(locations.filter((item) => !locations.some((candidate) => candidate.parentId === item.id)).map((item) => item.id))
+    const resolved = resolveContactLocationAt(contact('ordinary-npc'), new Date(2026, 6, 28, 22), leafIds)
+    expect(resolved.locationId).not.toMatch(/^home-/)
+  })
+
   it('resolves the same contact and real-time slot to a stable location', async () => {
     await ensureLocationsInitialized()
     const ids = new Set((await db.locations.toArray()).filter((item) => !['city', 'home', 'school', 'office', 'mall', 'hospital', 'park', 'beach', 'mountain', 'farm'].includes(item.id)).map((item) => item.id))

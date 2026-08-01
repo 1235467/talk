@@ -408,7 +408,7 @@ async function runAiTurn(
       featureActive(settings, 'worldview') ? retrieveWorldbookTrace([
         _triggeringUserText, proactiveContext, contact.name, contact.systemPrompt, contact.memoryFacts,
         history.slice(-8).map((m) => m.content).join(' '),
-      ].filter(Boolean).join('\n')) : Promise.resolve({ text: '', matches: [] }),
+      ].filter(Boolean).join('\n'), { worldviewId: contact.worldviewId }) : Promise.resolve({ text: '', matches: [] }),
     ])
     const worldbookText = worldbookTrace.text
     const relationshipText = `【你和对方的关系】${relationshipLine(

@@ -15,7 +15,7 @@ import {
 import { parseJsonLoose } from './aiProtocol'
 import { CONTEXT_WINDOW_SIZE, maybeUpdateGroupMemory, nonGroupScopedMemoriesText } from './memory'
 import { aiRelationshipPrompt } from './contactRelations'
-import { knowledgeDigestText, resolveKnowledgeQueries } from './knowledgeBase'
+import { resolveKnowledgeQueries } from './knowledgeBase'
 import { isModuleEnabled } from '../features'
 import { describeCurrentTime } from './time'
 import { displayName } from './contact'
@@ -255,7 +255,7 @@ export async function sendGroupMessage(
   if (group.kind === 'location' && group.locationId) {
     await syncContactLocationsAt(new Date())
     const participants = await resolveLocationParticipants(group.locationId)
-    members = participants.activeMembers
+    members = participants.activeMembers.filter((member) => (member.worldviewId || settings.defaultWorldviewId) === (group.worldviewId || settings.defaultWorldviewId))
     group = { ...group, memberContactIds: members.map((member) => member.id) }
     await db.groups.update(group.id, { memberContactIds: group.memberContactIds })
   }
@@ -372,7 +372,7 @@ async function runGroupAiTurn(
     if (group.kind === 'location' && group.locationId) {
       await syncContactLocationsAt(new Date())
       locationParticipants = await resolveLocationParticipants(group.locationId)
-      members = locationParticipants.activeMembers
+      members = locationParticipants.activeMembers.filter((member) => (member.worldviewId || settings.defaultWorldviewId) === (group.worldviewId || settings.defaultWorldviewId))
       group = { ...group, memberContactIds: members.map((member) => member.id) }
       await db.groups.update(group.id, { memberContactIds: group.memberContactIds })
     }
@@ -391,7 +391,6 @@ async function runGroupAiTurn(
     if (replied?.role === 'assistant' && replied.speakerContactId) preferredSpeakerIds.add(replied.speakerContactId)
     const speakers = await pickSociallyConnectedSpeakers(members, Array.from(preferredSpeakerIds), group.speakerLimit ?? 3)
     console.log(`[group] 本轮发言人: ${speakers.map((s) => s.name).join('、')}`)
-    const knowledgeEntries = featureActive(settings, 'knowledgeBase') ? await db.knowledgeEntries.toArray() : []
     const targetContext = targetedContextText(latestUserMessage, contactById, messageById, settings.userNickname)
     const recentEventsText = await recentSocialEventsText(members.map((m) => m.id), 4)
     const sharedOriginalContext = promptModuleEnabled(settings, 'memory') ? await recentSharedOriginalContext(members.map((m) => m.id), settings.userNickname, {
@@ -401,7 +400,7 @@ async function runGroupAiTurn(
       // it here avoids paying twice for the same messages.
       excludeConversationId: conversationId,
     }) : ''
-    const worldbookText = featureActive(settings, 'worldview') ? await retrieveWorldbookContext([group.name, group.vibe, targetContext, history.slice(-10).map((m) => m.content).join(' '), members.map((m) => `${m.name} ${m.systemPrompt}`).join(' ')].filter(Boolean).join('\n')) : ''
+    const worldbookText = featureActive(settings, 'worldview') ? await retrieveWorldbookContext([group.name, group.vibe, targetContext, history.slice(-10).map((m) => m.content).join(' '), members.map((m) => `${m.name} ${m.systemPrompt}`).join(' ')].filter(Boolean).join('\n'), { worldviewId: group.worldviewId }) : ''
 
     const speakerMemoriesMap = promptModuleEnabled(settings, 'memory') ? await loadSpeakerMemories(speakers) : new Map<string, string>()
     const aiRelationshipText = featureActive(settings, 'relationship') ? await aiRelationshipPrompt(members) : ''
@@ -434,7 +433,7 @@ async function runGroupAiTurn(
       targetedContextText: targetContext,
       recentEventsText: recentEventsText || undefined,
       worldviewText: worldbookText || undefined,
-      knowledgeDigestText: featureActive(settings, 'knowledgeBase') ? (knowledgeDigestText(knowledgeEntries) || undefined) : undefined,
+      knowledgeDigestText: undefined,
       selfIterationGlobalText: featureActive(settings, 'selfIteration') ? settings.selfIterationGlobalPrompt : undefined,
       speakerMemoriesMap,
       aiRelationshipText,

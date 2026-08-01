@@ -4,7 +4,7 @@ import type { AppSettings } from '../types'
 import { ensureWalletsAfterRestore } from './finance'
 
 const BACKUP_FORMAT = 'talk-backup'
-const BACKUP_SCHEMA_VERSION = 5
+const BACKUP_SCHEMA_VERSION = 6
 
 export const BACKUP_TABLES = [
   'contacts',
@@ -18,6 +18,7 @@ export const BACKUP_TABLES = [
   'contactRelations',
   'groups',
   'knowledgeEntries',
+  'libraryItems',
   'savedWorldviews',
   'worldbookCollections',
   'worldbookEntries',
@@ -66,10 +67,10 @@ export function assertTalkBackup(value: unknown): asserts value is TalkBackup {
   if (!value || typeof value !== 'object') throw new Error('备份文件格式不正确')
   const backup = value as Partial<TalkBackup>
   if (backup.format !== BACKUP_FORMAT) throw new Error('这不是 Talk 的备份文件')
-  if (![1, 2, 3, 4, BACKUP_SCHEMA_VERSION].includes(backup.schemaVersion as number)) throw new Error('备份版本暂不支持')
+  if (![1, 2, 3, 4, 5, BACKUP_SCHEMA_VERSION].includes(backup.schemaVersion as number)) throw new Error('备份版本暂不支持')
   if (!backup.tables || typeof backup.tables !== 'object') throw new Error('备份文件缺少数据表')
   for (const name of BACKUP_TABLES) {
-    if (['worldbookCollections','worldbookEntries','simulationState','contactLifeStates','lifeEvents','contactExperiences','aiUsageRecords','socialEvents','contactMemories','walletAccounts','walletTransactions','loans','jobListings','interviews','groupPlans','adminLogs','adminAiTraces','savedPersonas','shopPurchaseHistory','locations','worldMaps','locationModuleState','acousticEdges','contactGenerationTasks'].includes(name) && backup.tables[name] === undefined) continue
+    if (['libraryItems','worldbookCollections','worldbookEntries','simulationState','contactLifeStates','lifeEvents','contactExperiences','aiUsageRecords','socialEvents','contactMemories','walletAccounts','walletTransactions','loans','jobListings','interviews','groupPlans','adminLogs','adminAiTraces','savedPersonas','shopPurchaseHistory','locations','worldMaps','locationModuleState','acousticEdges','contactGenerationTasks'].includes(name) && backup.tables[name] === undefined) continue
     if (!Array.isArray(backup.tables[name])) throw new Error(`备份文件缺少 ${name} 表`)
   }
 }
@@ -92,6 +93,25 @@ export async function restoreBackup(backup: TalkBackup) {
         await db.worldbookCollections.put({ id: 'default-worldbook', name: '默认世界书', enabled: true, sourceType: 'manual', createdAt: now, updatedAt: now })
         const legacyEntries = await db.worldbookEntries.toArray()
         await db.worldbookEntries.bulkUpdate(legacyEntries.map((entry) => ({ key: entry.id, changes: { collectionId: 'default-worldbook', foundationalWorldview: entry.foundationalWorldview === true } })))
+      }
+      if ((backup.tables.libraryItems ?? []).length === 0) {
+        const now = Date.now()
+        const collections = await db.worldbookCollections.toArray()
+        for (const entry of await db.worldbookEntries.toArray()) {
+          const collection = collections.find((item) => item.id === entry.collectionId)
+          await db.libraryItems.put({ id: `restored-worldbook:${entry.id}`, packageId: `restored-collection:${entry.collectionId}`, sourceType: 'worldbook', title: entry.title, content: entry.content, keywords: entry.keywords, sourceLabel: collection?.sourceLabel || collection?.name || '恢复的世界书', sourceFileName: collection?.sourceFileName, rawData: entry.rawData, createdAt: entry.createdAt || now, updatedAt: entry.updatedAt || now })
+        }
+        for (const item of await db.knowledgeEntries.toArray()) await db.libraryItems.put({ id: `restored-knowledge:${item.id}`, sourceType: 'web', title: item.topic, content: item.content, keywords: item.sourceQuery ? [item.sourceQuery] : [], sourceLabel: '恢复的旧知识库', fetchedAt: item.fetchedAt, createdAt: item.fetchedAt || now, updatedAt: item.fetchedAt || now })
+      }
+      const worlds = await db.worldbookCollections.toArray()
+      const defaultWorldviewId = backup.settings.defaultWorldviewId || worlds.find((world) => world.enabled)?.id || worlds[0]?.id
+      if (defaultWorldviewId) {
+        const contacts = await db.contacts.toArray()
+        for (const contact of contacts) if (!contact.worldviewId) await db.contacts.update(contact.id, { worldviewId: defaultWorldviewId })
+        for (const group of await db.groups.toArray()) if (!group.worldviewId) {
+          const first = contacts.find((contact) => group.memberContactIds.includes(contact.id))
+          await db.groups.update(group.id, { worldviewId: first?.worldviewId || defaultWorldviewId })
+        }
       }
     },
   )

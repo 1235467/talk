@@ -198,7 +198,7 @@ export const PROMPT_MODULE_DEFINITIONS: PromptModuleDefinition[] = [
 计划：{{planContext}}
 参与者：{{participants}}`, ['planContext', 'participants']),
   ]},
-  { id: 'knowledgeBase', name: '知识库', icon: '🔎', description: '搜索结果整理与聊天补全', templates: [template('summary', '搜索结果整理', `把搜索结果整理为简洁、可靠、带来源时间意识的知识摘要。不要编造结果中没有的事实；冲突时明确不确定性。
+  { id: 'knowledgeBase', name: '资料库联网整理', icon: '🔎', description: '联网结果整理与聊天补全', templates: [template('summary', '搜索结果整理', `把搜索结果整理为简洁、可靠、带来源时间意识的知识摘要。不要编造结果中没有的事实；冲突时明确不确定性。
 {{searchResults}}`, ['searchResults'])] },
   { id: 'intent', name: '主动意图', icon: '🎯', description: '聊天中的未说出口念头和意图提取', templates: [
     template('chat', '意图注入', `【主动意图】
