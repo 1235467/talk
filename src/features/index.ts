@@ -71,16 +71,29 @@ export const ALL_MODULES: FeatureModule[] = [
 /** Modules that don't belong to any parent — shown as standalone toggles. */
 export const STANDALONE_MODULES = ALL_MODULES.filter((m) => !m.parentId)
 
+export const IMMERSIVE_RESTRICTED_MODULES = new Set(['location', 'mindReading', 'intent', 'lifeSimulation', 'storyOutline', 'promptModuleEditor'])
+
+export function isModuleAllowedInExperienceMode(id: string, mode = useSettingsStore.getState().experienceMode): boolean {
+  return mode !== 'immersive' || !IMMERSIVE_RESTRICTED_MODULES.has(id)
+}
+
+function moduleEffectivelyEnabled(id: string, state = useSettingsStore.getState()): boolean {
+  if (state.experienceMode === 'immersive' && id === 'realisticReplies') return true
+  return isModuleAllowedInExperienceMode(id, state.experienceMode) && state.enabledModules.includes(id)
+}
+
 // ---- helpers ----
 
 /** React hook: is a specific module enabled? */
 export function useModuleEnabled(id: string): boolean {
-  return useSettingsStore((s) => s.enabledModules.includes(id))
+  return useSettingsStore((s) => s.experienceMode === 'immersive' && id === 'realisticReplies'
+    ? true
+    : isModuleAllowedInExperienceMode(id, s.experienceMode) && s.enabledModules.includes(id))
 }
 
 /** Non-reactive read for use outside React components (e.g. chat engine). */
 export function isModuleEnabled(id: string): boolean {
-  return useSettingsStore.getState().enabledModules.includes(id)
+  return moduleEffectivelyEnabled(id)
 }
 
 /**
@@ -107,11 +120,10 @@ export function getEnabledLinkApps(
  * Get the set of unique routes from enabled modules, deduplicating by path.
  */
 export function getEnabledRoutes(): { path: string; component: ElementType }[] {
-  const enabled = useSettingsStore.getState().enabledModules
   const seen = new Set<string>()
   const routes: { path: string; component: ElementType }[] = []
   for (const m of ALL_MODULES) {
-    if (!enabled.includes(m.id)) continue
+    if (!moduleEffectivelyEnabled(m.id)) continue
     for (const r of m.routes ?? []) {
       if (seen.has(r.path)) continue
       seen.add(r.path)
@@ -123,11 +135,10 @@ export function getEnabledRoutes(): { path: string; component: ElementType }[] {
 
 /** Get discover entries from all enabled modules. */
 export function getEnabledDiscoverEntries(): { to: string; icon: string; label: string }[] {
-  const enabled = useSettingsStore.getState().enabledModules
   const seen = new Set<string>()
   const entries: { to: string; icon: string; label: string }[] = []
   for (const m of ALL_MODULES) {
-    if (!enabled.includes(m.id)) continue
+    if (!moduleEffectivelyEnabled(m.id)) continue
     for (const e of m.discoverEntries ?? []) {
       if (seen.has(e.to + e.label)) continue
       seen.add(e.to + e.label)

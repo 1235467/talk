@@ -142,6 +142,14 @@ export function MePage() {
       <div className="mt-3">
         <button
           type="button"
+          onClick={() => navigate('/experience-mode')}
+          className="flex w-full items-center justify-between border-b border-gray-100 bg-white px-4 py-3.5 text-left active:bg-gray-50"
+        >
+          <span className="text-[15px] text-gray-900">体验模式</span>
+          <span className="flex items-center gap-2 text-xs text-gray-400">{settings.experienceMode === 'immersive' ? '沉浸模式' : '自由模式'}<span>›</span></span>
+        </button>
+        <button
+          type="button"
           onClick={handleFullscreen}
           className="flex w-full items-center justify-between bg-white px-4 py-3.5 text-left active:bg-gray-50"
         >

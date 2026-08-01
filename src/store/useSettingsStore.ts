@@ -40,6 +40,7 @@ function initialImageProviders() {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
+      experienceMode: 'free',
       aiProvider: 'deepseek',
       apiKey: envKey,
       baseUrl: envBaseUrl,
@@ -94,9 +95,10 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'talk-settings',
-      version: 17,
+      version: 18,
       migrate: (persisted, version) => {
         const next = persisted as Partial<SettingsState>
+        if (next.experienceMode !== 'immersive' && next.experienceMode !== 'free') next.experienceMode = 'free'
         if (!['deepseek', 'openai', 'gemini', 'anthropic', 'xai', 'qwen', 'glm', 'minimax', 'kimi', 'custom'].includes(String(next.aiProvider))) {
           next.aiProvider = 'deepseek' as AiProviderId
         }

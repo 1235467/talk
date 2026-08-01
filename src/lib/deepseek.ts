@@ -336,7 +336,7 @@ export async function chatCompletionText(opts: ChatCompletionOptions): Promise<s
   throw new Error(completionStatusMessage(result))
 }
 
-export async function chatCompletionStream(opts: Omit<ChatCompletionOptions, 'jsonMode'> & { onDelta: (text: string) => void }): Promise<string> {
+export async function chatCompletionStream(opts: ChatCompletionOptions & { onDelta: (text: string) => void }): Promise<string> {
   const purpose = opts.purpose ?? 'other'
   const messages = await messagesWithFoundationalWorldview(opts.messages, opts.model, purpose)
   const inputTokens = messages.reduce((sum, message) => sum + estimateTokens(message.content), 0)
@@ -347,7 +347,25 @@ export async function chatCompletionStream(opts: Omit<ChatCompletionOptions, 'js
     const text = await res.text()
     let payload: unknown = text
     try { payload = parseJsonText(text, 'AI 接口') } catch {}
+    const protocolError = retryableProtocolError(res.status, payload)
+    if (!res.body || protocolError === 'response_format' || /stream|sse|event.?stream/i.test(JSON.stringify(payload))) {
+      const { onDelta, ...fallbackOptions } = opts
+      const fallback = await chatCompletionText({ ...fallbackOptions, jsonMode: protocolError === 'response_format' ? false : opts.jsonMode })
+      onDelta(fallback)
+      return fallback
+    }
     throw new Error(httpFailureMessage('AI 接口', res.status, payload))
+  }
+  if (!/text\/event-stream/i.test(res.headers.get('content-type') ?? '')) {
+    const json = parseJsonText(await res.text(), 'AI 接口') as Record<string, any>
+    const result = extractCompletion(json, provider)
+    if (result.status !== 'ok' && !(result.status === 'length' && result.content.trim())) throw new Error(completionStatusMessage(result))
+    opts.onDelta(result.content)
+    const promptTokens = result.usage?.promptTokens ?? inputTokens
+    const outputTokens = result.usage?.completionTokens ?? estimateTokens(result.content)
+    await recordAiUsage({ purpose, model: opts.model, automatic: opts.automatic ?? false, success: true, inputTokens: promptTokens, outputTokens, estimated: result.usage?.promptTokens === undefined || result.usage?.completionTokens === undefined })
+    await traceAiCall({ purpose, model: opts.model, messages, output: result.content, inputTokens: promptTokens, outputTokens, diagnostics: { provider, status: result.status, finishReason: result.finishReason, nonStreamingFallback: true }, ...opts.trace })
+    return result.content
   }
   const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let output = ''
   while (true) {
@@ -360,6 +378,7 @@ export async function chatCompletionStream(opts: Omit<ChatCompletionOptions, 'js
       try { const delta = JSON.parse(data)?.choices?.[0]?.delta?.content; if (typeof delta === 'string') { output += delta; opts.onDelta(delta) } } catch {}
     }
   }
+  if (!output.trim()) throw new Error('模型流式响应结束，但没有返回可见正文')
   await recordAiUsage({ purpose, model: opts.model, automatic: opts.automatic ?? false, success: true, inputTokens, outputTokens: estimateTokens(output), estimated: true })
   await traceAiCall({ purpose, model: opts.model, messages, output, inputTokens, outputTokens: estimateTokens(output), ...opts.trace })
   return output

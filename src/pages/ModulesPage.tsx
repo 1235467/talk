@@ -3,17 +3,19 @@ import { TopBar } from '../components/TopBar'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { UiIcon } from '../components/UiIcon'
 import { useSettingsStore } from '../store/useSettingsStore'
-import { ALL_MODULES, PARENT_MODULES, STANDALONE_MODULES, DEFAULT_ENABLED_MODULES } from '../features'
+import { ALL_MODULES, PARENT_MODULES, STANDALONE_MODULES, DEFAULT_ENABLED_MODULES, isModuleAllowedInExperienceMode } from '../features'
 
 export function ModulesPage() {
   const enabledModules = useSettingsStore((s) => s.enabledModules)
   const setSettings = useSettingsStore((s) => s.setSettings)
+  const experienceMode = useSettingsStore((s) => s.experienceMode)
   // Which parent accordions are expanded (all expanded by default).
   const [expanded, setExpanded] = useState<Record<string, boolean>>(
     () => Object.fromEntries(PARENT_MODULES.map((p) => [p.id, true])),
   )
 
   function toggle(id: string) {
+    if (!isModuleAllowedInExperienceMode(id, experienceMode) || (experienceMode === 'immersive' && id === 'realisticReplies')) return
     const next = enabledModules.includes(id)
       ? enabledModules.filter((m) => m !== id)
       : [...enabledModules, id]
@@ -81,7 +83,8 @@ export function ModulesPage() {
                 {open && (
                   <div className="border-t border-gray-50">
                     {kids.map((mod) => {
-                      const on = enabledModules.includes(mod.id)
+                      const locked = !isModuleAllowedInExperienceMode(mod.id, experienceMode) || (experienceMode === 'immersive' && mod.id === 'realisticReplies')
+                      const on = experienceMode === 'immersive' && mod.id === 'realisticReplies' ? true : !locked && enabledModules.includes(mod.id)
                       return (
                         <div
                           key={mod.id}
@@ -92,6 +95,7 @@ export function ModulesPage() {
                             <div>
                               <p className="text-[14px] text-gray-800">{mod.name}</p>
                               <p className="mt-0.5 text-[11px] text-gray-400">{mod.description}</p>
+                              {locked && <p className="mt-0.5 text-[10px] text-amber-600">{mod.id === 'realisticReplies' ? '沉浸模式强制开启' : '沉浸模式不可用'}</p>}
                             </div>
                           </div>
                           <ToggleSwitch
@@ -110,7 +114,8 @@ export function ModulesPage() {
 
           {/* Standalone modules (no parent) */}
           {STANDALONE_MODULES.map((mod) => {
-            const on = enabledModules.includes(mod.id)
+            const locked = !isModuleAllowedInExperienceMode(mod.id, experienceMode) || (experienceMode === 'immersive' && mod.id === 'realisticReplies')
+            const on = experienceMode === 'immersive' && mod.id === 'realisticReplies' ? true : !locked && enabledModules.includes(mod.id)
             return (
               <div
                 key={mod.id}
@@ -121,6 +126,7 @@ export function ModulesPage() {
                   <div>
                     <p className="text-[15px] font-medium text-gray-900">{mod.name}</p>
                     <p className="mt-0.5 text-xs text-gray-400">{mod.description}</p>
+                    {locked && <p className="mt-0.5 text-[10px] text-amber-600">{mod.id === 'realisticReplies' ? '沉浸模式强制开启' : '沉浸模式不可用'}</p>}
                   </div>
                 </div>
                 <ToggleSwitch

@@ -13,7 +13,38 @@ import {
   stopAiTestSuite,
   updateAiTestReview,
 } from '../lib/aiTestManager'
-import type { AiTestKind, AiTestSuiteRecord, AppSettings, Contact } from '../types'
+import type { AiTestCardRecord, AiTestKind, AiTestSuiteRecord, AppSettings, Contact } from '../types'
+
+function AiTestReviewEditor({ suiteId, card }: { suiteId: string; card: AiTestCardRecord }) {
+  const [comment, setComment] = useState(card.comment ?? '')
+  const [rating, setRating] = useState(card.rating)
+
+  function save(nextRating = rating, nextComment = comment) {
+    void updateAiTestReview(suiteId, card.id, { rating: nextRating, comment: nextComment })
+  }
+
+  function rate(nextRating: AiTestCardRecord['rating']) {
+    setRating(nextRating)
+    save(nextRating)
+  }
+
+  return (
+    <div className="mt-3 border-t border-gray-100 pt-3">
+      <div className="flex gap-2">
+        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => rate('up')} className={`rounded-lg px-4 py-2 ${rating === 'up' ? 'bg-green-100' : 'bg-gray-100'}`}>👍</button>
+        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => rate('down')} className={`rounded-lg px-4 py-2 ${rating === 'down' ? 'bg-red-100' : 'bg-gray-100'}`}>👎</button>
+      </div>
+      <textarea
+        value={comment}
+        onChange={(event) => setComment(event.target.value)}
+        onBlur={() => save()}
+        rows={2}
+        placeholder="人工评论"
+        className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+      />
+    </div>
+  )
+}
 
 const PRIVATE_SCENARIOS = ['日常关系与语气', '涉及金钱的连续对话', '日程冲突与改约', '长对话人设一致性', '记忆与世界书召回']
 const STATUS_LABEL: Record<AiTestSuiteRecord['status'], string> = {
@@ -185,7 +216,7 @@ export function AiTestCardsPage() {
               {card.reply && <div className="mt-3 rounded-lg bg-gray-50 p-3"><p className="text-[11px] text-gray-400">真实回复</p><p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-gray-900">{card.reply}</p></div>}
               {card.rawResponse && <details className="mt-2 rounded-lg border border-gray-100 p-3"><summary className="text-xs text-gray-500">查看原始 JSON / 上下文</summary><pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-[11px] text-gray-600">{card.rawResponse}</pre><p className="mt-2 text-xs text-gray-500">世界书：{card.context?.worldbookEntries.join('、') || '无'}<br />记忆：{card.context?.memorySummary || '无'}</p></details>}
               {card.error && <p className="mt-2 text-xs text-red-600">{card.error}</p>}
-              {card.status === 'completed' && <div className="mt-3 border-t border-gray-100 pt-3"><div className="flex gap-2"><button type="button" onClick={() => void updateAiTestReview(selectedSuite.id, card.id, { rating: 'up', comment: card.comment })} className={`rounded-lg px-4 py-2 ${card.rating === 'up' ? 'bg-green-100' : 'bg-gray-100'}`}>👍</button><button type="button" onClick={() => void updateAiTestReview(selectedSuite.id, card.id, { rating: 'down', comment: card.comment })} className={`rounded-lg px-4 py-2 ${card.rating === 'down' ? 'bg-red-100' : 'bg-gray-100'}`}>👎</button></div><textarea value={card.comment ?? ''} onChange={(event) => void updateAiTestReview(selectedSuite.id, card.id, { rating: card.rating, comment: event.target.value })} rows={2} placeholder="人工评论" className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></div>}
+              {card.status === 'completed' && <AiTestReviewEditor suiteId={selectedSuite.id} card={card} />}
             </article>)}
           </div>
           {selectedSuite.status === 'completed' && !allRated && <p className="text-center text-xs text-gray-400">请由管理员逐条评分；系统不会自动判断好坏。</p>}

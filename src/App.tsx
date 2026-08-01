@@ -6,7 +6,7 @@ import { refreshMoments } from './lib/moments'
 import { maybeTriggerProactiveMessage } from './lib/proactiveChat'
 import { installConsoleCapture } from './lib/consoleCapture'
 import { TabLayout } from './components/TabLayout'
-import { ALL_MODULES, useModuleEnabled } from './features'
+import { ALL_MODULES, isModuleAllowedInExperienceMode, useModuleEnabled } from './features'
 import { NotificationBanner } from './components/NotificationBanner'
 import { AppErrorBoundary } from './components/AppErrorBoundary'
 import { DesktopLayout } from './components/DesktopLayout'
@@ -14,6 +14,7 @@ import { DesktopHomePage } from './pages/DesktopHomePage'
 import { ensureWallets } from './lib/finance'
 import { ensureLegacyWorldviewMigrated } from './lib/worldbook'
 import { syncContactLocationsAt } from './lib/locations'
+import { initializeContactGenerationTasks } from './lib/contactGenerationTasks'
 // Tab pages are the landing screen — keep them eager. Everything else is
 // route-level code-split (lazy) so the initial bundle stays small; matches
 // how features/* already lazy-load their pages.
@@ -31,11 +32,13 @@ const loadImageProviderSettingsPage = () => import('./pages/ImageProviderSetting
 const ChatPage = lazy(() => loadChatPage().then((m) => ({ default: m.ChatPage })))
 const ContactCardPage = lazy(() => loadContactCardPage().then((m) => ({ default: m.ContactCardPage })))
 const ContactAddPage = lazy(() => loadContactAddPage().then((m) => ({ default: m.ContactAddPage })))
+const ContactGenerationTaskPage = lazy(() => import('./pages/ContactGenerationTaskPage').then((m) => ({ default: m.ContactGenerationTaskPage })))
 const GroupAddPage = lazy(() => import('./pages/GroupAddPage').then((m) => ({ default: m.GroupAddPage })))
 const GroupInfoPage = lazy(() => import('./pages/GroupInfoPage').then((m) => ({ default: m.GroupInfoPage })))
 const MomentsPage = lazy(() => loadMomentsPage().then((m) => ({ default: m.MomentsPage })))
 const SettingsPage = lazy(() => loadSettingsPage().then((m) => ({ default: m.SettingsPage })))
 const AppearancePage = lazy(() => import('./pages/AppearancePage').then((m) => ({ default: m.AppearancePage })))
+const ExperienceModePage = lazy(() => import('./pages/ExperienceModePage').then((m) => ({ default: m.ExperienceModePage })))
 const StickersPage = lazy(() => import('./pages/StickersPage').then((m) => ({ default: m.StickersPage })))
 const StickerProviderListPage = lazy(() => import('./pages/StickerProviderListPage').then((m) => ({ default: m.StickerProviderListPage })))
 const StickerProviderSettingsPage = lazy(() => import('./pages/StickerProviderSettingsPage').then((m) => ({ default: m.StickerProviderSettingsPage })))
@@ -134,10 +137,12 @@ function App() {
   const animationsEnabled = useSettingsStore((s) => s.animationsEnabled ?? true)
   const adminModeEnabled = useSettingsStore((s) => s.adminModeEnabled)
   const enabledModules = useSettingsStore((s) => s.enabledModules)
+  const experienceMode = useSettingsStore((s) => s.experienceMode)
   const location = useLocation()
   const desktop = Boolean(window.talkDesktop)
   useEffect(() => { void ensureWallets() }, [enabledModules])
   useEffect(() => { void ensureLegacyWorldviewMigrated() }, [])
+  useEffect(() => { void initializeContactGenerationTasks() }, [])
   useEffect(() => {
     if (!desktop) return
     // Warm the routes people open most often after the desktop shell settles.
@@ -161,7 +166,7 @@ function App() {
     const seen = new Set<string>()
     const routes: { path: string; Component: ElementType }[] = []
     for (const m of ALL_MODULES) {
-      if (!enabledModules.includes(m.id)) continue
+      if (!enabledModules.includes(m.id) || !isModuleAllowedInExperienceMode(m.id, experienceMode)) continue
       for (const r of m.routes ?? []) {
         if (seen.has(r.path)) continue
         seen.add(r.path)
@@ -169,7 +174,7 @@ function App() {
       }
     }
     return routes
-  }, [enabledModules])
+  }, [enabledModules, experienceMode])
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode
@@ -201,6 +206,7 @@ function App() {
         </Route>
         <Route path="/chat/:conversationId" element={<ChatPage />} />
         <Route path="/contact/new" element={<ContactAddPage />} />
+        <Route path="/contact-generation/:taskId" element={<ContactGenerationTaskPage />} />
         <Route path="/contact/:contactId" element={<ContactCardPage />} />
         <Route path="/group/new" element={<GroupAddPage />} />
         <Route path="/group/:groupId" element={<GroupInfoPage />} />
@@ -208,6 +214,7 @@ function App() {
         <Route path="/social-inbox" element={<SocialInboxPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/appearance" element={<AppearancePage />} />
+        <Route path="/experience-mode" element={<ExperienceModePage />} />
         <Route path="/settings/image-generation" element={<ImageProviderListPage />} />
         <Route path="/settings/image-generation/:providerId" element={<ImageProviderSettingsPage />} />
         <Route path="/stickers" element={<StickersPage />} />

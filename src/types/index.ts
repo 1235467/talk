@@ -297,6 +297,10 @@ export interface LocationMapBinding {
   y: number
   allowedTerrains: TerrainType[]
   buildingCategory: string
+  /** Optional catalog icon; falls back to buildingCategory for legacy rows. */
+  iconId?: string
+  /** User-imported local icon. Stored with the location so backups stay portable. */
+  customIconDataUrl?: string
 }
 
 export interface LocationNode {
@@ -307,6 +311,7 @@ export interface LocationNode {
   description: string
   access: 'public' | 'restricted' | 'private'
   mapBinding?: LocationMapBinding
+  userCreated?: boolean
   sortOrder: number
   createdAt: number
   updatedAt: number
@@ -314,12 +319,16 @@ export interface LocationNode {
 
 export interface WorldMapRecord {
   id: 'active'
-  width: 32
-  height: 32
+  width: number
+  height: number
   seed: string
   generatorVersion: number
   mode: 'fixed' | 'custom'
   tiles: TerrainType[]
+  themeId?: string
+  customBackgroundDataUrl?: string
+  customBackgroundName?: string
+  roads?: Array<{ points: Array<{ x: number; y: number }>; kind: 'primary' | 'secondary' }>
   createdAt: number
   updatedAt: number
 }
@@ -608,6 +617,7 @@ export interface ShopPurchaseHistory {
 }
 
 export interface AppSettings {
+  experienceMode: ContactGenerationExperienceMode
   aiProvider: import('../lib/aiProviders').AiProviderId
   apiKey: string
   baseUrl: string
@@ -1025,6 +1035,104 @@ export interface PersonaCreationRecord {
   monthlySalary?: number
   sharedHistory?: string
   createdAt: number
+}
+
+export type ContactGenerationExperienceMode = 'immersive' | 'free'
+export type ContactGenerationMethod = 'discovery' | 'precision'
+export type ContactGenerationStatus =
+  | 'queued'
+  | 'preparing'
+  | 'retrieving_context'
+  | 'extracting_canon'
+  | 'generating'
+  | 'validating'
+  | 'fetching_avatar'
+  | 'awaiting_review'
+  | 'committing'
+  | 'completed'
+  | 'failed'
+  | 'paused'
+  | 'cancelled'
+
+export interface ContactGenerationRelationInput {
+  targetContactId: string
+  label: ContactRelationLabel
+}
+
+/** Serializable creation request. Credentials are deliberately never persisted here. */
+export interface ContactGenerationInput {
+  personalityTags: string[]
+  ageRange: string
+  gender: string
+  relationship: string
+  occupation: string
+  hobbies: string[]
+  personalityTrait: string
+  personalityTraitContent?: string
+  roleDescription: string
+  personaSetting: string
+  sharedHistory: string
+  realName?: string
+  nickname?: string
+  birthday?: string
+  avatar: string
+  avatarManuallySet: boolean
+  initialWarmthMode: 'auto' | 'custom' | 'ai'
+  initialWarmth?: number
+  customPersonalityTraits?: CustomPersonalityTrait[]
+  relations: ContactGenerationRelationInput[]
+  selectedWorldbookEntryIds: string[]
+  importedWorldbook?: { collection: WorldbookCollection; entries: WorldbookEntry[] }
+  importedFirstMessage?: string
+  careerEnabled: boolean
+  relationshipEnabled: boolean
+  locationEnabled: boolean
+}
+
+export interface ContactGenerationError {
+  code: string
+  stage: ContactGenerationStatus
+  message: string
+  technicalMessage: string
+  retryable: boolean
+  attempt: number
+  provider?: string
+  model?: string
+  httpStatus?: number
+  finishReason?: string
+  responseChars?: number
+  failedFields?: string[]
+  occurredAt: number
+}
+
+/** Persisted job shown in the contact list until it becomes a real contact. */
+export interface ContactGenerationTask {
+  id: string
+  experienceMode: ContactGenerationExperienceMode
+  method: ContactGenerationMethod
+  status: ContactGenerationStatus
+  stageLabel: string
+  input: ContactGenerationInput
+  provider: import('../lib/aiProviders').AiProviderId
+  baseUrl: string
+  model: string
+  utilityModel: string
+  partialFields?: Record<string, unknown>
+  worldbookText?: string
+  canon?: unknown
+  rawOutput?: string
+  validationRepairAttempted?: boolean
+  personaDraft?: import('../lib/prompt').PersonaGenerationResult
+  finalAvatar?: string
+  avatarPhotographer?: string
+  avatarPhotographerUrl?: string
+  resultContactId?: string
+  error?: ContactGenerationError
+  attempt: number
+  createdAt: number
+  updatedAt: number
+  startedAt?: number
+  completedAt?: number
 }
 
 export interface ProactiveTopicRecord {

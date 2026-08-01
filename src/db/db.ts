@@ -17,7 +17,7 @@ import type {
   WorldbookCollection,
   WorldbookEntry,
   SimulationState, ContactLifeState, LifeEvent, ContactExperience, AiUsageRecord,
-  SocialEvent, GroupPlan, AdminLogRecord, AdminAiTrace, SaveSlot, SavedPersona, PersonaCreationRecord, ShopPurchaseHistory,
+  SocialEvent, GroupPlan, AdminLogRecord, AdminAiTrace, SaveSlot, SavedPersona, PersonaCreationRecord, ShopPurchaseHistory, ContactGenerationTask,
   Sticker,
   WalletAccount, WalletTransaction, Loan, JobListing, InterviewSession,
   LocationNode, WorldMapRecord, LocationModuleState, AcousticEdge,
@@ -59,6 +59,7 @@ export class TalkDB extends Dexie {
   savedPersonas!: Table<SavedPersona, string>
   personaCreationRecords!: Table<PersonaCreationRecord, string>
   shopPurchaseHistory!: Table<ShopPurchaseHistory, string>
+  contactGenerationTasks!: Table<ContactGenerationTask, string>
   locations!: Table<LocationNode, string>
   worldMaps!: Table<WorldMapRecord, string>
   locationModuleState!: Table<LocationModuleState, string>
@@ -354,6 +355,9 @@ export class TalkDB extends Dexie {
           await inventory.add({ ...item, id: crypto.randomUUID(), productKey, quantity: undefined, updatedAt: undefined, acquiredAt: Number(item.acquiredAt || Date.now()) + index })
         }
       }
+    })
+    this.version(33).stores({
+      contactGenerationTasks: 'id, status, createdAt, updatedAt',
     })
   }
 }

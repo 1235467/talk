@@ -20,6 +20,7 @@ export function ContactsPage() {
   const navigate = useNavigate()
   const adminModeEnabled = useSettingsStore((s) => s.adminModeEnabled)
   const contactsRaw = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_ARRAY
+  const generationTasks = useLiveQuery(() => db.contactGenerationTasks.orderBy('createdAt').toArray(), []) ?? EMPTY_ARRAY
   const contacts = useMemo(
     () => contactsRaw.filter((contact) => !isAiTestId(contact.id)).sort((a, b) => displayName(a).localeCompare(displayName(b), 'zh')),
     [contactsRaw],
@@ -94,7 +95,23 @@ export function ContactsPage() {
           </button>
         )}
 
-        {contacts.length === 0 ? (
+        {generationTasks.filter((task) => !['cancelled', 'completed'].includes(task.status)).map((task) => (
+          <button
+            key={task.id}
+            onClick={() => navigate(`/contact-generation/${task.id}`)}
+            className="flex w-full items-center gap-3 border-b border-gray-100 px-4 py-2.5 text-left active:bg-gray-50"
+          >
+            <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${task.status === 'failed' ? 'bg-red-50 text-red-500' : task.status === 'awaiting_review' ? 'bg-green-50 text-green-600' : 'bg-[var(--ui-special-soft)] text-[var(--ui-special-ink)]'}`}>
+              {task.status === 'failed' ? '!' : task.status === 'awaiting_review' ? '✓' : '◌'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[15px] text-gray-900">{task.experienceMode === 'immersive' ? '正在寻找联系人' : task.method === 'precision' ? '精细创建 · 女娲模式' : '正在生成联系人'}</p>
+              <p className={`truncate text-xs ${task.status === 'failed' ? 'text-red-500' : task.status === 'awaiting_review' ? 'text-green-600' : 'text-gray-400'}`}>{task.stageLabel}</p>
+            </div>
+          </button>
+        ))}
+
+        {contacts.length === 0 && generationTasks.filter((task) => !['cancelled', 'completed'].includes(task.status)).length === 0 ? (
           <p className="px-4 py-10 text-center text-sm text-gray-400">
             还没有联系人 点击上方"添加联系人"认识一个新朋友吧
           </p>

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { v4 as uuid } from 'uuid'
@@ -10,33 +10,25 @@ import { WorldbookEntrySelector } from '../components/WorldbookEntrySelector'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { useModuleEnabled } from '../features'
 import { chatCompletionText as chatCompletion } from '../lib/deepseek'
-import { randomAvatarColor } from '../lib/colors'
 import { AVATAR_EMOJIS } from '../lib/avatarEmojis'
 import { pickRandomTrait } from '../lib/randomTraits'
 import { initialWarmthForBase } from '../lib/relationship'
-import { setPairedContactRelation } from '../lib/contactRelations'
-import { rememberInitialContactRelation } from '../lib/memory'
 import { Dice5 } from 'lucide-react'
 import { displayName } from '../lib/contact'
 import { isAiTestId } from '../lib/aiTestIsolation'
-import { pickAvatarCategory } from '../lib/avatarCategory'
-import { OCCUPATION_OPTIONS, employmentPatch } from '../lib/career'
-import { randomAnimeAvatar, searchPexelsPhoto } from '../lib/photoSearch'
+import { OCCUPATION_OPTIONS } from '../lib/career'
 import { retrieveWorldbookContext, selectedWorldbookEntriesText } from '../lib/worldbook'
-import { featureActive, getPromptTemplate, promptModuleEnabled } from '../lib/promptModules'
+import { featureActive, getPromptTemplate } from '../lib/promptModules'
 import { customTraitsValidationError, hasOverlappingCustomTraitRules } from '../lib/contactCreator'
-import { syncContactLocationsAt } from '../lib/locations'
 import { characterCardPersonaText, parseSillyTavernCharacterCard } from '../lib/characterCardImport'
 import { parseWorldbookFile, type ParsedWorldbookImport } from '../lib/worldbookImport'
-import { extractWorldbookPersonaCanon } from '../lib/worldbookPersonaCanon'
+import { createContactGenerationTask } from '../lib/contactGenerationTasks'
 import { CONTACT_RELATION_LABELS, HOBBY_TAG_OPTIONS, PERSONALITY_TRAIT_OPTIONS, type ContactRelationLabel, type CustomPersonalityTrait, type PersonaCreationRecord } from '../types'
 import {
   AGE_RANGE_OPTIONS,
   GENDER_OPTIONS,
   PERSONALITY_TAG_OPTIONS,
   RELATIONSHIP_OPTIONS,
-  buildPersonaGenerationPrompt,
-  parsePersonaGeneration,
   type PersonaGenerationResult,
 } from '../lib/prompt'
 import {
@@ -50,18 +42,6 @@ import {
   parseNuwaStructuredResult,
   type NuwaStructuredResult,
 } from '../lib/nuwaPersona'
-
-/** Contact creation has a few real async phases (persona LLM call, then optional photo fetch, then db writes) — reflect actual state transitions rather than a fake time-based animation. */
-const PROGRESS_LABELS: Record<'persona' | 'avatar' | 'saving', string> = {
-  persona: '正在为TA设计人设…',
-  avatar: '正在匹配头像…',
-  saving: '创建中…',
-}
-const PROGRESS_PERCENT: Record<'persona' | 'avatar' | 'saving', number> = {
-  persona: 30,
-  avatar: 70,
-  saving: 95,
-}
 
 interface RelationRow {
   key: string
@@ -100,7 +80,6 @@ export function ContactAddPage() {
   const [avatarManuallySet, setAvatarManuallySet] = useState(false)
   const [pickingAvatar, setPickingAvatar] = useState(false)
   const [generating, setGenerating] = useState(false)
-  const [progressStep, setProgressStep] = useState<'persona' | 'avatar' | 'saving' | null>(null)
   const [error, setError] = useState('')
   const [relationRows, setRelationRows] = useState<RelationRow[]>([])
   const [customTraits, setCustomTraits] = useState<CustomPersonalityTrait[]>([])
@@ -124,6 +103,13 @@ export function ContactAddPage() {
   const [importedFirstMessage, setImportedFirstMessage] = useState('')
   const [importedCardName, setImportedCardName] = useState('')
   const [pendingCardWorldbook, setPendingCardWorldbook] = useState<ParsedWorldbookImport | null>(null)
+
+  useEffect(() => {
+    if (settings.experienceMode === 'immersive' && isNuwaMode) {
+      setIsNuwaMode(false)
+      setPersonaDraft(null)
+    }
+  }, [settings.experienceMode, isNuwaMode])
 
   async function importCharacterCard(file: File) {
     try {
@@ -194,13 +180,6 @@ export function ContactAddPage() {
       pendingCardWorldbook?.entries.length ? `【角色卡内嵌世界书——正史】\n${pendingCardWorldbook.entries.map((entry) => `【${entry.title}】\n${entry.content}`).join('\n\n')}` : '',
       retrievedText,
     ].filter(Boolean).join('\n\n')
-  }
-
-  function fallbackBirthday(ageText: string) {
-    const ages = [...ageText.matchAll(/\d+/g)].map((m) => Number(m[0])).filter(Number.isFinite)
-    const age = ages.length ? Math.round(ages.reduce((sum, value) => sum + value, 0) / ages.length) : 25
-    const now = new Date()
-    return `${now.getFullYear() - age}-06-15`
   }
 
   function personaSnapshot() {
@@ -472,282 +451,61 @@ issues 要用简短中文列出具体错误。` },
       if (relationRows.some((row) => !row.targetContactId || !row.label.trim())) { setError('联系人关系不能留空'); return }
       if (new Set(relationRows.map((row) => row.targetContactId)).size !== relationRows.length) { setError('同一个联系人只能设置一条关系'); return }
     }
+    const values = overrides ?? {
+      tags: isNuwaMode ? customTendencies.split(/[、,，]+/).map((x) => x.trim()).filter(Boolean) : tags,
+      ageRange: isNuwaMode ? customAge : ageRange,
+      gender: isNuwaMode ? customGender : gender,
+      relationship: isNuwaMode ? customRelationship : relationship,
+      personalityTrait,
+      hobbies: isNuwaMode ? customHobbies.split(/[、,，]+/).map((x) => x.trim()).filter(Boolean) : hobbies,
+      occupation: isNuwaMode ? customOccupation.trim() : (occupation === '自定义' ? customOccupation.trim() : occupation),
+      relationRows,
+    }
     setGenerating(true)
-    const generationStartedAt = performance.now()
     setError('')
-    setProgressStep('persona')
     try {
-      if (!promptModuleEnabled(settings, 'nuwaMode')) throw new Error('女娲创建提示词模块已屏蔽')
-      let values = overrides ?? {
-        tags: isNuwaMode ? customTendencies.split(/[、,，]+/).map((x) => x.trim()).filter(Boolean) : tags,
-        ageRange: isNuwaMode ? customAge : ageRange,
-        gender: isNuwaMode ? customGender : gender,
-        relationship: isNuwaMode ? customRelationship : relationship,
-        personalityTrait,
-        hobbies: isNuwaMode ? customHobbies.split(/[、,，]+/).map((x) => x.trim()).filter(Boolean) : hobbies,
-        occupation: isNuwaMode ? customOccupation.trim() : (occupation === '自定义' ? customOccupation.trim() : occupation),
-        relationRows,
-      }
-      let effectiveSharedHistory = (draftMode ? (sharedHistory || extra) : sharedHistory).trim()
-      const personaSettingText = (isNuwaMode ? currentNuwaPersonaText() : '').trim()
-      const avatarCategory = pickAvatarCategory(values.tags)
-      let parsed = draftOverride
-      const roleDescription = extra
-      if (!parsed) {
-        const interpersonalSetting = currentInterpersonalSetting()
-        const extra = [roleDescription, personaSettingText, interpersonalSetting].filter(Boolean).join('\n\n')
-        const worldbookText = await creationWorldbookContext([values.tags.join(' '), values.ageRange, values.gender, values.relationship, values.personalityTrait, values.hobbies.join(' '), values.occupation, extra, personaSettingText].join('\n'))
-        const canon = await extractWorldbookPersonaCanon({
-          settings,
-          worldbookText,
-          requestedCharacter: [roleDescription, personaSettingText, values.relationship].filter(Boolean).join('\n'),
-          existingContactNames: existingContacts.flatMap((contact) => [contact.name, contact.realName, contact.nickname, displayName(contact)].filter((name): name is string => !!name)),
-        })
-        if (!values.relationship && canon.relationship) values = { ...values, relationship: canon.relationship }
-        if (!effectiveSharedHistory && canon.sharedHistory) {
-          effectiveSharedHistory = canon.sharedHistory
-          setSharedHistory(canon.sharedHistory)
-        }
-        const canonText = canon.pastExperiences.length || canon.facts.length || canon.relationship
-          ? `【已结构化提取的世界书正史——输出必须逐项覆盖】\n${JSON.stringify(canon)}`
-          : ''
-        const raw = await chatCompletion({
-          apiKey: settings.apiKey,
-          baseUrl: settings.baseUrl,
-          model: settings.model,
-          messages: [
-            {
-              role: 'system',
-              content: buildPersonaGenerationPrompt(
-                {
-                  personalityTags: values.tags,
-                  ageRange: values.ageRange,
-                  gender: values.gender,
-                  relationship: values.relationship,
-                  personalityTrait: values.personalityTrait,
-                  hobbies: values.hobbies,
-                  sharedHistory: effectiveSharedHistory,
-                  draftMode: isNuwaMode,
-                  extra,
-                  occupation: values.occupation,
-                },
-                avatarCategory,
-                settings.promptModules,
-                [worldbookText, canonText].filter(Boolean).join('\n\n'),
-              ),
-            },
-            { role: 'user', content: '请生成' },
-          ],
-          jsonMode: true,
-          thinking: 'disabled',
-          temperature: 0.7,
-          maxTokens: 2200,
-          purpose: 'persona',
-        })
-        console.info(`[persona-perf] 主模型完成=${Math.round(performance.now() - generationStartedAt)}ms`)
-        parsed = parsePersonaGeneration(raw) ?? undefined
-        if (parsed && canon.pastExperiences.length) {
-          const existingExperiences = parsed.pastExperiences ?? []
-          const seen = new Set(existingExperiences.map((item) => `${item.period}|${item.summary}`))
-          parsed = {
-            ...parsed,
-            relationship: values.relationship || parsed.relationship || canon.relationship,
-            pastExperiences: [...canon.pastExperiences.filter((item) => !seen.has(`${item.period}|${item.summary}`)), ...existingExperiences].slice(0, 12),
-            personaProfile: {
-              facts: Array.from(new Set([...(canon.facts ?? []), ...(parsed.personaProfile?.facts ?? [])])),
-              boundaries: Array.from(new Set([...(canon.boundaries ?? []), ...(parsed.personaProfile?.boundaries ?? [])])),
-              habits: parsed.personaProfile?.habits ?? [],
-              behaviorAnchors: parsed.personaProfile?.behaviorAnchors ?? [],
-            },
-          }
-        }
-      }
-      if (!parsed) throw new Error('生成结果解析失败 请重试一次')
-      if (personaSettingText && !parsed.persona.includes(personaSettingText)) {
-        parsed = { ...parsed, persona: `${personaSettingText}\n\n${parsed.persona}` }
-      }
-      if (isNuwaMode) {
-        if (!draftOverride) {
-          setPersonaDraft({
-            ...parsed,
-            initialWarmth: parsed.initialWarmth ?? initialWarmthForBase(values.relationship || parsed.relationship || '朋友', values.personalityTrait || parsed.personalityTrait),
-          })
-          setError('初稿已生成，请检查并修改后再确认创建')
-          return
-        }
-        values = {
-          ...values,
-          ageRange: parsed.ageRange || values.ageRange,
-          gender: parsed.gender || values.gender,
-          relationship: parsed.relationship || values.relationship,
-          occupation: parsed.occupation || values.occupation,
-          personalityTrait: values.personalityTrait || (parsed.personalityTrait === '无' ? '' : parsed.personalityTrait),
-        }
-      }
-
-      // Auto-fetch a real photo avatar matching the code-chosen category —
-      // only if the user hasn't already manually picked their own emoji/upload.
-      // Best-effort: any failure (no Pexels key, network error, no results)
-      // just falls back to the random emoji already sitting in `avatar`.
-      let finalAvatar = avatar
-      let avatarPhotographer: string | undefined
-      let avatarPhotographerUrl: string | undefined
-      if (!avatarManuallySet) {
-        setProgressStep('avatar')
-        try {
-          const photo =
-            avatarCategory === 'anime'
-              ? await randomAnimeAvatar()
-              : await searchPexelsPhoto(settings.pexelsApiKey, parsed.avatarKeyword || avatarCategory, 'square')
-          if (photo) {
-            finalAvatar = photo.url
-            avatarPhotographer = photo.photographer
-            avatarPhotographerUrl = photo.photographerUrl
-          }
-        } catch {
-          // photo avatar is a nice-to-have; contact creation must still succeed
-        }
-      }
-
-      setProgressStep('saving')
-      const id = uuid()
-      const now = Date.now()
-      if (pendingCardWorldbook) {
-        await db.worldbookCollections.put(pendingCardWorldbook.collection)
-        await db.worldbookEntries.bulkPut(pendingCardWorldbook.entries)
-      }
-      const boundWorldbookEntryIds = Array.from(new Set([...selectedWorldbookEntryIds, ...(pendingCardWorldbook?.entries.map((entry) => entry.id) ?? [])]))
-      const chosenOccupation = values.occupation
-      const automaticWarmth = initialWarmthForBase(values.relationship || parsed.relationship || '朋友', values.personalityTrait || parsed.personalityTrait)
-      const resolvedInitialWarmth = isNuwaMode
-        ? parsed.initialWarmth ?? automaticWarmth
-        : initialWarmthMode === 'custom'
-          ? Math.max(-100, Math.min(100, Math.round(customInitialWarmth)))
-          : automaticWarmth
-      await db.contacts.add({
-        id,
-        name: parsed.name,
-        realName: (isNuwaMode ? customRealName.trim() : '') || parsed.realName || parsed.name,
-        nickname: (isNuwaMode ? customNickname.trim() : '') || (isNuwaMode ? parsed.nickname : parsed.name) || parsed.name,
-        gender: values.gender || parsed.gender || parsed.personaProfile?.facts.find((fact) => fact.includes('性别')) || '',
-        birthday: (isNuwaMode ? customBirthday.trim() : '') || parsed.birthday || fallbackBirthday(parsed.ageRange || values.ageRange),
-        avatar: finalAvatar,
-        avatarColor: randomAvatarColor(),
-        avatarPhotographer,
-        avatarPhotographerUrl,
-        systemPrompt: parsed.persona,
-        personaConstraints: extra.trim() || undefined,
-        sharedHistory: effectiveSharedHistory || undefined,
-        creatorProfile: { personalityTendencies: values.tags, age: values.ageRange || parsed.ageRange || '', gender: values.gender || parsed.gender || '', relationship: values.relationship || parsed.relationship || '', occupation: values.occupation || parsed.occupation || '', hobbies: values.hobbies, notes: extra.trim(), sharedHistory: effectiveSharedHistory },
-        customPersonalityTraits: isNuwaMode ? effectiveNuwaTraits() : undefined,
-        personaProfile: parsed.personaProfile,
-        speechSamples: parsed.speechSamples,
-        createdAt: now,
-        memoryFacts: '',
-        memoryStyle: '',
-        memoryUpdatedAt: 0,
-        memoryMessageCursor: 0,
-        ...(relEnabled
-          ? { warmth: resolvedInitialWarmth }
-          : {}),
-        relationshipBase: values.relationship || parsed.relationship || '朋友',
-        relationshipDynamic: '',
-        personalityTrait: values.personalityTrait || parsed.personalityTrait || '无',
-        schedule: parsed.schedule,
-        scheduleOverrides: [],
-        mbti: parsed.mbti || undefined,
-        worldbookEntryIds: boundWorldbookEntryIds,
-        experienceCursorAt: now,
-        ...(careerEnabled && (chosenOccupation || parsed.occupation) ? employmentPatch(chosenOccupation || parsed.occupation || '', parsed.monthlySalary ?? 6000) : {}),
-      })
-      if (personaSettingText) {
-        await db.contacts.update(id, { personaConstraints: [extra.trim(), personaSettingText].filter(Boolean).join('\n\n') })
-      }
-      if (settings.enabledModules.includes('location')) await syncContactLocationsAt(new Date(now))
-      const newConversationId = uuid()
-      await db.conversations.add({
-        id: newConversationId,
-        contactId: id,
-        pinned: false,
-        createdAt: now,
-        updatedAt: now,
-      })
-      if (importedFirstMessage.trim()) {
-        await db.messages.add({ id: uuid(), conversationId: newConversationId, role: 'assistant', type: 'text', content: importedFirstMessage.trim(), createdAt: now + 1 })
-        await db.conversations.update(newConversationId, { updatedAt: now + 1 })
-      }
-      for (const row of values.relationRows) {
-        await setPairedContactRelation(id, row.targetContactId, row.label)
-        await rememberInitialContactRelation({
-          fromContactId: id,
-          toContactId: row.targetContactId,
-          label: row.label,
-          now,
-        })
-      }
-      const contactIdByName = new Map(existingContacts.flatMap((existingContact) => [
-        existingContact.name,
-        existingContact.realName,
-        existingContact.nickname,
-        displayName(existingContact),
-      ].filter((name): name is string => !!name).map((name) => [name.trim().toLocaleLowerCase(), existingContact.id] as const)))
-      const pastExperiences = parsed.pastExperiences ?? []
-      if (pastExperiences.length > 0) {
-        await db.contactExperiences.bulkAdd(pastExperiences.map((experience) => ({
-          id: uuid(),
-          contactIds: [id, ...Array.from(new Set(experience.relatedContactNames.map((name) => contactIdByName.get(name.trim().toLocaleLowerCase())).filter((relatedId): relatedId is string => !!relatedId)))],
-          kind: 'past' as const,
-          memoryTier: 'long' as const,
-          title: experience.title || '过去的经历',
-          summary: experience.summary,
-          periodLabel: experience.period || undefined,
-          importance: experience.importance,
-          sources: Array.from(new Set([
-            effectiveSharedHistory ? 'user' : undefined,
-            boundWorldbookEntryIds.length ? 'worldbook' : undefined,
-            values.relationRows.length ? 'relationship' : undefined,
-            'persona',
-          ].filter((source): source is 'user' | 'worldbook' | 'relationship' | 'persona' => !!source))),
-          sourceRefIds: boundWorldbookEntryIds.length ? boundWorldbookEntryIds : undefined,
-          createdAt: now,
-        })))
-      } else if (effectiveSharedHistory) {
-        await db.contactExperiences.add({ id: uuid(), contactIds: [id], kind: 'past', memoryTier: 'long', title: '与用户的过去', summary: effectiveSharedHistory, importance: 85, sources: ['user'], createdAt: now })
-      }
-      await db.personaCreationRecords.add({
-        id: uuid(),
-        sourceContactId: id,
-        name: parsed.name,
-        realName: parsed.realName,
-        nickname: parsed.nickname,
-        birthday: parsed.birthday,
-        gender: values.gender || parsed.gender,
-        ageRange: values.ageRange || parsed.ageRange,
-        relationship: values.relationship || parsed.relationship,
-        occupation: values.occupation || parsed.occupation,
-        personalityTrait: values.personalityTrait || parsed.personalityTrait,
-        initialWarmth: relEnabled ? resolvedInitialWarmth : undefined,
-        hobbies: values.hobbies,
-        personaSetting: personaSettingText || parsed.persona,
-        roleDescription: extra.trim() || undefined,
-        persona: parsed.persona,
-        personaProfile: parsed.personaProfile,
-        speechSamples: parsed.speechSamples,
-        mbti: parsed.mbti,
-        schedule: parsed.schedule,
-        avatarKeyword: parsed.avatarKeyword,
-        monthlySalary: parsed.monthlySalary,
-        sharedHistory: effectiveSharedHistory || undefined,
-        createdAt: now,
+      await createContactGenerationTask({
+        method: isNuwaMode ? 'precision' : 'discovery',
+        experienceMode: settings.experienceMode,
+        personaDraft: draftOverride,
+        input: {
+          personalityTags: values.tags,
+          ageRange: values.ageRange,
+          gender: values.gender,
+          relationship: values.relationship,
+          occupation: values.occupation,
+          hobbies: values.hobbies,
+          personalityTrait: values.personalityTrait,
+          personalityTraitContent,
+          roleDescription: extra.trim(),
+          personaSetting: isNuwaMode ? currentNuwaPersonaText().trim() : '',
+          sharedHistory: (isNuwaMode ? (sharedHistory || extra) : sharedHistory).trim(),
+          realName: isNuwaMode ? customRealName.trim() : undefined,
+          nickname: isNuwaMode ? customNickname.trim() : undefined,
+          birthday: isNuwaMode ? customBirthday.trim() : undefined,
+          avatar,
+          avatarManuallySet,
+          initialWarmthMode: isNuwaMode ? 'ai' : initialWarmthMode,
+          initialWarmth: isNuwaMode ? draftOverride?.initialWarmth : customInitialWarmth,
+          customPersonalityTraits: isNuwaMode ? effectiveNuwaTraits() : undefined,
+          relations: values.relationRows.map((row) => ({ targetContactId: row.targetContactId, label: row.label })),
+          selectedWorldbookEntryIds,
+          importedWorldbook: pendingCardWorldbook ?? undefined,
+          importedFirstMessage,
+          careerEnabled,
+          relationshipEnabled: relEnabled,
+          locationEnabled: settings.experienceMode === 'free' && settings.enabledModules.includes('location'),
+        },
       })
       void navigate('/contacts')
-      console.info(`[persona-perf] 创建完成=${Math.round(performance.now() - generationStartedAt)}ms`)
+      return
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+      return
     } finally {
       setGenerating(false)
-      setProgressStep(null)
     }
+
   }
 
   function addCustomTrait() {
@@ -782,17 +540,17 @@ issues 要用简短中文列出具体错误。` },
       <TopBar title="添加联系人" showBack />
 
       <div className="mt-3 flex-1 overflow-y-auto bg-white px-4 py-4">
-        <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-1" role="group" aria-label="创建模式">
+        {settings.experienceMode === 'free' ? <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-1" role="group" aria-label="创建方式">
           <div className="grid grid-cols-2 gap-1">
-            <button type="button" aria-pressed={!isNuwaMode} onClick={() => { setIsNuwaMode(false); setPersonaDraft(null); setError('') }} className={`rounded-lg py-2.5 text-sm ${!isNuwaMode ? 'bg-white font-medium text-gray-900 shadow-sm' : 'text-gray-500'}`}>常规模式</button>
-            <button type="button" aria-pressed={isNuwaMode} onClick={() => { setIsNuwaMode(true); setPersonaDraft(null); setError('') }} className={`rounded-lg py-2.5 text-sm ${isNuwaMode ? 'bg-[var(--ui-special)] font-medium text-white shadow-sm' : 'text-gray-500'}`}>女娲模式</button>
+            <button type="button" aria-pressed={!isNuwaMode} onClick={() => { setIsNuwaMode(false); setPersonaDraft(null); setError('') }} className={`rounded-lg py-2.5 text-sm ${!isNuwaMode ? 'bg-white font-medium text-gray-900 shadow-sm' : 'text-gray-500'}`}>帮我找人</button>
+            <button type="button" aria-pressed={isNuwaMode} onClick={() => { setIsNuwaMode(true); setPersonaDraft(null); setError('') }} className={`rounded-lg py-2.5 text-sm ${isNuwaMode ? 'bg-[var(--ui-special)] font-medium text-white shadow-sm' : 'text-gray-500'}`}>精细创建</button>
           </div>
-          <p className="px-2 pb-1 pt-2 text-[11px] leading-relaxed text-gray-400">女娲模式会先生成一份完整人设初稿，你可以逐项修改，确认后才会创建联系人。</p>
-        </div>
-        {!isNuwaMode && <button type="button" onClick={completelyRandom} disabled={generating} className="mb-4 flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 py-3 text-sm font-medium text-white transition active:scale-[.98] disabled:opacity-50"><Dice5 size={17} />完全随机创建</button>}
-        <button type="button" onClick={() => characterCardInputRef.current?.click()} disabled={generating} className="mb-4 w-full rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface-2)] py-2.5 text-sm text-[var(--ui-text-2)] disabled:opacity-50">导入 SillyTavern 角色卡</button>
+          <p className="px-2 pb-1 pt-2 text-[11px] leading-relaxed text-gray-400">帮我找人会随机补全所有未选择的项目；精细创建（女娲模式）会先生成可修改的完整初稿。</p>
+        </div> : <div className="mb-4 rounded-xl border border-[var(--ui-special-border)] bg-[var(--ui-special-soft)] px-3 py-3"><p className="text-sm font-medium text-[var(--ui-special-ink)]">帮我找人</p><p className="mt-1 text-xs leading-relaxed text-[var(--ui-special-ink)]">只需选择你在意的条件，其他资料会在寻找过程中自然确定。</p></div>}
+        {!isNuwaMode && <button type="button" onClick={completelyRandom} disabled={generating} className="mb-4 flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 py-3 text-sm font-medium text-white transition active:scale-[.98] disabled:opacity-50"><Dice5 size={17} />完全随机寻找</button>}
+        {settings.experienceMode === 'free' && <><button type="button" onClick={() => characterCardInputRef.current?.click()} disabled={generating} className="mb-4 w-full rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface-2)] py-2.5 text-sm text-[var(--ui-text-2)] disabled:opacity-50">导入 SillyTavern 角色卡</button>
         <input ref={characterCardInputRef} type="file" accept=".png,.json,application/json,image/png" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importCharacterCard(file) }} />
-        {importedCardName && <p className="-mt-2 mb-4 break-all text-[11px] text-[var(--ui-text-3)]">已载入：{importedCardName}</p>}
+        {importedCardName && <p className="-mt-2 mb-4 break-all text-[11px] text-[var(--ui-text-3)]">已载入：{importedCardName}</p>}</>}
         {isNuwaMode && <p className="mb-2 text-xs text-[var(--ui-special-ink)]">女娲模式：先写初稿建议和你确定的设定，AI只补全仍为空的内容。</p>}
         <p className="mb-4 text-xs text-gray-400">
           描述一下你想认识的这个人 名字会由对方自己来定 确认添加后就正式加上了 之后不能再改TA的性格设定
@@ -801,7 +559,7 @@ issues 要用简短中文列出具体错误。` },
         {isNuwaMode && <div className="mb-4 grid grid-cols-2 gap-2"><button type="button" onClick={() => void saveCurrentPersona()} className="rounded-lg bg-gray-900 py-2.5 text-sm text-white">保存当前人设</button><button type="button" onClick={() => { setPersonaPage(0); setPersonaPickerOpen(true) }} className="rounded-lg border border-gray-300 bg-white py-2.5 text-sm text-gray-800">使用已保存的人设</button></div>}
         {isNuwaMode && <button type="button" onClick={() => setCreationPickerOpen(true)} className="mb-4 w-full rounded-lg border border-[var(--ui-special-border)] bg-[var(--ui-special-soft)] py-2.5 text-sm text-[var(--ui-special-ink)]">调用以前创建过的人设（{creationRecords.length}）</button>}
         {!draftMode && <>
-        <label className="mb-1 block text-xs text-gray-400">头像</label>
+        {settings.experienceMode === 'free' && <><label className="mb-1 block text-xs text-gray-400">头像</label>
         <button
           onClick={() => setPickingAvatar(true)}
           className="mb-1 flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2"
@@ -811,7 +569,7 @@ issues 要用简短中文列出具体错误。` },
         </button>
         <p className="mb-4 text-xs text-gray-400">
           不手动选的话 系统会按性格自动配一张动漫头像/风景照/网图人像/宠物照
-        </p>
+        </p></>}
         </>}
 
         {!isNuwaMode && <><label className="mb-2 block text-xs font-medium text-gray-400">性格倾向（可多选，也可以自己填）</label>
@@ -960,7 +718,7 @@ issues 要用简短中文列出具体错误。` },
           </section>
         )}
 
-        {careerEnabled && <div className="mb-4"><label className="mb-2 block text-xs font-medium text-gray-400">职业（必选）</label><div className="flex flex-wrap gap-2"><button type="button" onClick={()=>setOccupation(OCCUPATION_OPTIONS[Math.floor(Math.random()*OCCUPATION_OPTIONS.length)])} className="flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1.5 text-xs text-gray-600"><Dice5 size={13} />随机</button>{[...OCCUPATION_OPTIONS,'自定义'].map(v=><button key={v} type="button" onClick={()=>setOccupation(v)} className={`rounded-full px-3 py-1.5 text-xs ${occupation===v?'bg-gray-900 text-white':'bg-gray-100 text-gray-600'}`}>{v}</button>)}</div>{occupation==='自定义'&&<input value={customOccupation} onChange={e=>setCustomOccupation(e.target.value)} placeholder="输入职业" className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"/>}</div>}
+        {careerEnabled && <div className="mb-4"><label className="mb-2 block text-xs font-medium text-gray-400">职业（可选，未选择则随机）</label><div className="flex flex-wrap gap-2"><button type="button" onClick={()=>setOccupation(OCCUPATION_OPTIONS[Math.floor(Math.random()*OCCUPATION_OPTIONS.length)])} className="flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1.5 text-xs text-gray-600"><Dice5 size={13} />随机</button>{[...OCCUPATION_OPTIONS,'自定义'].map(v=><button key={v} type="button" onClick={()=>setOccupation(v)} className={`rounded-full px-3 py-1.5 text-xs ${occupation===v?'bg-gray-900 text-white':'bg-gray-100 text-gray-600'}`}>{v}</button>)}</div>{occupation==='自定义'&&<input value={customOccupation} onChange={e=>setCustomOccupation(e.target.value)} placeholder="输入职业" className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"/>}</div>}
 
         {/* 兴趣爱好（可选） */}
         <div className="mb-4">
@@ -1056,13 +814,13 @@ issues 要用简短中文列出具体错误。` },
             className="mb-4 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
           />
         </>}
-        <section className="mb-4 rounded-xl border border-[var(--ui-special-border)] bg-[var(--ui-special-soft)] p-3">
+        {settings.experienceMode === 'free' && <section className="mb-4 rounded-xl border border-[var(--ui-special-border)] bg-[var(--ui-special-soft)] p-3">
           <div className="flex items-center justify-between gap-3">
             <div><p className="text-sm font-medium text-[var(--ui-special-ink)]">本次生成的额外世界观</p><p className="mt-1 text-[11px] leading-relaxed text-[var(--ui-special-ink)]">从任意世界书集合选择条目，作为本次角色生成的最高优先级正史；不会修改运行时开关。</p></div>
             <button type="button" onClick={() => setWorldbookSelectorOpen(true)} className="shrink-0 rounded-lg bg-[var(--ui-special)] px-3 py-2 text-xs text-white">选择条目</button>
           </div>
           <p className="mt-2 text-xs text-[var(--ui-special-ink)]">{selectedWorldbookEntryIds.length ? `已选择 ${selectedWorldbookEntryIds.length} 个条目` : '暂未额外选择，将使用启用中的底层世界观和自动命中的条目'}</p>
-        </section>
+        </section>}
         <label className="mb-2 block text-xs font-medium text-gray-400">{draftMode ? '角色说明 / 初稿建议' : '补充说明（可选）'}</label>
         <textarea
           value={extra}
@@ -1160,23 +918,12 @@ issues 要用简短中文列出具体错误。` },
       </div>
 
       <div className="sticky bottom-0 border-t border-gray-100 bg-white p-3">
-        {generating && progressStep && (
-          <div className="mb-2">
-            <p className="mb-1 text-center text-xs text-gray-400">{PROGRESS_LABELS[progressStep]}</p>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
-              <div
-                className="h-full rounded-full bg-gray-900 transition-all duration-500"
-                style={{ width: `${PROGRESS_PERCENT[progressStep]}%` }}
-              />
-            </div>
-          </div>
-        )}
         <button
           onClick={() => void handleGenerate(undefined, personaDraft ?? undefined)}
-          disabled={generating || (!draftMode && careerEnabled && (isNuwaMode ? !customOccupation.trim() : (!occupation || (occupation === '自定义' && !customOccupation.trim()))))}
+          disabled={generating}
           className="w-full rounded-lg bg-gray-900 py-2.5 text-sm text-white disabled:opacity-40"
         >
-          {generating ? '正在处理…' : personaDraft ? '确认修改并创建' : isNuwaMode ? '生成AI初稿' : '确认添加'}
+          {generating ? '正在提交任务…' : personaDraft ? '确认修改并创建' : isNuwaMode ? '生成AI初稿' : '开始寻找'}
         </button>
       </div>
 

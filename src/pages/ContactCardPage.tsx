@@ -62,6 +62,7 @@ export function ContactCardPage() {
   const { contactId } = useParams()
   const navigate = useNavigate()
   const settings = useSettingsStore()
+  const immersiveMode = settings.experienceMode === 'immersive'
   const [menuOpen, setMenuOpen] = useState(false)
   const [editingRemark, setEditingRemark] = useState(false)
   const [remarkDraft, setRemarkDraft] = useState('')
@@ -304,7 +305,7 @@ export function ContactCardPage() {
         </section>
       )}
 
-      {experiences.length > 0 && <section className="mt-3 bg-[var(--ui-surface)] px-4 py-4 shadow-[var(--ui-shadow)]">
+      {!immersiveMode && experiences.length > 0 && <section className="mt-3 bg-[var(--ui-surface)] px-4 py-4 shadow-[var(--ui-shadow)]">
         <h3 className="mb-2 text-xs font-medium text-[var(--ui-text-3)]">经历</h3>
         <div className="space-y-2">{[...experiences].sort((a, b) => (b.endedAt ?? b.createdAt) - (a.endedAt ?? a.createdAt)).slice(0, 12).map((experience) => <div key={experience.id} className="rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-2)] px-3 py-2">
           <div className="flex items-center justify-between gap-2"><p className="text-sm font-medium text-[var(--ui-text)]">{experience.title}</p><span className="shrink-0 text-[10px] text-[var(--ui-text-3)]">{experience.kind === 'past' ? '过去' : experience.memoryTier === 'long' ? '长期记忆' : '短期记忆'}</span></div>
@@ -332,7 +333,7 @@ export function ContactCardPage() {
           <span className="text-[15px] text-gray-900">关系定位</span>
           <span className="text-sm text-gray-400">{contact.relationshipBase || '未设置'}</span>
         </button>
-        {personalityEnabled && (
+        {!immersiveMode && personalityEnabled && (
           <button
             onClick={() => setPickingPersonalityTrait(true)}
             className="flex w-full items-center justify-between px-4 py-3.5 text-left active:bg-gray-50"
@@ -355,7 +356,7 @@ export function ContactCardPage() {
             {isPhoneAvailable(contact, new Date(contactNow)) ? <Phone size={14} /> : <PhoneOff size={14} />}{describeCurrentSchedule(contact, new Date(contactNow)).replace(/^现在在/, '') || '空闲'}
           </span>
         </div>
-        {relEnabled && (
+        {!immersiveMode && relEnabled && (
           <div className="flex w-full items-center justify-between px-4 py-3.5">
             <span className="text-[15px] text-gray-900">好感度</span>
             <span className="text-sm text-gray-400">
@@ -365,22 +366,22 @@ export function ContactCardPage() {
             </span>
           </div>
         )}
-        {careerEnabled && <button onClick={assignCareer} disabled={assigningCareer} className="flex w-full items-center justify-between px-4 py-3.5 text-left active:bg-gray-50 disabled:opacity-50"><span className="text-[15px] text-gray-900">职业</span><span className="text-sm text-gray-400">{assigningCareer?'生成中…':contact.occupation?`${contact.occupation} · 月薪 ${formatCurrency(contact.monthlySalary??0,settings)}`:'赋予职业'}</span></button>}
-        {careerEnabled && <button onClick={adminEnabled ? async()=>{const raw=prompt('设定该AI的钱包余额',String(contactWallet?.balance??0));if(raw!==null&&Number.isFinite(Number(raw))&&Number(raw)>=0)await setWalletBalance(contact.id,Number(raw))}:undefined} className="flex w-full items-center justify-between px-4 py-3.5 text-left"><span className="text-[15px] text-gray-900">钱包</span><span className="text-sm text-gray-400">{formatCurrency(contactWallet?.balance??0,settings)}{adminEnabled?' · 点击设定':''}</span></button>}
+        {careerEnabled && <button onClick={immersiveMode ? undefined : assignCareer} disabled={assigningCareer} className="flex w-full items-center justify-between px-4 py-3.5 text-left active:bg-gray-50 disabled:opacity-50"><span className="text-[15px] text-gray-900">职业</span><span className="text-sm text-gray-400">{immersiveMode ? contact.occupation || '暂时不了解' : assigningCareer?'生成中…':contact.occupation?`${contact.occupation} · 月薪 ${formatCurrency(contact.monthlySalary??0,settings)}`:'赋予职业'}</span></button>}
+        {!immersiveMode && careerEnabled && <button onClick={adminEnabled ? async()=>{const raw=prompt('设定该AI的钱包余额',String(contactWallet?.balance??0));if(raw!==null&&Number.isFinite(Number(raw))&&Number(raw)>=0)await setWalletBalance(contact.id,Number(raw))}:undefined} className="flex w-full items-center justify-between px-4 py-3.5 text-left"><span className="text-[15px] text-gray-900">钱包</span><span className="text-sm text-gray-400">{formatCurrency(contactWallet?.balance??0,settings)}{adminEnabled?' · 点击设定':''}</span></button>}
       </div>
 
-      <section className="mt-3 bg-white px-4 py-4">
+      {!immersiveMode && <section className="mt-3 bg-white px-4 py-4">
         <h3 className="mb-2 text-xs font-medium text-gray-400">最近社交动态</h3>
         {socialTimeline.length === 0 ? <p className="text-sm text-gray-400">暂时还没有公开互动。</p> : <div className="space-y-2">{socialTimeline.map((event) => <button key={event.id} type="button" onClick={() => event.groupId ? navigate(`/group/${event.groupId}`) : event.momentId ? navigate(`/moments?focus=${event.momentId}`) : event.conversationId ? navigate(`/chat/${event.conversationId}`) : undefined} className="block w-full border-l-2 border-[var(--ui-success)] pl-2 text-left"><p className="text-sm text-gray-700">{event.summary}</p><p className="mt-0.5 text-[10px] text-gray-400">{new Date(event.createdAt).toLocaleString()}</p></button>)}</div>}
-      </section>
+      </section>}
 
-      <section className="mt-3 bg-white px-4 py-4">
+      {!immersiveMode && <section className="mt-3 bg-white px-4 py-4">
         <div className="mb-2 flex items-center justify-between">
           <div><h3 className="text-xs font-medium text-gray-400">AI之间的关系</h3><p className="mt-1 text-[11px] text-gray-400">关系会影响朋友圈点赞、评论和群聊互动，可随时自定义。</p></div>
           <button type="button" onClick={openRelationEditor} className="text-xs text-[var(--ui-special-ink)]">编辑关系</button>
         </div>
         {relationLinks.length === 0 ? <p className="text-sm text-gray-400">还没有设置与其他联系人的关系</p> : <div className="space-y-1.5">{relationLinks.map((link) => <div key={link.id} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm"><span>{link.name}</span><span className="text-xs text-gray-500">{link.label}</span></div>)}</div>}
-      </section>
+      </section>}
 
       <section className="mt-3 bg-white px-4 py-4">
         <div className="mb-2 flex items-center justify-between">

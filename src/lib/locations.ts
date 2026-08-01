@@ -1,7 +1,7 @@
 import { db } from '../db/db'
 import { isAiTestId } from './aiTestIsolation'
 import type { AcousticEdge, Contact, LocationAudibility, LocationNode, ScheduleBlock, ScheduleOverride, TerrainType } from '../types'
-import { createWorldMap, placeBuildings } from './locationMap'
+import { createUpgradedWorldMap, createWorldMap, placeBuildings } from './locationMap'
 
 export const LOCATION_GROUP_ID = 'talk-location-group'
 export const LOCATION_CONVERSATION_ID = 'talk-location-conversation'
@@ -212,6 +212,30 @@ export function locationCounts(contacts: Contact[], locations: LocationNode[]) {
     }
   }
   return aggregate
+}
+
+/** Explicit, non-destructive-in-intent upgrade. Call only after the user confirms. */
+export async function upgradeLocationMap() {
+  await ensureLocationsInitialized()
+  const current = await db.worldMaps.get('active')
+  if (!current || current.generatorVersion >= 2) return current
+  const next = createUpgradedWorldMap(current)
+  const roots = (await db.locations.toArray()).filter((item) => item.mapBinding)
+  const generated = roots.filter((item) => !item.userCreated)
+  const bindings = placeBuildings(next, generated.map((item) => ({
+    id: item.id,
+    allowedTerrains: item.mapBinding!.allowedTerrains,
+    buildingCategory: item.mapBinding!.buildingCategory,
+  })))
+  await db.transaction('rw', db.worldMaps, db.locations, async () => {
+    await db.worldMaps.put(next)
+    for (const location of roots) {
+      const binding = bindings.get(location.id)
+      if (binding) await db.locations.update(location.id, { mapBinding: { ...binding, iconId: location.mapBinding?.iconId ?? binding.iconId, customIconDataUrl: location.mapBinding?.customIconDataUrl }, updatedAt: Date.now() })
+      else if (location.mapBinding) await db.locations.update(location.id, { mapBinding: { ...location.mapBinding, x: Math.max(0, Math.min(next.width - 1, Math.round(location.mapBinding.x / current.width * next.width))), y: Math.max(0, Math.min(next.height - 1, Math.round(location.mapBinding.y / current.height * next.height))) }, updatedAt: Date.now() })
+    }
+  })
+  return next
 }
 
 export async function enterLocation(locationId: string) {

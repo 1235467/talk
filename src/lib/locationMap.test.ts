@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createWorldMap, generateTerrain, placeBuildings } from './locationMap'
+import { createWorldMap, generateStructuredTerrain, generateTerrain, placeBuildings } from './locationMap'
 
 describe('location map', () => {
   it('generates the same terrain for the same seed', () => {
@@ -21,5 +21,14 @@ describe('location map', () => {
     for (let a = 0; a < rows.length; a += 1) for (let b = a + 1; b < rows.length; b += 1) {
       expect(Math.max(Math.abs(rows[a].x - rows[b].x), Math.abs(rows[a].y - rows[b].y))).toBeGreaterThanOrEqual(3)
     }
+  })
+
+  it('builds a structured v2 river city with roads and stable macro regions', () => {
+    const map = createWorldMap('structured-city')
+    expect(map.generatorVersion).toBe(2)
+    expect(map.roads?.length).toBeGreaterThanOrEqual(3)
+    expect(map.tiles.filter((tile) => tile === 'river').length).toBeGreaterThan(50)
+    expect(map.tiles.filter((tile) => tile === 'urban').length).toBeGreaterThan(80)
+    expect(generateStructuredTerrain('structured-city')).toEqual(generateStructuredTerrain('structured-city'))
   })
 })

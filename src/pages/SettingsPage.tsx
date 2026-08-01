@@ -21,6 +21,7 @@ import { CHAT_PAGE_SIZE_OPTIONS, normalizeChatPageSize } from '../lib/chatPagina
 import { ModelPicker } from '../components/ModelPicker'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { AI_PROVIDERS, AI_PROVIDER_OPTIONS, resolveChatCompletionsUrl, resolveModelsUrl, type AiProviderId } from '../lib/aiProviders'
+import { cancelAllContactGenerationTasks, markPersistedContactGenerationTasksPaused } from '../lib/contactGenerationTasks'
 
 export function SettingsPage() {
   const navigate = useNavigate()
@@ -42,6 +43,7 @@ export function SettingsPage() {
     currencyIconMode,
     customCurrencyEmoji,
     adminModeEnabled,
+    experienceMode,
     topInsetAdjustmentPx,
     automaticAiDailyCap,
     setSettings,
@@ -62,7 +64,8 @@ export function SettingsPage() {
   const backgroundInputRef = useRef<HTMLInputElement | null>(null)
 
   async function handleWipeContacts() {
-    await Promise.all([db.messages.clear(), db.conversations.clear(), db.contacts.clear(), db.groups.clear(), db.moments.clear(), db.momentComments.clear(), db.momentLikes.clear(), db.contactRelations.clear(), db.contactMemories.clear(), db.socialEvents.clear(), db.groupPlans.clear(), db.contactLifeStates.clear(), db.lifeEvents.clear(), db.contactExperiences.clear(), db.simulationState.clear(), db.aiUsageRecords.clear(), db.aiTurns.clear(), db.aiTestSuites.clear(), db.adminLogs.clear(), db.adminAiTraces.clear()])
+    await cancelAllContactGenerationTasks()
+    await Promise.all([db.messages.clear(), db.conversations.clear(), db.contacts.clear(), db.groups.clear(), db.moments.clear(), db.momentComments.clear(), db.momentLikes.clear(), db.contactRelations.clear(), db.contactMemories.clear(), db.socialEvents.clear(), db.groupPlans.clear(), db.contactLifeStates.clear(), db.lifeEvents.clear(), db.contactExperiences.clear(), db.simulationState.clear(), db.aiUsageRecords.clear(), db.aiTurns.clear(), db.aiTestSuites.clear(), db.adminLogs.clear(), db.adminAiTraces.clear(), db.contactGenerationTasks.clear()])
     void navigate('/contacts')
   }
 
@@ -92,7 +95,9 @@ export function SettingsPage() {
       if (!window.confirm('导入备份会覆盖当前这台设备里的聊天、联系人、朋友圈、设置等本地数据。确定继续吗？')) {
         return
       }
+      await cancelAllContactGenerationTasks()
       await restoreBackup(parsed)
+      await markPersistedContactGenerationTasksPaused()
       setSettings(parsed.settings)
       useSettingsStore.setState(parsed.settings)
       setBackupStatus('备份已恢复。建议返回消息页检查联系人和聊天记录。')
@@ -668,11 +673,11 @@ export function SettingsPage() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-sm font-medium text-gray-900">管理员模式</h2>
-            <p className="text-[11px] text-gray-400">开启后可使用天眼查看运行进程、真实提示词、AI 回合、记忆/事件链，并执行安全调试操作</p>
+            <p className="text-[11px] text-gray-400">{experienceMode === 'immersive' ? '沉浸模式下不可开启；切换到自由模式后可以使用' : '开启后可使用天眼查看运行进程、真实提示词、AI 回合、记忆/事件链，并执行安全调试操作'}</p>
           </div>
           <ToggleSwitch
-            checked={adminModeEnabled}
-            onChange={(checked) => setSettings({ adminModeEnabled: checked })}
+            checked={experienceMode === 'immersive' ? false : adminModeEnabled}
+            onChange={(checked) => { if (experienceMode !== 'immersive') setSettings({ adminModeEnabled: checked }) }}
             ariaLabel="切换管理员模式"
           />
         </div>
