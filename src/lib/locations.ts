@@ -1,8 +1,9 @@
 import { db } from '../db/db'
 import { isAiTestId } from './aiTestIsolation'
-import type { AcousticEdge, Contact, LocationAudibility, LocationNode, ScheduleBlock, ScheduleOverride, TerrainType } from '../types'
+import type { AcousticEdge, Contact, LocationAudibility, LocationNode, TerrainType } from '../types'
 import { createUpgradedWorldMap, createWorldMap, defaultTerrainsForIcon, MAP_GENERATOR_VERSION, MAP_SIZE, placeBuildings } from './locationMap'
 import { useSettingsStore } from '../store/useSettingsStore'
+import { resolveActiveTask } from './schedule'
 
 export const LOCATION_GROUP_ID = 'talk-location-group'
 export const LOCATION_CONVERSATION_ID = 'talk-location-conversation'
@@ -181,18 +182,6 @@ function localDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-function covers(block: Pick<ScheduleBlock, 'dayOfWeek' | 'startHour' | 'endHour'>, now: Date) {
-  const day = now.getDay(), hour = now.getHours()
-  if (block.startHour < block.endHour) return block.dayOfWeek === day && hour >= block.startHour && hour < block.endHour
-  return (block.dayOfWeek === day && hour >= block.startHour) || (block.dayOfWeek === (day + 6) % 7 && hour < block.endHour)
-}
-
-function activeSchedule(contact: Contact, now: Date): ScheduleBlock | ScheduleOverride | undefined {
-  const hour = now.getHours()
-  const override = (contact.scheduleOverrides ?? []).find((item) => item.date === localDateKey(now) && hour >= item.startHour && hour < item.endHour)
-  return override ?? (contact.schedule ?? []).find((item) => covers(item, now))
-}
-
 const KEYWORD_LOCATIONS: Array<[RegExp, string[]]> = [
   [/学校|教室|上课|自习/, ['school-classroom']],
   [/食堂|吃饭|午餐|晚餐/, ['school-canteen', 'mall-cafe']],
@@ -225,29 +214,60 @@ export function mapNaturalLocation(text: string, contactId: string, timeKey: str
   return undefined
 }
 
-export function resolveContactLocationAt(contact: Contact, now: Date, validLocationIds: Set<string>): { locationId: string; source: 'schedule' | 'manual' | 'fallback' } {
-  if (contact.locationSource === 'manual' && contact.currentLocationId && validLocationIds.has(contact.currentLocationId)) return { locationId: contact.currentLocationId, source: 'manual' }
-  const schedule = activeSchedule(contact, now)
-  if (schedule?.locationId && validLocationIds.has(schedule.locationId)) return { locationId: schedule.locationId, source: 'schedule' }
-  const timeKey = `${localDateKey(now)}:${schedule?.id ?? Math.floor(now.getHours() / 4)}`
-  const scheduleText = `${schedule?.location ?? ''} ${schedule?.activity ?? ''}`
+export interface ResolvedContactRuntime {
+  locationId: string
+  source: 'schedule' | 'specialTask' | 'manual' | 'fallback'
+  taskId?: string
+  taskKind?: 'default' | 'special'
+  activity?: string
+}
+
+export function resolveContactRuntimeAt(contact: Contact, now: Date, validLocationIds: Set<string>): ResolvedContactRuntime {
+  const active = resolveActiveTask(contact, now)
+  if (active?.kind === 'special' && active.task.locationId && validLocationIds.has(active.task.locationId)) return { locationId: active.task.locationId, source: 'specialTask', taskId: active.task.id, taskKind: 'special', activity: active.task.activity }
+  if (contact.locationSource === 'manual' && contact.currentLocationId && validLocationIds.has(contact.currentLocationId)) return { locationId: contact.currentLocationId, source: 'manual', taskId: active?.task.id, taskKind: active?.kind, activity: active?.task.activity }
+  if (active?.task.locationId && validLocationIds.has(active.task.locationId)) return { locationId: active.task.locationId, source: 'schedule', taskId: active.task.id, taskKind: active.kind, activity: active.task.activity }
+  const timeKey = `${localDateKey(now)}:${active?.task.id ?? Math.floor(now.getHours() / 4)}`
+  const scheduleText = `${active?.task.location ?? ''} ${active?.task.activity ?? ''}`
   if (/卧室|家里|在家|住宅|睡觉|休息/.test(scheduleText)) {
     const homes = NPC_HOME_LOCATIONS.filter((id) => validLocationIds.has(id))
-    if (homes.length) return { locationId: homes[stableHash(contact.id) % homes.length], source: 'schedule' }
+    if (homes.length) return { locationId: homes[stableHash(contact.id) % homes.length], source: active ? active.kind === 'special' ? 'specialTask' : 'schedule' : 'fallback', taskId: active?.task.id, taskKind: active?.kind, activity: active?.task.activity }
   }
   const mapped = mapNaturalLocation(scheduleText, contact.id, timeKey, validLocationIds)
-  if (mapped) return { locationId: mapped, source: 'schedule' }
+  if (mapped) return { locationId: mapped, source: active ? active.kind === 'special' ? 'specialTask' : 'schedule' : 'fallback', taskId: active?.task.id, taskKind: active?.kind, activity: active?.task.activity }
+  // With no active task, a person stays where their previous task left them
+  // instead of being teleported to a fresh fallback every idle period.
+  if (!active && contact.currentLocationId && validLocationIds.has(contact.currentLocationId)) return { locationId: contact.currentLocationId, source: 'fallback' }
   const fallback = [...NPC_HOME_LOCATIONS, 'mall-atrium', 'park-lawn', 'office-lobby'].filter((id) => validLocationIds.has(id))
-  return { locationId: fallback[stableHash(`${contact.id}:${timeKey}`) % fallback.length] ?? [...validLocationIds][0], source: 'fallback' }
+  return { locationId: fallback[stableHash(`${contact.id}:${timeKey}`) % fallback.length] ?? [...validLocationIds][0], source: 'fallback', taskId: active?.task.id, taskKind: active?.kind, activity: active?.task.activity }
+}
+
+export function resolveContactLocationAt(contact: Contact, now: Date, validLocationIds: Set<string>): { locationId: string; source: 'schedule' | 'manual' | 'fallback' | 'specialTask' } {
+  const { locationId, source } = resolveContactRuntimeAt(contact, now, validLocationIds)
+  return { locationId, source }
+}
+
+/** Synchronizes one explicitly selected contact. Unlike the world-wide sync,
+ * this also supports isolated ai-test contacts without exposing them to the
+ * live location participant list. */
+export async function syncContactLocationAt(contactId: string, now = new Date()) {
+  await ensureLocationsInitialized()
+  const [locations, contact] = await Promise.all([db.locations.toArray(), db.contacts.get(contactId)])
+  if (!contact) return false
+  const leafIds = new Set(locations.filter((item) => isLeafLocation(item.id, locations)).map((item) => item.id))
+  const resolved = resolveContactRuntimeAt(contact, now, leafIds)
+  const changed = contact.currentLocationId !== resolved.locationId || contact.locationSource !== resolved.source || contact.currentTaskId !== resolved.taskId || contact.currentTaskKind !== resolved.taskKind || contact.currentActivity !== resolved.activity
+  if (changed) await db.contacts.update(contact.id, { currentLocationId: resolved.locationId, locationSource: resolved.source, locationUpdatedAt: now.getTime(), currentTaskId: resolved.taskId, currentTaskKind: resolved.taskKind, currentActivity: resolved.activity, taskUpdatedAt: now.getTime() })
+  return changed
 }
 
 export async function syncContactLocationsAt(now = new Date()) {
   await ensureLocationsInitialized()
   const [locations, contacts] = await Promise.all([db.locations.toArray(), db.contacts.toArray().then((items) => items.filter((item) => !isAiTestId(item.id)))])
   const leafIds = new Set(locations.filter((item) => isLeafLocation(item.id, locations)).map((item) => item.id))
-  const updates = contacts.map((contact) => ({ contact, resolved: resolveContactLocationAt(contact, now, leafIds) }))
-    .filter(({ contact, resolved }) => contact.currentLocationId !== resolved.locationId || contact.locationSource !== resolved.source)
-  if (updates.length) await db.contacts.bulkUpdate(updates.map(({ contact, resolved }) => ({ key: contact.id, changes: { currentLocationId: resolved.locationId, locationSource: resolved.source, locationUpdatedAt: now.getTime() } })))
+  const updates = contacts.map((contact) => ({ contact, resolved: resolveContactRuntimeAt(contact, now, leafIds) }))
+    .filter(({ contact, resolved }) => contact.currentLocationId !== resolved.locationId || contact.locationSource !== resolved.source || contact.currentTaskId !== resolved.taskId || contact.currentTaskKind !== resolved.taskKind || contact.currentActivity !== resolved.activity)
+  if (updates.length) await db.contacts.bulkUpdate(updates.map(({ contact, resolved }) => ({ key: contact.id, changes: { currentLocationId: resolved.locationId, locationSource: resolved.source, locationUpdatedAt: now.getTime(), currentTaskId: resolved.taskId, currentTaskKind: resolved.taskKind, currentActivity: resolved.activity, taskUpdatedAt: now.getTime() } })))
   return updates.length
 }
 
@@ -295,18 +315,23 @@ export function locationCounts(contacts: Contact[], locations: LocationNode[]) {
 }
 
 /** Rebuild terrain and redistribute every top-level marker without deleting place data. */
-export async function regenerateLocationMap(seed = `talk-location-map-${Date.now()}`) {
+export async function regenerateLocationMap(seed?: string) {
   await ensureLocationsInitialized()
   const current = await db.worldMaps.get('active')
   if (!current) return undefined
-  const next = createUpgradedWorldMap(current, seed)
   const roots = (await db.locations.toArray()).filter((item) => item.mapBinding)
-  const bindings = placeBuildings(next, roots.map((item) => ({
+  const specs = roots.map((item) => ({
     id: item.id,
     allowedTerrains: item.mapBinding!.allowedTerrains.length ? item.mapBinding!.allowedTerrains : defaultTerrainsForIcon(item.mapBinding!.iconId ?? item.mapBinding!.buildingCategory),
     buildingCategory: item.mapBinding!.buildingCategory,
-  })))
-  if (bindings.size !== roots.length) throw new Error('这次生成没有足够的合法空位，请重试')
+  }))
+  let next = createUpgradedWorldMap(current, seed ?? `talk-location-map-${crypto.randomUUID()}`)
+  let bindings = placeBuildings(next, specs)
+  for (let attempt = 1; !seed && bindings.size !== roots.length && attempt < 8; attempt += 1) {
+    next = createUpgradedWorldMap(current, `talk-location-map-${crypto.randomUUID()}`)
+    bindings = placeBuildings(next, specs)
+  }
+  if (bindings.size !== roots.length) throw new Error('没有生成出足够的合法空位，请再试一次')
   await db.transaction('rw', db.worldMaps, db.locations, async () => {
     await db.worldMaps.put(next)
     for (const location of roots) {

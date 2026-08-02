@@ -124,8 +124,13 @@ function useLocationResumeSync() {
     const syncWhenVisible = () => {
       if (document.visibilityState === 'visible') void syncContactLocationsAt(new Date())
     }
+    syncWhenVisible()
+    const timer = window.setInterval(syncWhenVisible, 60_000)
     document.addEventListener('visibilitychange', syncWhenVisible)
-    return () => document.removeEventListener('visibilitychange', syncWhenVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', syncWhenVisible)
+    }
   }, [enabled])
 }
 

@@ -12,7 +12,9 @@ import {
   LOCATION_GROUP_ID,
   mapNaturalLocation,
   resolveContactLocationAt,
+  resolveContactRuntimeAt,
   resolveLocationParticipants,
+  syncContactLocationAt,
 } from './locations'
 
 const contact = (id: string, patch: Partial<Contact> = {}): Contact => ({
@@ -35,7 +37,7 @@ describe('location runtime', () => {
     useSettingsStore.getState().setSettings({ userNickname: '小河' })
     await ensureLocationsInitialized()
     const [map, home, locations] = await Promise.all([db.worldMaps.get('active'), db.locations.get('home'), db.locations.toArray()])
-    expect(map).toMatchObject({ width: 48, height: 48, generatorVersion: 3 })
+    expect(map).toMatchObject({ width: 48, height: 48, generatorVersion: 4 })
     expect(home?.name).toBe('小河的家')
     const leafIds = new Set(locations.filter((item) => !locations.some((candidate) => candidate.parentId === item.id)).map((item) => item.id))
     const resolved = resolveContactLocationAt(contact('ordinary-npc'), new Date(2026, 6, 28, 22), leafIds)
@@ -57,6 +59,44 @@ describe('location runtime', () => {
     const now = new Date(2026, 6, 27, 10)
     const result = resolveContactLocationAt(contact('scheduled', { schedule: [{ id: 'work', dayOfWeek: 1, startHour: 9, endHour: 18, phoneAccess: 'available', location: '学校教室', locationId: 'mall-cafe', activity: '上班' }] }), now, ids)
     expect(result).toEqual({ locationId: 'mall-cafe', source: 'schedule' })
+  })
+
+  it('synchronizes an isolated AI-test contact when a special task is active', async () => {
+    await ensureLocationsInitialized()
+    const now = new Date(2026, 6, 27, 10, 30)
+    await db.contacts.add(contact('ai-test-contact-location', {
+      currentLocationId: 'park-lawn',
+      locationSource: 'fallback',
+      scheduleOverrides: [{
+        id: 'special', date: '2026-07-27', startHour: 10, endHour: 11,
+        startsAt: new Date(2026, 6, 27, 10).getTime(), endsAt: new Date(2026, 6, 27, 11).getTime(),
+        phoneAccess: 'available', location: '咖啡店', locationId: 'mall-cafe', activity: '见面', summary: '去咖啡店见面',
+        priority: 'special', status: 'scheduled', createdAt: now.getTime() - 1000,
+      }],
+    }))
+
+    expect(await syncContactLocationAt('ai-test-contact-location', now)).toBe(true)
+    expect(await db.contacts.get('ai-test-contact-location')).toMatchObject({
+      currentLocationId: 'mall-cafe', locationSource: 'specialTask', currentTaskId: 'special', currentTaskKind: 'special', currentActivity: '见面',
+    })
+  })
+
+  it('resolves a future special task to its scheduled destination without moving there early', async () => {
+    await ensureLocationsInitialized()
+    const locations = await db.locations.toArray()
+    const leafIds = new Set(locations.filter((item) => !locations.some((candidate) => candidate.parentId === item.id)).map((item) => item.id))
+    const startsAt = new Date(2026, 7, 8, 10).getTime()
+    const scheduled = contact('future-task', {
+      currentLocationId: 'park-lawn', locationSource: 'fallback',
+      scheduleOverrides: [{
+        id: 'future', date: '2026-08-08', startHour: 10, endHour: 11, startsAt, endsAt: startsAt + 60 * 60_000,
+        phoneAccess: 'available', location: '滨河步道', locationId: 'park-riverside', activity: '跑步', summary: '去滨河步道跑步',
+        priority: 'special', status: 'scheduled', createdAt: 1,
+      }],
+    })
+
+    expect(resolveContactRuntimeAt(scheduled, new Date(2026, 7, 2, 19), leafIds).locationId).toBe('park-lawn')
+    expect(resolveContactRuntimeAt(scheduled, new Date(startsAt), leafIds)).toMatchObject({ locationId: 'park-riverside', source: 'specialTask', taskId: 'future' })
   })
 
   it('maps legacy natural-language locations deterministically', async () => {

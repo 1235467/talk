@@ -41,6 +41,7 @@ describe('relationship and persona adherence prompts', () => {
 
     expect(prompt).toContain('女娲初稿模式')
     expect(prompt).toContain('主动补全年龄、性别、关系定位、职业、兴趣、性格特质和身份资料')
+    expect(prompt).toContain('birthday、ageRange和persona中写出的年龄必须')
     expect(prompt).toContain('我们小时候就认识')
     expect(prompt).toContain('relationship')
     expect(prompt).toContain('speechSamples')

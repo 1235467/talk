@@ -46,7 +46,7 @@ export interface Contact {
   lastProactiveMessageAt?: number // last time this contact proactively opened a chat, used for the per-contact cooldown
   // ---- schedule (see lib/schedule.ts) ----
   schedule?: ScheduleBlock[] // fixed weekly pattern, generated alongside the persona at creation time — optional since contacts created before this feature won't have one
-  scheduleOverrides?: ScheduleOverride[] // one-off exceptions negotiated in chat (see the scheduleChange bubble type), pruned once their date passes
+  scheduleOverrides?: ScheduleOverride[] // one-off special tasks negotiated in chat; each overlapping default task is cancelled as a whole for that occurrence
   // ---- MBTI (assigned by the persona-generation AI, not user-picked) ----
   mbti?: string // e.g. "INFP" — a stable personality anchor injected into every chat prompt
   // ---- auto-generated photo avatar (see lib/avatarCategory.ts + lib/photoSearch.ts) ----
@@ -65,7 +65,12 @@ export interface Contact {
   /** Optional home/current map anchor used by the 地点 module. */
   currentLocationId?: string
   locationUpdatedAt?: number
-  locationSource?: 'schedule' | 'manual' | 'fallback'
+  locationSource?: 'schedule' | 'specialTask' | 'manual' | 'fallback'
+  /** Derived runtime task state, refreshed with location synchronization. */
+  currentTaskId?: string
+  currentTaskKind?: 'default' | 'special'
+  currentActivity?: string
+  taskUpdatedAt?: number
   /** Worldbook entries explicitly bound when this contact was created. */
   worldbookEntryIds?: string[]
   /** The single canonical world used for this contact's private runtime. */
@@ -106,6 +111,14 @@ export interface ScheduleOverride {
   summary: string // short human-facing text shown in the chat bubble, e.g. "周三晚上：一起吃烧烤"
   /** Conversation-derived plans take precedence over the generated weekly routine. */
   priority?: 'special'
+  /** Minute-precision timestamps for new special tasks. Legacy rows fall back to date/startHour/endHour. */
+  startsAt?: number
+  endsAt?: number
+  status?: 'scheduled' | 'completed' | 'cancelled'
+  sourceConversationId?: string
+  sourceMessageId?: string
+  /** Default task occurrences cancelled in full because this task overlaps them. */
+  cancelledDefaultTaskIds?: string[]
   createdAt: number
 }
 
@@ -398,6 +411,8 @@ export interface ScheduleChangePayload {
   location: string
   activity: string
   summary: string
+  startsAt?: number
+  endsAt?: number
 }
 
 export interface Message {
@@ -436,7 +451,7 @@ export interface AiTurnDebug {
   createdAt: number
 }
 
-export type AiTestKind = 'conversation' | 'group' | 'moments' | 'sticker' | 'transfer' | 'gift' | 'image'
+export type AiTestKind = 'conversation' | 'group' | 'moments' | 'sticker' | 'transfer' | 'gift' | 'image' | 'locationSchedule'
 export type AiTestExecutionMode = 'sequential' | 'isolated'
 export type AiTestSuiteStatus = 'draft' | 'running' | 'completed' | 'interrupted' | 'cancelled' | 'failed'
 export type AiTestCardStatus = 'pending' | 'running' | 'completed' | 'failed'
@@ -461,6 +476,44 @@ export interface AiTestCardRecord {
   cloneGroupId?: string
   conversationId?: string
   aiTurnId?: string
+  /** Full, persisted diagnostic material used by the administrator export. */
+  diagnostics?: {
+    mainPrompt?: string
+    conversionPrompt?: string
+    promptSections?: Array<{ label: string; content: string }>
+    parsedResponse?: unknown
+    actionCommittee?: unknown
+    locationSchedule?: {
+      before: Record<string, unknown>
+      after: Record<string, unknown>
+      addedScheduleOverrides: ScheduleOverride[]
+      /** Retained for reports created before the catalog moved to suite scope. */
+      locations?: Array<{ id: string; name: string; parentId?: string }>
+      currentLocationChange: {
+        beforeId?: string
+        beforeName?: string
+        afterId?: string
+        afterName?: string
+      }
+      scheduledTaskLocationChecks: Array<{
+        taskId: string
+        summary: string
+        startsAt: number
+        endsAt: number
+        expectedLocationId?: string
+        expectedLocationName?: string
+        resolvedLocationId?: string
+        resolvedLocationName?: string
+        matches: boolean
+      }>
+      checks: {
+        scheduleChanged: boolean
+        allLocationIdsValid: boolean
+        activeLocationMatchesTask: boolean
+        scheduledTasksResolveToExpectedLocations: boolean
+      }
+    }
+  }
   completedAt?: number
 }
 
@@ -476,6 +529,12 @@ export interface AiTestSuiteRecord {
   targetGroupId?: string
   targetLabel: string
   targetSnapshot: unknown
+  /** Settings at generation time with credentials and large binary data removed. */
+  settingsSnapshot?: unknown
+  /** Shared test environment data, stored once instead of repeated on every card. */
+  environmentSnapshot?: {
+    locations?: Array<{ id: string; name: string; parentId?: string }>
+  }
   cards: AiTestCardRecord[]
   currentCardIndex?: number
   error?: string

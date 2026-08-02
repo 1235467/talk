@@ -4,7 +4,7 @@ import { getConversationRuntimeState, stopAiTurn, triggerAiTurn } from './chatEn
 import { chatCompletionText } from './deepseek'
 import { USER_WALLET_ID } from './finance'
 import { useChatUiStore } from '../store/useChatUiStore'
-import type { AiBubble, AiTurnDebug, AppSettings, Contact, Message, PromptTrace, Sticker, WalletAccount } from '../types'
+import type { AiBubble, AiTestCardRecord, AiTurnDebug, AppSettings, Contact, Message, PromptTrace, Sticker, WalletAccount } from '../types'
 
 export const AI_TEST_SCENARIOS = [
   { id: 'daily', label: '日常闲聊', description: '自然、连续的生活化对话，观察语气和关系感。' },
@@ -32,6 +32,7 @@ export interface CompletedAiTestCase extends GeneratedAiTestCase {
   reply: string
   context: AiTestContextSummary
   aiTurnId: string
+  diagnostics?: AiTestCardRecord['diagnostics']
 }
 
 export interface AiTestCleanupResult {
@@ -206,6 +207,13 @@ export function resultFromTurn(testCase: GeneratedAiTestCase, turn: AiTurnDebug,
       worldbookEntries: promptTrace?.worldbookMatches?.map((item) => item.title) ?? [],
       memorySummary: shortText(promptTrace?.memorySummary ?? ''),
       sections,
+    },
+    diagnostics: {
+      mainPrompt: typeof parsed.mainPrompt === 'string' ? parsed.mainPrompt : undefined,
+      conversionPrompt: typeof parsed.conversionPrompt === 'string' ? parsed.conversionPrompt : undefined,
+      promptSections: promptTrace?.sections.map((section) => ({ label: section.label, content: section.content })),
+      parsedResponse: structuredClone(parsed),
+      actionCommittee: parsed.actionCommittee ? structuredClone(parsed.actionCommittee) : undefined,
     },
   }
 }

@@ -13,7 +13,7 @@ import { displayName } from '../lib/contact'
 import { activeUpcomingPlans, activeUpcomingPlansText, resetMemory } from '../lib/memory'
 import { cascadeDeleteContactSocialData } from '../lib/moments'
 import { removeContactFromAllGroups } from '../lib/groupChat'
-import { pruneExpiredOverrides, describeCurrentSchedule, describeUpcomingScheduleText, isPhoneAvailable } from '../lib/schedule'
+import { pruneExpiredOverrides, describeCurrentSchedule, describeUpcomingScheduleText, isPhoneAvailable, specialTaskRange } from '../lib/schedule'
 import { normalizeMood } from '../lib/mood'
 import { WEEKDAYS, describeCurrentTime } from '../lib/time'
 import { RELATIONSHIP_OPTIONS, formatSpeechSamplesForScene, buildRawChatPromptParts, buildJsonConversionPrompt } from '../lib/prompt'
@@ -42,12 +42,19 @@ function LatestAiTurnJson({ contactId }: { contactId: string }) {
   }, [contactId])
 
   if (!latestTurn?.raw) return null
+  const actionCommittee = latestTurn.parsed && typeof latestTurn.parsed === 'object'
+    ? (latestTurn.parsed as Record<string, unknown>).actionCommittee
+    : undefined
   return (
     <section className="mt-3 bg-white px-4 py-4">
       <h3 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-gray-400"><ClipboardList size={14} />最新AI原始JSON</h3>
       <pre className="whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-2.5 font-mono text-[10px] leading-relaxed text-gray-600">
         {latestTurn.raw}
       </pre>
+      {actionCommittee !== undefined && <>
+        <h4 className="mb-2 mt-3 text-xs font-medium text-gray-400">行动委员会</h4>
+        <pre className="whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-2.5 font-mono text-[10px] leading-relaxed text-gray-600">{JSON.stringify(actionCommittee, null, 2)}</pre>
+      </>}
     </section>
   )
 }
@@ -85,6 +92,7 @@ export function ContactCardPage() {
   const [relationDrafts, setRelationDrafts] = useState<Array<{ targetContactId: string; label: string }>>([])
 
   const contact = useLiveQuery(() => (contactId ? db.contacts.get(contactId) : undefined), [contactId])
+  const currentLocation = useLiveQuery(() => contact?.currentLocationId ? db.locations.get(contact.currentLocationId) : undefined, [contact?.currentLocationId])
   const allContacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? []).filter((item) => !isAiTestId(item.id))
   const worldviews = useLiveQuery(() => db.worldbookCollections.orderBy('updatedAt').reverse().toArray(), []) ?? []
   const conversation = useLiveQuery(
@@ -375,6 +383,7 @@ export function ContactCardPage() {
             {isPhoneAvailable(contact, new Date(contactNow)) ? <Phone size={14} /> : <PhoneOff size={14} />}{describeCurrentSchedule(contact, new Date(contactNow)).replace(/^现在在/, '') || '空闲'}
           </span>
         </div>
+        {currentLocation && <div className="flex w-full items-center justify-between px-4 py-3.5"><span className="text-[15px] text-gray-900">当前位置</span><span className="text-sm text-gray-400">{currentLocation.name}</span></div>}
         {!immersiveMode && relEnabled && (
           <div className="flex w-full items-center justify-between px-4 py-3.5">
             <span className="text-[15px] text-gray-900">好感度</span>
@@ -469,9 +478,9 @@ export function ContactCardPage() {
       </section>
 
       <section className="mt-3 bg-white px-4 py-4">
-        <h3 className="mb-2 text-xs font-medium text-gray-400">日程</h3>
+        <h3 className="mb-2 text-xs font-medium text-gray-400">默认任务</h3>
         {schedule.length === 0 ? (
-          <p className="text-sm text-gray-400">暂无日程安排</p>
+          <p className="text-sm text-gray-400">暂无默认任务</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-[11px]">
@@ -514,12 +523,17 @@ export function ContactCardPage() {
         )}
         {activeOverrides.length > 0 && (
           <div className="mt-3 border-t border-gray-100 pt-3">
-            <h4 className="mb-1 text-xs font-medium text-gray-400">例外安排</h4>
-            {activeOverrides.map((o) => (
-              <p key={o.id} className="text-sm text-gray-600">
-                [{o.date}] {o.summary}
-              </p>
-            ))}
+            <h4 className="mb-2 text-xs font-medium text-gray-400">特殊任务</h4>
+            <div className="space-y-2">{activeOverrides.sort((a, b) => specialTaskRange(a).startsAt - specialTaskRange(b).startsAt).map((o) => {
+              const range = specialTaskRange(o)
+              const status = contactNow >= range.endsAt ? '已完成' : contactNow >= range.startsAt ? '进行中' : '待执行'
+              const cancelledNames = (o.cancelledDefaultTaskIds ?? []).map((id) => schedule.find((task) => task.id === id)?.activity).filter(Boolean)
+              return <div key={o.id} className="rounded-lg bg-gray-50 px-3 py-2">
+                <div className="flex items-center justify-between gap-2"><p className="text-sm font-medium text-gray-800">{o.summary}</p><span className={`shrink-0 text-[10px] ${status === '进行中' ? 'text-green-600' : 'text-gray-400'}`}>{status}</span></div>
+                <p className="mt-1 text-xs text-gray-500">{new Date(range.startsAt).toLocaleDateString()} {new Date(range.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}-{new Date(range.endsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {o.location}</p>
+                {cancelledNames.length > 0 && <p className="mt-1 text-[11px] text-amber-600">已整项取消默认任务：{cancelledNames.join('、')}</p>}
+              </div>
+            })}</div>
           </div>
         )}
       </section>

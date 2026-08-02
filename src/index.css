@@ -513,13 +513,13 @@ body {
 
 .app-shell[data-desktop='true'] .desktop-main .h-\[var\(--app-height\)\] { height: 100% !important; }
 .app-shell[data-desktop='true'] .desktop-main .min-h-full { min-height: 100% !important; }
-.app-shell[data-desktop='true'] [data-page-kind='moments'] .moments-scroll { padding: 26px; background: #f7f8fa; }
+.app-shell[data-desktop='true'] [data-page-kind='moments'] .moments-scroll { padding: 26px; background: var(--ui-bg); }
 .app-shell[data-desktop='true'] [data-page-kind='moments'] .moments-scroll > * { width: min(760px, 100%); margin-left: auto; margin-right: auto; }
 .app-shell[data-desktop='true'] [data-page-kind='moments'] .moments-cover { height: 240px !important; overflow: hidden; border-radius: 12px; }
 .app-shell[data-desktop='true'] [data-page-kind='moments'] .moments-scroll > .flex-1 { margin-top: 14px; overflow: hidden; border-radius: 12px; }
 .app-shell[data-desktop='true'] [data-page-kind='moments'] .moments-scroll > .flex-1 > div { padding-left: 8px; padding-right: 16px; }
 .app-shell[data-desktop='true'] [data-page-kind='moments'] button[aria-label='评论'],
-.app-shell[data-desktop='true'] [data-page-kind='moments'] button[aria-label='点赞'] { min-width: 76px; height: 38px; padding: 0 14px; border-radius: 9px; background: #f1f3f5; color: #576b95; font-size: 13px; font-weight: 600; }
+.app-shell[data-desktop='true'] [data-page-kind='moments'] button[aria-label='点赞'] { min-width: 76px; height: 38px; padding: 0 14px; border-radius: 9px; background: var(--ui-surface-2); color: var(--ui-link); font-size: 13px; font-weight: 600; }
 
 .theme-dark .desktop-titlebar,
 .theme-dark .desktop-sidebar { background: #181a1d; border-color: #30343a; }

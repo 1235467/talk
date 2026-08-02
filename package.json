@@ -3,7 +3,7 @@
   "description": "A local-first AI companion app for Android, Windows and the web.",
   "author": "Entropy2077-axe",
   "private": true,
-  "version": "0.1.47",
+  "version": "0.1.48",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
@@ -22,6 +22,7 @@
     "benchmark:adherence": "node scripts/benchmark-adherence.mjs",
     "preview": "vite preview",
     "desktop:dev": "node scripts/dev-desktop.mjs",
+    "test:center": "node scripts/test-center.mjs",
     "desktop:open": "electron .",
     "desktop:pack": "npm run build && electron-builder --dir --win",
     "desktop:build": "npm run release:windows",

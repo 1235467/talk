@@ -4,10 +4,27 @@ import type { Contact, ScheduleBlock, ScheduleOverride } from '../types'
 
 type ScheduleSource = Pick<Contact, 'schedule' | 'scheduleOverrides'>
 
-function findOverrideForNow(overrides: ScheduleOverride[], now: Date): ScheduleOverride | undefined {
-  const dateKey = toDateKey(now)
-  const hour = now.getHours()
-  return overrides.find((o) => o.date === dateKey && hour >= o.startHour && hour < o.endHour)
+function localDateAt(dateKey: string, hour: number) {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  return new Date(year, month - 1, day, hour, 0, 0, 0).getTime()
+}
+
+export function specialTaskRange(task: ScheduleOverride): { startsAt: number; endsAt: number } {
+  const startsAt = Number.isFinite(task.startsAt) ? task.startsAt! : localDateAt(task.date, task.startHour)
+  let endsAt = Number.isFinite(task.endsAt) ? task.endsAt! : localDateAt(task.date, task.endHour)
+  if (endsAt <= startsAt) endsAt += 24 * 60 * 60 * 1000
+  return { startsAt, endsAt }
+}
+
+function findSpecialTaskForNow(overrides: ScheduleOverride[], now: Date): ScheduleOverride | undefined {
+  const at = now.getTime()
+  return overrides
+    .filter((task) => task.status !== 'cancelled')
+    .filter((task) => {
+      const range = specialTaskRange(task)
+      return at >= range.startsAt && at < range.endsAt
+    })
+    .sort((a, b) => b.createdAt - a.createdAt)[0]
 }
 
 function blockCoversNow(b: ScheduleBlock, day: number, hour: number): boolean {
@@ -27,46 +44,105 @@ function findBlockForNow(schedule: ScheduleBlock[], now: Date): ScheduleBlock | 
   return schedule.find((b) => blockCoversNow(b, day, hour))
 }
 
+function defaultTaskRangeForNow(block: ScheduleBlock, now: Date): { startsAt: number; endsAt: number } {
+  const start = new Date(now)
+  if (block.startHour > block.endHour && now.getHours() < block.endHour) start.setDate(start.getDate() - 1)
+  start.setHours(block.startHour, 0, 0, 0)
+  const end = new Date(start)
+  end.setHours(block.endHour, 0, 0, 0)
+  if (block.startHour > block.endHour) end.setDate(end.getDate() + 1)
+  return { startsAt: start.getTime(), endsAt: end.getTime() }
+}
+
+function rangesOverlap(a: { startsAt: number; endsAt: number }, b: { startsAt: number; endsAt: number }) {
+  return a.startsAt < b.endsAt && b.startsAt < a.endsAt
+}
+
+export function defaultTasksOverlappingRange(contact: ScheduleSource, startsAt: number, endsAt: number): ScheduleBlock[] {
+  const matches = new Map<string, ScheduleBlock>()
+  const firstDay = new Date(startsAt); firstDay.setDate(firstDay.getDate() - 1); firstDay.setHours(0, 0, 0, 0)
+  const lastDay = new Date(endsAt); lastDay.setHours(23, 59, 59, 999)
+  for (const cursor = new Date(firstDay); cursor.getTime() <= lastDay.getTime(); cursor.setDate(cursor.getDate() + 1)) {
+    for (const block of contact.schedule ?? []) {
+      if (block.dayOfWeek !== cursor.getDay()) continue
+      const start = new Date(cursor); start.setHours(block.startHour, 0, 0, 0)
+      const end = new Date(start); end.setHours(block.endHour, 0, 0, 0); if (block.startHour > block.endHour) end.setDate(end.getDate() + 1)
+      if (rangesOverlap({ startsAt, endsAt }, { startsAt: start.getTime(), endsAt: end.getTime() })) matches.set(block.id, block)
+    }
+  }
+  return [...matches.values()]
+}
+
+export interface ResolvedContactTask {
+  task: ScheduleBlock | ScheduleOverride
+  kind: 'default' | 'special'
+  startsAt: number
+  endsAt: number
+}
+
+/** A special task wins. If it overlaps a default task occurrence, that whole
+ * default occurrence is cancelled, including the time before and after it. */
+export function resolveActiveTask(contact: ScheduleSource, now: Date): ResolvedContactTask | undefined {
+  const overrides = contact.scheduleOverrides ?? []
+  const special = findSpecialTaskForNow(overrides, now)
+  if (special) return { task: special, kind: 'special', ...specialTaskRange(special) }
+  const block = findBlockForNow(contact.schedule ?? [], now)
+  if (!block) return undefined
+  const range = defaultTaskRangeForNow(block, now)
+  const cancelled = overrides
+    .filter((task) => task.status !== 'cancelled')
+    .some((task) => rangesOverlap(range, specialTaskRange(task)))
+  return cancelled ? undefined : { task: block, kind: 'default', ...range }
+}
+
 /** A one-off override for the current moment always wins over the recurring weekly pattern; if neither covers this hour, default to reachable rather than silently locking a contact out of ever responding. */
 export function isPhoneAvailable(contact: ScheduleSource, now: Date): boolean {
-  const override = findOverrideForNow(contact.scheduleOverrides ?? [], now)
-  if (override) return override.phoneAccess === 'available'
-  const block = findBlockForNow(contact.schedule ?? [], now)
-  if (!block) return true
-  return block.phoneAccess === 'available'
+  return resolveActiveTask(contact, now)?.task.phoneAccess !== 'unavailable'
 }
 
 /** Model-facing "what are you doing right now" text for prompt injection — empty string if there's no schedule info to say anything with. */
 export function describeCurrentSchedule(contact: ScheduleSource, now: Date): string {
-  const override = findOverrideForNow(contact.scheduleOverrides ?? [], now)
-  if (override) return `现在在${override.activity}`
-  const block = findBlockForNow(contact.schedule ?? [], now)
-  if (!block) return ''
-  return `现在在${block.activity}`
+  const active = resolveActiveTask(contact, now)
+  return active ? `现在在${active.task.activity}${active.kind === 'special' ? '（特殊任务）' : ''}` : ''
 }
 
-/** Next-3-days digest of the recurring schedule + any overrides, for the model to reason against when negotiating a schedule change. */
-export function describeUpcomingScheduleText(contact: ScheduleSource, now: Date): string {
+function formatClock(timestamp: number) {
+  const date = new Date(timestamp)
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+/** Future-14-days digest of recurring and special tasks. The action tool also
+ * accepts plans up to fourteen days ahead, so every model stage must see the
+ * same horizon instead of guessing about dates omitted by a shorter digest. */
+export function describeUpcomingScheduleText(contact: ScheduleSource, now: Date, dayCount = 14): string {
   const schedule = contact.schedule ?? []
   const overrides = contact.scheduleOverrides ?? []
-  if (schedule.length === 0) return ''
+  if (schedule.length === 0 && overrides.length === 0) return ''
 
   const lines: string[] = []
-  for (let dayOffset = 0; dayOffset < 3; dayOffset++) {
+  const horizon = Math.max(1, Math.min(14, Math.round(dayCount)))
+  for (let dayOffset = 0; dayOffset < horizon; dayOffset++) {
     const d = new Date(now)
     d.setDate(now.getDate() + dayOffset)
     const day = d.getDay()
     const dateKey = toDateKey(d)
-    const label = dayOffset === 0 ? '今天' : dayOffset === 1 ? '明天' : WEEKDAYS[day]
+    const labelPrefix = dayOffset === 0 ? '今天' : dayOffset === 1 ? '明天' : WEEKDAYS[day]
+    const label = `${labelPrefix}(${dateKey})`
 
+    const relevantOverrides = overrides.filter((task) => task.status !== 'cancelled' && task.date === dateKey)
     const dayBlocks = schedule
       .filter((b) => b.dayOfWeek === day)
       .sort((a, b) => a.startHour - b.startHour)
-      .map((b) => `${b.startHour}-${b.endHour}点:${b.activity}`)
+      .map((b) => {
+        const start = new Date(d); start.setHours(b.startHour, 0, 0, 0)
+        const end = new Date(start); end.setHours(b.endHour, 0, 0, 0); if (b.startHour > b.endHour) end.setDate(end.getDate() + 1)
+        const cancelled = relevantOverrides.some((task) => rangesOverlap({ startsAt: start.getTime(), endsAt: end.getTime() }, specialTaskRange(task)))
+        return `${b.startHour}-${b.endHour}点:${b.activity}${cancelled ? '（被特殊任务整项取消）' : ''}`
+      })
 
-    const override = overrides.find((o) => o.date === dateKey)
-    if (override) {
-      dayBlocks.push(`[例外安排]${override.startHour}-${override.endHour}点:${override.activity} — ${override.summary}`)
+    for (const task of relevantOverrides.sort((a, b) => specialTaskRange(a).startsAt - specialTaskRange(b).startsAt)) {
+      const range = specialTaskRange(task)
+      dayBlocks.push(`[特殊任务]${formatClock(range.startsAt)}-${formatClock(range.endsAt)} ${task.activity} — ${task.summary}`)
     }
 
     if (dayBlocks.length > 0) lines.push(`${label}: ${dayBlocks.join('、')}`)
@@ -76,8 +152,8 @@ export function describeUpcomingScheduleText(contact: ScheduleSource, now: Date)
 
 /** Drops overrides whose date has already passed — called whenever a new one is added, so the list doesn't grow forever. */
 export function pruneExpiredOverrides(overrides: ScheduleOverride[], now: Date): ScheduleOverride[] {
-  const todayKey = toDateKey(now)
-  return overrides.filter((o) => o.date >= todayKey)
+  const cutoff = now.getTime() - 24 * 60 * 60 * 1000
+  return overrides.filter((task) => specialTaskRange(task).endsAt >= cutoff)
 }
 
 /** Cleans up the schedule the model generates alongside a new persona — drops any block that doesn't make structural sense rather than rejecting the whole batch. */
@@ -132,25 +208,15 @@ export function describeWeeklySchedule(contact: ScheduleSource, now: Date): stri
   for (const bucket of HOUR_BUCKETS) {
     const cells: string[] = [bucket.label.padEnd(8)]
     for (let day = 0; day < 7; day++) {
-      const d = new Date(now)
-      const dayOffset = (day - now.getDay() + 7) % 7
-      d.setDate(now.getDate() + dayOffset)
-
-      // Check for override first
-      const dateKey = toDateKey(d)
-      const override = overrides.find((o) => o.date === dateKey)
-
       const block = schedule.find(
         (b) =>
           b.dayOfWeek === day &&
           b.startHour < bucket.end &&
           b.endHour > bucket.start,
       )
-      const main = override
-        ? `${override.activity}⚠️`
-        : block
-          ? `${block.phoneAccess === 'unavailable' ? '📵' : '📱'}${block.activity}`
-          : '—'
+      const main = block
+        ? `${block.phoneAccess === 'unavailable' ? '📵' : '📱'}${block.activity}`
+        : '—'
       cells.push(main.padEnd(4))
     }
     rows.push(cells.join('|'))
@@ -161,8 +227,8 @@ export function describeWeeklySchedule(contact: ScheduleSource, now: Date): stri
     const active = overrides.filter((o) => o.date >= todayKey)
     if (active.length > 0) {
       rows.push('')
-      rows.push('⚠️ = 临时例外安排，覆盖常规日程')
-      rows.push(active.map((o) => `${o.date} ${o.startHour}-${o.endHour}点: ${o.activity} — ${o.summary}`).join('\n'))
+      rows.push('⚠️ = 特殊任务；与其重叠的默认任务会整项取消')
+      rows.push(active.map((task) => { const range = specialTaskRange(task); return `${task.date} ${formatClock(range.startsAt)}-${formatClock(range.endsAt)}: ${task.activity} — ${task.summary}` }).join('\n'))
     }
   }
 

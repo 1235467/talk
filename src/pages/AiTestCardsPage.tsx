@@ -15,7 +15,7 @@ import {
 } from '../lib/aiTestManager'
 import type { AiTestCardRecord, AiTestKind, AiTestSuiteRecord, AppSettings, Contact } from '../types'
 
-function AiTestReviewEditor({ suiteId, card }: { suiteId: string; card: AiTestCardRecord }) {
+function AiTestReviewEditor({ suiteId, card, compact = false }: { suiteId: string; card: AiTestCardRecord; compact?: boolean }) {
   const [comment, setComment] = useState(card.comment ?? '')
   const [rating, setRating] = useState(card.rating)
 
@@ -31,17 +31,17 @@ function AiTestReviewEditor({ suiteId, card }: { suiteId: string; card: AiTestCa
   return (
     <div className="mt-3 border-t border-gray-100 pt-3">
       <div className="flex gap-2">
-        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => rate('up')} className={`rounded-lg px-4 py-2 ${rating === 'up' ? 'bg-green-100' : 'bg-gray-100'}`}>👍</button>
-        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => rate('down')} className={`rounded-lg px-4 py-2 ${rating === 'down' ? 'bg-red-100' : 'bg-gray-100'}`}>👎</button>
+        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => rate('up')} className={`rounded-lg px-4 py-2 text-sm ${rating === 'up' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>{compact ? '系统理解正确' : '👍'}</button>
+        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => rate('down')} className={`rounded-lg px-4 py-2 text-sm ${rating === 'down' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'}`}>{compact ? '系统理解错误' : '👎'}</button>
       </div>
-      <textarea
+      {!compact && <textarea
         value={comment}
         onChange={(event) => setComment(event.target.value)}
         onBlur={() => save()}
         rows={2}
         placeholder="人工评论"
         className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-      />
+      />}
     </div>
   )
 }
@@ -51,30 +51,90 @@ const STATUS_LABEL: Record<AiTestSuiteRecord['status'], string> = {
   draft: '待运行', running: '后台运行中', completed: '已完成', interrupted: '已中断', cancelled: '已停止', failed: '运行失败',
 }
 
+function formatTestTime(value: number | undefined) {
+  return value ? new Date(value).toLocaleString() : '未知时间'
+}
+
+function actionDecision(card: AiTestCardRecord) {
+  const committee = card.diagnostics?.actionCommittee
+  if (!committee || typeof committee !== 'object') return undefined
+  const value = committee as { approved?: unknown; reason?: unknown }
+  return {
+    approved: value.approved === true,
+    reason: typeof value.reason === 'string' ? value.reason : '没有保存判断原因',
+  }
+}
+
 function exportSuite(suite: AiTestSuiteRecord) {
+  const json = (value: unknown) => JSON.stringify(value ?? null, null, 2)
+  const fenced = (value: unknown, language = '') => ['````' + language, typeof value === 'string' ? value : json(value), '````'].join('\n')
   const lines = [
     `# ${suite.title}`,
     '',
     `- 类型：${AI_TEST_KINDS.find((item) => item.id === suite.kind)?.label}`,
     `- 方式：${suite.executionMode === 'sequential' ? '连续顺序测试' : '独立功能测试'}`,
     `- 状态：${STATUS_LABEL[suite.status]}`,
+    `- 测试主题：${suite.scenarioLabel}`,
+    `- 目标：${suite.targetLabel}`,
+    `- 创建时间：${new Date(suite.createdAt).toLocaleString()}`,
+    '',
+    '## 被测联系人 / 群聊完整快照',
+    '',
+    fenced(suite.targetSnapshot, 'json'),
+    '',
+    '## 测试时设置与提示词模块快照（凭据已移除）',
+    '',
+    fenced(suite.settingsSnapshot, 'json'),
+    '',
+    '## 测试环境地点目录',
+    '',
+    fenced(suite.environmentSnapshot?.locations ?? [], 'json'),
     '',
   ]
   for (const card of suite.cards) {
+    const locationResult = card.diagnostics?.locationSchedule
+    const decision = actionDecision(card)
+    const currentChange = locationResult?.currentLocationChange
     lines.push(
-      `## ${card.order + 1}. ${card.description}`,
+      `# 用例 ${card.order + 1}`,
       '',
+      `测试意图：${card.description}`,
       `用户输入：${card.userMessage}`,
       '',
       'AI 回复：',
       '',
       card.reply || `（${card.error || '尚未运行'}）`,
       '',
-      `评分：${card.rating === 'up' ? '👍' : card.rating === 'down' ? '👎' : '未评分'}`,
-      `评论：${card.comment || '无'}`,
+      `人工判断：${card.rating === 'up' ? '系统理解正确' : card.rating === 'down' ? '系统理解错误' : '未判断'}`,
+      ...(suite.kind === 'locationSchedule' ? [] : [`评论：${card.comment || '无'}`]),
       `世界书：${card.context?.worldbookEntries.join('、') || '无'}`,
       `记忆摘要：${card.context?.memorySummary || '无'}`,
       '',
+      ...(locationResult ? [
+        '## 系统处理摘要', '',
+        `系统决定：${decision ? decision.approved ? '创建特殊日程' : '不创建特殊日程' : '未保存'}`,
+        `判断原因：${decision?.reason ?? '未保存'}`,
+        `当前位置：${currentChange?.beforeName ?? currentChange?.beforeId ?? '未知'} → ${currentChange?.afterName ?? currentChange?.afterId ?? '未知'}`,
+        ...(locationResult.addedScheduleOverrides.length
+          ? locationResult.addedScheduleOverrides.flatMap((task) => [
+            `新增任务：${task.summary}`,
+            `时间：${formatTestTime(task.startsAt)} → ${formatTestTime(task.endsAt)}`,
+            `活动：${task.activity}`,
+            `地点：${task.location}（${task.locationId ?? '无地点ID'}）`,
+            `覆盖的默认任务ID：${task.cancelledDefaultTaskIds?.join('、') || '无'}`,
+          ])
+          : ['新增任务：无']),
+        ...(locationResult.scheduledTaskLocationChecks ?? []).flatMap((check) => [
+          `任务开始时地点模拟：${check.resolvedLocationName ?? check.resolvedLocationId ?? '未知'}；预期：${check.expectedLocationName ?? check.expectedLocationId ?? '未知'}；${check.matches ? '一致' : '不一致'}`,
+        ]),
+        '',
+      ] : []),
+      '## 实际主提示词', '', fenced(card.diagnostics?.mainPrompt || '（未保存）'), '',
+      '## JSON 转换提示词', '', fenced(card.diagnostics?.conversionPrompt || '（未保存）'), '',
+      '## 完整提示词分段', '', fenced(card.diagnostics?.promptSections ?? [], 'json'), '',
+      '## 模型原始输出', '', fenced(card.rawResponse || '（无）', 'json'), '',
+      '## 完整解析与内部判断', '', fenced(card.diagnostics?.parsedResponse ?? null, 'json'), '',
+      ...(locationResult ? ['## 地点与日程写入诊断', '', fenced(locationResult, 'json'), ''] : []),
     )
   }
   const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' }))
@@ -160,7 +220,7 @@ export function AiTestCardsPage() {
       <div className="flex-1 overflow-y-auto px-4 pb-8">
         <section className="mt-3 rounded-xl bg-white p-4">
           <h2 className="text-sm font-medium text-gray-900">创建测试</h2>
-          <p className="mt-1 text-xs leading-relaxed text-gray-500">AI 只生成用例和整理真实输出，最终好坏完全由管理员评分。</p>
+          <p className="mt-1 text-xs leading-relaxed text-gray-500">AI 生成用例并保存完整诊断上下文，最终语义是否正确由管理员判断。</p>
 
           <label className="mt-4 block text-xs text-gray-500">测试类型</label>
           <select value={kind} onChange={(event) => { const next = event.target.value as AiTestKind; setKind(next); setCount(next === 'conversation' || next === 'group' ? 20 : 5) }} className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900">
@@ -176,7 +236,7 @@ export function AiTestCardsPage() {
           ) : (
             <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3">
               <p className="text-sm font-medium text-gray-900">独立功能用例</p>
-              <p className="mt-1 text-xs leading-relaxed text-gray-500">每条用例使用一个独立联系人副本，不继承其他用例历史，重点展示模型返回的结构化 JSON。</p>
+              <p className="mt-1 text-xs leading-relaxed text-gray-500">每条用例使用一个独立联系人副本，不继承其他用例历史，重点展示结构化 JSON 与实际数据变化。</p>
             </div>
           )}
 
@@ -214,12 +274,26 @@ export function AiTestCardsPage() {
               <p className="mt-1 text-sm font-medium text-gray-900">{card.description}</p>
               <textarea value={card.userMessage} disabled={selectedSuite.status !== 'draft'} onChange={(event) => void editCase(selectedSuite, card.id, event.target.value)} rows={2} className="mt-3 w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-50" />
               {card.reply && <div className="mt-3 rounded-lg bg-gray-50 p-3"><p className="text-[11px] text-gray-400">真实回复</p><p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-gray-900">{card.reply}</p></div>}
+              {card.diagnostics?.locationSchedule && <div className="mt-3 rounded-lg bg-gray-50 p-3 text-xs leading-relaxed text-gray-600">
+                <p className="font-medium text-gray-900">系统处理摘要</p>
+                <p className="mt-1">系统决定：{actionDecision(card) ? actionDecision(card)!.approved ? '创建特殊日程' : '不创建特殊日程' : '未保存'}</p>
+                <p>判断原因：{actionDecision(card)?.reason ?? '未保存'}</p>
+                <p className="mt-1">当前位置：{card.diagnostics.locationSchedule.currentLocationChange?.beforeName ?? card.diagnostics.locationSchedule.currentLocationChange?.beforeId ?? '未知'} → {card.diagnostics.locationSchedule.currentLocationChange?.afterName ?? card.diagnostics.locationSchedule.currentLocationChange?.afterId ?? '未知'}</p>
+                {card.diagnostics.locationSchedule.addedScheduleOverrides.length === 0 && <p className="mt-1 text-gray-900">没有新增特殊日程</p>}
+                {card.diagnostics.locationSchedule.addedScheduleOverrides.map((item) => <div key={item.id} className="mt-2 rounded-lg bg-white p-2 text-gray-900">
+                  <p className="font-medium">{item.summary}</p>
+                  <p>{formatTestTime(item.startsAt)} → {formatTestTime(item.endsAt)}</p>
+                  <p>{item.activity} · {item.location}（{item.locationId ?? '无地点 ID'}）</p>
+                  <p className="text-gray-500">覆盖默认任务：{item.cancelledDefaultTaskIds?.join('、') || '无'}</p>
+                </div>)}
+                {(card.diagnostics.locationSchedule.scheduledTaskLocationChecks ?? []).map((check) => <p key={check.taskId} className={`mt-2 ${check.matches ? 'text-green-700' : 'text-red-700'}`}>任务开始时地点模拟：{check.resolvedLocationName ?? check.resolvedLocationId ?? '未知'}；预期 {check.expectedLocationName ?? check.expectedLocationId ?? '未知'}；{check.matches ? '一致' : '不一致'}</p>)}
+              </div>}
               {card.rawResponse && <details className="mt-2 rounded-lg border border-gray-100 p-3"><summary className="text-xs text-gray-500">查看原始 JSON / 上下文</summary><pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-[11px] text-gray-600">{card.rawResponse}</pre><p className="mt-2 text-xs text-gray-500">世界书：{card.context?.worldbookEntries.join('、') || '无'}<br />记忆：{card.context?.memorySummary || '无'}</p></details>}
               {card.error && <p className="mt-2 text-xs text-red-600">{card.error}</p>}
-              {card.status === 'completed' && <AiTestReviewEditor suiteId={selectedSuite.id} card={card} />}
+              {card.status === 'completed' && <AiTestReviewEditor suiteId={selectedSuite.id} card={card} compact={selectedSuite.kind === 'locationSchedule'} />}
             </article>)}
           </div>
-          {selectedSuite.status === 'completed' && !allRated && <p className="text-center text-xs text-gray-400">请由管理员逐条评分；系统不会自动判断好坏。</p>}
+          {selectedSuite.status === 'completed' && !allRated && <p className="text-center text-xs text-gray-400">请根据用户消息、角色真实回复和系统操作，判断系统是否理解正确。</p>}
         </section>}
       </div>
     </div>

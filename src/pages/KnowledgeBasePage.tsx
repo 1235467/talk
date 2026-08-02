@@ -23,6 +23,12 @@ export function KnowledgeBasePage() {
   const [webQuery, setWebQuery] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manualTitle, setManualTitle] = useState('')
+  const [manualContent, setManualContent] = useState('')
+  const [manualKeywords, setManualKeywords] = useState('')
+  const [manualError, setManualError] = useState('')
+  const [savingManual, setSavingManual] = useState(false)
   const visible = useMemo(() => searchLibraryItems(source === 'all' ? items : items.filter((item) => item.sourceType === source), query), [items, query, source])
 
   async function importFile(file?: File) {
@@ -59,14 +65,32 @@ export function KnowledgeBasePage() {
   }
 
   async function addManual() {
-    const title = window.prompt('资料标题')?.trim()
-    if (!title) return
-    const content = window.prompt('资料正文')?.trim()
-    if (!content) return
-    const keywordText = window.prompt('关键词（可选，用逗号或顿号分隔）', '') ?? ''
-    const now = Date.now()
-    await db.libraryItems.add({ id: uuid(), sourceType: 'manual', title, content, keywords: [...new Set(keywordText.split(/[、,，\n]+/).map((value) => value.trim()).filter(Boolean))], sourceLabel: '用户手写', createdAt: now, updatedAt: now })
-    setMessage('已添加手写资料')
+    const title = manualTitle.trim()
+    const content = manualContent.trim()
+    if (!title || !content) {
+      setManualError(!title ? '请输入资料标题' : '请输入资料正文')
+      return
+    }
+    setSavingManual(true)
+    setManualError('')
+    try {
+      const now = Date.now()
+      await db.libraryItems.add({ id: uuid(), sourceType: 'manual', title, content, keywords: [...new Set(manualKeywords.split(/[、,，\n]+/).map((value) => value.trim()).filter(Boolean))], sourceLabel: '用户手写', createdAt: now, updatedAt: now })
+      setMessage('已添加手写资料')
+      setManualOpen(false)
+    } catch (error) {
+      setManualError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSavingManual(false)
+    }
+  }
+
+  function openManualDialog() {
+    setManualTitle('')
+    setManualContent('')
+    setManualKeywords('')
+    setManualError('')
+    setManualOpen(true)
   }
 
   return <div className="relative flex h-[var(--app-height)] flex-col overflow-hidden bg-[#f4f4f6]">
@@ -76,7 +100,7 @@ export function KnowledgeBasePage() {
         <p className="text-sm font-medium text-gray-900">收集资料</p>
         <p className="mt-1 text-xs leading-relaxed text-gray-400">角色卡、外部世界书和联网结果都会先保存在这里。资料不会自动成为世界正史。</p>
         <input ref={fileRef} type="file" accept=".json,.lorebook,.png,application/json,image/png" className="hidden" onChange={(event) => void importFile(event.target.files?.[0])}/>
-        <div className="mt-3 grid grid-cols-2 gap-2"><button type="button" disabled={busy} onClick={() => fileRef.current?.click()} className="rounded-lg bg-gray-900 py-2.5 text-sm text-white disabled:opacity-50">{busy ? '处理中…' : '导入文件'}</button><button type="button" onClick={() => void addManual()} className="rounded-lg bg-gray-100 py-2.5 text-sm text-gray-700">手写资料</button></div>
+        <div className="mt-3 grid grid-cols-2 gap-2"><button type="button" disabled={busy} onClick={() => fileRef.current?.click()} className="rounded-lg bg-gray-900 py-2.5 text-sm text-white disabled:opacity-50">{busy ? '处理中…' : '导入文件'}</button><button type="button" onClick={openManualDialog} className="rounded-lg bg-gray-100 py-2.5 text-sm text-gray-700">手写资料</button></div>
         <div className="mt-2 flex gap-2"><input value={webQuery} onChange={(event) => setWebQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void searchWeb() }} placeholder="联网搜索新词、作品或资料" className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm"/><button type="button" disabled={busy || !webQuery.trim()} onClick={() => void searchWeb()} className="rounded-lg bg-gray-100 px-4 text-sm text-gray-700 disabled:opacity-40">搜索</button></div>
         {message && <p className="mt-2 text-xs leading-relaxed text-gray-500">{message}</p>}
       </section>
@@ -92,5 +116,25 @@ export function KnowledgeBasePage() {
         <button type="button" onClick={() => void db.libraryItems.delete(item.id)} className="mt-3 text-xs text-red-500">删除资料</button>
       </article>)}{visible.length === 0 && <p className="py-12 text-center text-sm text-gray-400">没有符合条件的资料</p>}</div>
     </div>
+    {manualOpen && <div className="absolute inset-0 z-40 flex items-end bg-black/30 p-4 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="manual-library-title" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingManual) setManualOpen(false) }}>
+      <form className="mx-auto max-h-[90%] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-4 shadow-xl" onSubmit={(event) => { event.preventDefault(); void addManual() }}>
+        <h2 id="manual-library-title" className="text-base font-semibold text-gray-900">添加手写资料</h2>
+        <p className="mt-1 text-xs leading-relaxed text-gray-400">资料会保存到资料库，不会自动写入当前世界观。</p>
+        <label className="mt-4 block text-xs text-gray-500">资料标题
+          <input autoFocus value={manualTitle} onChange={(event) => { setManualTitle(event.target.value); setManualError('') }} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm" placeholder="输入一个容易搜索的标题" />
+        </label>
+        <label className="mt-3 block text-xs text-gray-500">资料正文
+          <textarea value={manualContent} onChange={(event) => { setManualContent(event.target.value); setManualError('') }} rows={7} className="mt-1 w-full resize-y rounded-lg border border-gray-200 px-3 py-2.5 text-sm leading-relaxed" placeholder="输入人物、地点、设定或其他参考资料" />
+        </label>
+        <label className="mt-3 block text-xs text-gray-500">关键词（可选）
+          <input value={manualKeywords} onChange={(event) => setManualKeywords(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm" placeholder="用逗号或顿号分隔" />
+        </label>
+        {manualError && <p role="alert" className="mt-2 text-xs text-red-500">{manualError}</p>}
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button type="button" disabled={savingManual} onClick={() => setManualOpen(false)} className="rounded-lg bg-gray-100 py-2.5 text-sm text-gray-600 disabled:opacity-50">取消</button>
+          <button type="submit" disabled={savingManual} className="rounded-lg bg-gray-900 py-2.5 text-sm text-white disabled:opacity-50">{savingManual ? '保存中…' : '保存资料'}</button>
+        </div>
+      </form>
+    </div>}
   </div>
 }

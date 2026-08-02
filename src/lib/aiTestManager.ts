@@ -7,6 +7,9 @@ import { sendGroupMessage, stopGroupAiTurn } from './groupChatEngine'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { USER_WALLET_ID } from './finance'
 import { runMomentTestSandbox } from './moments'
+import { isModuleEnabled } from '../features'
+import { ensureLocationsInitialized, isLeafLocation, resolveContactRuntimeAt, syncContactLocationAt } from './locations'
+import { resolveActiveTask } from './schedule'
 import type { AiTestCardRecord, AiTestKind, AiTestSuiteRecord, AiTurnDebug, AppSettings, Contact, Group, Sticker } from '../types'
 
 export const AI_TEST_KINDS: Array<{ id: AiTestKind; label: string; mode: 'sequential' | 'isolated'; description: string }> = [
@@ -17,6 +20,7 @@ export const AI_TEST_KINDS: Array<{ id: AiTestKind; label: string; mode: 'sequen
   { id: 'transfer', label: '转账 JSON', mode: 'isolated', description: '每条用例独立检查金额类结构化消息。' },
   { id: 'gift', label: '发礼物 JSON', mode: 'isolated', description: '每条用例独立检查礼物结构化消息。' },
   { id: 'image', label: '生图 JSON', mode: 'isolated', description: '每条用例独立检查图片查询词和说明字段。' },
+  { id: 'locationSchedule', label: '切换地点与日程 JSON', mode: 'isolated', description: '每条用例使用独立副本，检查聊天约定是否正确写入特殊日程并绑定具体地点。' },
 ]
 
 const activeRuns = new Map<string, AbortController>()
@@ -24,6 +28,15 @@ const activeRuns = new Map<string, AbortController>()
 function shortText(value: string, max = 1000): string {
   const text = value.replace(/\s+/g, ' ').trim()
   return text.length > max ? `${text.slice(0, max)}…` : text
+}
+
+function diagnosticSnapshot(value: unknown, key = ''): unknown {
+  if (/api.?key|secret|password|access.?token|refresh.?token/i.test(key)) return '[已移除凭据]'
+  if (typeof value === 'function') return '[已省略函数]'
+  if (typeof value === 'string' && value.startsWith('data:')) return `[已省略 data URL，长度 ${value.length}]`
+  if (Array.isArray(value)) return value.map((item) => diagnosticSnapshot(item))
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([childKey, child]) => [childKey, diagnosticSnapshot(child, childKey)]))
+  return value
 }
 
 function targetPrompt(contact: Contact, settings: AppSettings): string {
@@ -43,12 +56,14 @@ function generationSystemPrompt(kind: AiTestKind, count: number): string {
   const protocol = `只输出JSON：{"cases":[{"description":"测试目的","userMessage":"输入内容"}]}，恰好${count}条。不要评价结果。`
   if (kind === 'conversation') return `${protocol}\n这些消息是同一位真实用户按顺序发给联系人的连续长对话，必须承接前文并逐步换话题。消息发送者永远是真实用户，绝不能代入联系人的职业、经历或身份。联系人是医生时，用户可以问诊或聊天，但不得声称自己接诊病人，除非真实用户资料明确写着医生。消息必须像聊天软件里的真人短消息。`
   if (kind === 'group') return `${protocol}\n这些消息是同一位真实用户按顺序发进同一个群的连续对话，要自然承接前文，并能观察不同成员是否保持各自身份。userMessage只能是用户在群里会说的话，不能冒充任何群成员。`
+  if (kind === 'locationSchedule') return `${protocol}\n每条用例都在独立联系人副本中运行，用自然聊天测试角色如何回应线下安排，以及系统能否根据角色的真实回复正确决定是否写入特殊日程并绑定地点。混合覆盖：可能接受的邀请、可能拒绝的邀请、仅讨论或考虑、缺少精确时间、地点不存在、与默认日程重叠、相对时间和分钟级时间。除非description明确写的是“测试过期时间防护”，所有具体或相对时间都必须严格晚于提供的设备当前时间且在十四天内，不能生成已经过去的“今天/本周”时间。角色的实际回复具有不确定性，所以description只能中性描述“要测试的情境和能力”，例如“测试周六早起跑步邀请及默认日程冲突处理”；严禁写“应创建日程”“不应创建日程”“角色会同意”“角色会拒绝”等执行前预判。userMessage不能命令角色输出JSON。每条用例互不依赖。`
   const feature: Record<Exclude<AiTestKind, 'conversation' | 'group'>, string> = {
     moments: '每条是互相独立的朋友圈生成主题，用于要求被测试联系人生成一条朋友圈JSON。',
     sticker: '每条是互相独立的聊天情境，要自然诱发表情包回复，但不要在用户消息里命令输出JSON。',
     transfer: '每条是互相独立的金钱情境，要自然测试转账、红包或借款结构化回复。',
     gift: '每条是互相独立的送礼情境，要自然测试联系人购买并发送礼物的结构化回复。',
     image: '每条是互相独立的看图或发图情境，要自然测试图片结构化回复。',
+    locationSchedule: '',
   }
   return `${protocol}\n${feature[kind as Exclude<AiTestKind, 'conversation' | 'group'>]}每条用例互不依赖。消息发送者永远是真实用户，不能代入被测试联系人的职业和人生经历。`
 }
@@ -67,9 +82,19 @@ export async function createAiTestSuite(options: {
   const count = Math.max(5, Math.min(max, Math.floor(options.count)))
   if (options.kind === 'group' && (!options.group || !options.groupMembers?.length)) throw new Error('请选择一个有效群聊')
   if (options.kind !== 'group' && !options.contact) throw new Error('请选择联系人')
+  if (options.kind === 'locationSchedule' && !isModuleEnabled('location')) throw new Error('请先启用地点模块，再创建地点与日程测试。')
+  let locationTarget = ''
+  let locationEnvironment: AiTestSuiteRecord['environmentSnapshot']
+  if (options.kind === 'locationSchedule') {
+    await ensureLocationsInitialized()
+    const locations = await db.locations.toArray()
+    const leaves = locations.filter((location) => isLeafLocation(location.id, locations))
+    locationEnvironment = { locations: locations.map(({ id, name, parentId }) => ({ id, name, parentId })) }
+    locationTarget = `\n设备当前时间：${new Date().toLocaleString()}\n联系人当前地点ID：${options.contact!.currentLocationId || '未知'}\n联系人默认日程与特殊日程：${JSON.stringify({ schedule: options.contact!.schedule ?? [], scheduleOverrides: options.contact!.scheduleOverrides ?? [] })}\n合法具体地点：${leaves.map((location) => `${location.id}=${location.name}`).join('；')}`
+  }
   const target = options.kind === 'group'
     ? `群聊：${options.group!.name}\n成员：${options.groupMembers!.map((item) => `${item.name}（${item.occupation || '未设置职业'}）`).join('、')}\n群氛围：${options.group!.vibe || '未设置'}`
-    : targetPrompt(options.contact!, options.settings)
+    : `${targetPrompt(options.contact!, options.settings)}${locationTarget}`
   const raw = await chatCompletionText({
     apiKey: options.settings.apiKey,
     baseUrl: options.settings.baseUrl,
@@ -103,6 +128,8 @@ export async function createAiTestSuite(options: {
     targetGroupId: options.group?.id,
     targetLabel: options.kind === 'group' ? options.group!.name : options.contact!.remark || options.contact!.name,
     targetSnapshot: structuredClone(options.kind === 'group' ? { group: options.group, members: options.groupMembers } : options.contact),
+    settingsSnapshot: diagnosticSnapshot(options.settings),
+    environmentSnapshot: locationEnvironment,
     cards: generated.slice(0, count),
     createdAt: now,
     updatedAt: now,
@@ -152,6 +179,7 @@ async function createGroupSandbox(group: Group, members: Contact[]) {
 
 async function runChatCard(suite: AiTestSuiteRecord, index: number, contact: Contact, conversationId: string, stickers: Sticker[], settings: AppSettings, signal: AbortSignal, knownTurns: Set<string>) {
   const card = suite.cards[index]
+  const beforeContact = suite.kind === 'locationSchedule' ? await db.contacts.get(contact.id) : undefined
   const userWalletBefore = await db.walletAccounts.get(USER_WALLET_ID)
   await updateCard(suite, index, { status: 'running', cloneContactIds: [contact.id], conversationId })
   let turn: AiTurnDebug | undefined
@@ -162,6 +190,50 @@ async function runChatCard(suite: AiTestSuiteRecord, index: number, contact: Con
     knownTurns.add(turn.id)
     const messages = await db.messages.where('conversationId').equals(conversationId).filter((item) => item.role === 'assistant' && item.debugAiTurnId === turn!.id).sortBy('createdAt')
     result = resultFromTurn(card as GeneratedAiTestCase, turn, messages)
+    if (suite.kind === 'locationSchedule') {
+      await syncContactLocationAt(contact.id, new Date())
+      const [afterContact, locations] = await Promise.all([db.contacts.get(contact.id), db.locations.toArray()])
+      if (!beforeContact || !afterContact) throw new Error('无法读取地点日程测试副本状态')
+      const beforeIds = new Set((beforeContact.scheduleOverrides ?? []).map((item) => item.id))
+      const addedScheduleOverrides = (afterContact.scheduleOverrides ?? []).filter((item) => !beforeIds.has(item.id))
+      const validLeafIds = new Set(locations.filter((location) => isLeafLocation(location.id, locations)).map((location) => location.id))
+      const locationById = new Map(locations.map((location) => [location.id, location]))
+      const active = resolveActiveTask(afterContact, new Date())
+      const scheduledTaskLocationChecks = addedScheduleOverrides.map((task) => {
+        const startsAt = task.startsAt ?? new Date(`${task.date}T${String(task.startHour).padStart(2, '0')}:00:00`).getTime()
+        const endsAt = task.endsAt ?? new Date(`${task.date}T${String(task.endHour % 24).padStart(2, '0')}:00:00`).getTime()
+        const resolved = resolveContactRuntimeAt(afterContact, new Date(startsAt), validLeafIds)
+        return {
+          taskId: task.id, summary: task.summary, startsAt, endsAt,
+          expectedLocationId: task.locationId,
+          expectedLocationName: task.locationId ? locationById.get(task.locationId)?.name ?? task.location : task.location,
+          resolvedLocationId: resolved.locationId,
+          resolvedLocationName: locationById.get(resolved.locationId)?.name,
+          matches: Boolean(task.locationId && resolved.locationId === task.locationId),
+        }
+      })
+      result.diagnostics = {
+        ...result.diagnostics,
+        locationSchedule: {
+          before: diagnosticSnapshot(beforeContact) as Record<string, unknown>,
+          after: diagnosticSnapshot(afterContact) as Record<string, unknown>,
+          addedScheduleOverrides,
+          currentLocationChange: {
+            beforeId: beforeContact.currentLocationId,
+            beforeName: beforeContact.currentLocationId ? locationById.get(beforeContact.currentLocationId)?.name : undefined,
+            afterId: afterContact.currentLocationId,
+            afterName: afterContact.currentLocationId ? locationById.get(afterContact.currentLocationId)?.name : undefined,
+          },
+          scheduledTaskLocationChecks,
+          checks: {
+            scheduleChanged: addedScheduleOverrides.length > 0,
+            allLocationIdsValid: addedScheduleOverrides.every((item) => Boolean(item.locationId && validLeafIds.has(item.locationId))),
+            activeLocationMatchesTask: !active?.task.locationId || afterContact.currentLocationId === active.task.locationId,
+            scheduledTasksResolveToExpectedLocations: scheduledTaskLocationChecks.every((item) => item.matches),
+          },
+        },
+      }
+    }
   } finally {
     if (userWalletBefore) await db.walletAccounts.put(userWalletBefore)
     else await db.walletAccounts.delete(USER_WALLET_ID)
@@ -171,7 +243,7 @@ async function runChatCard(suite: AiTestSuiteRecord, index: number, contact: Con
     if (transactionIds.length) await db.walletTransactions.bulkDelete(transactionIds)
   }
   if (!turn || !result) throw new Error('测试回复未能保存')
-  await updateCard(suite, index, { status: 'completed', reply: result.reply, rawResponse: turn.raw, context: result.context, aiTurnId: turn.id, completedAt: Date.now() })
+  await updateCard(suite, index, { status: 'completed', reply: result.reply, rawResponse: turn.raw, context: result.context, diagnostics: result.diagnostics, aiTurnId: turn.id, completedAt: Date.now() })
 }
 
 async function runMomentCard(suite: AiTestSuiteRecord, index: number, contact: Contact, conversationId: string, settings: AppSettings) {
@@ -214,7 +286,7 @@ async function runSuite(suiteId: string, controller: AbortController) {
         knownTurns.add(turn.id)
         const messages = await db.messages.where('conversationId').equals(conversationId).filter((item) => item.role === 'assistant' && item.debugAiTurnId === turn.id).sortBy('createdAt')
         const result = resultFromTurn(suite.cards[index] as GeneratedAiTestCase, turn, messages)
-        await updateCard(suite, index, { status: 'completed', reply: result.reply, rawResponse: turn.raw, context: result.context, aiTurnId: turn.id, completedAt: Date.now() })
+        await updateCard(suite, index, { status: 'completed', reply: result.reply, rawResponse: turn.raw, context: result.context, diagnostics: result.diagnostics, aiTurnId: turn.id, completedAt: Date.now() })
       }
     } else {
       const source = suite.targetSnapshot as Contact

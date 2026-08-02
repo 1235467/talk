@@ -11,10 +11,13 @@ import { displayName } from '../lib/contact'
 import { formatListTime } from '../lib/time'
 import { momentsUnreadCount } from '../lib/momentsUnread'
 import { useSettingsStore } from '../store/useSettingsStore'
-import { ALL_MODULES } from '../features'
+import { ALL_MODULES, useModuleEnabled } from '../features'
 import { uiThemeName } from '../lib/uiTheme'
 import { UiIcon } from './UiIcon'
 import { isAiTestId } from '../lib/aiTestIsolation'
+import { claimDailySalaries, localDateKey } from '../lib/finance'
+import { formatCurrency } from '../lib/wallet'
+import { checkForUpdate } from '../lib/updateCheck'
 
 const EMPTY: never[] = []
 
@@ -24,7 +27,7 @@ function sectionForPath(path: string): DesktopSection {
   if (path === '/' || path.startsWith('/chat/')) return 'messages'
   if (path.startsWith('/contact') || path.startsWith('/group')) return 'contacts'
   if (path === '/sky-eye') return 'sky-eye'
-  if (path === '/me' || path === '/appearance' || path === '/experience-mode' || path.startsWith('/settings') || path.startsWith('/profile') || path.startsWith('/stickers') || path === '/modules') return 'settings'
+  if (path === '/me' || path === '/appearance' || path === '/experience-mode' || path.startsWith('/settings') || path.startsWith('/profile') || path.startsWith('/stickers') || path === '/modules' || path === '/save-load') return 'settings'
   return 'discover'
 }
 
@@ -32,7 +35,7 @@ export function DesktopLayout({ children }: { children: ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
   const section = sectionForPath(location.pathname)
-  const detailMode = location.pathname === '/profile/edit' || location.pathname === '/sky-eye'
+  const detailMode = location.pathname === '/sky-eye'
 
   return (
     <div className="desktop-layout">
@@ -194,6 +197,50 @@ function SettingsList({ query }: { query: string }) {
   const navigate = useNavigate()
   const location = useLocation()
   const settings = useSettingsStore()
+  const careerEnabled = useModuleEnabled('career')
+  const saveLoadEnabled = useModuleEnabled('saveLoad')
+  const salaryClaim = useLiveQuery(() => db.walletTransactions.where('idempotencyKey').equals(`salary:user:${localDateKey()}`).first(), [])
+  const [claimingSalary, setClaimingSalary] = useState(false)
+  const [salaryMessage, setSalaryMessage] = useState('')
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [updateMessage, setUpdateMessage] = useState('')
+  const [updateUrl, setUpdateUrl] = useState('')
+
+  async function claimSalary() {
+    setClaimingSalary(true)
+    setSalaryMessage('')
+    try {
+      const result = await claimDailySalaries()
+      setSalaryMessage(`已领取 ${formatCurrency(result.userAmount, settings)}，并为 ${result.contactCount} 位 AI 发放工资`)
+    } catch (error) {
+      setSalaryMessage(error instanceof Error ? error.message : String(error))
+    } finally {
+      setClaimingSalary(false)
+    }
+  }
+
+  async function handleCheckUpdate() {
+    if (updateUrl) {
+      window.open(updateUrl, '_blank')
+      return
+    }
+    setCheckingUpdate(true)
+    setUpdateMessage('')
+    try {
+      const result = await checkForUpdate()
+      if (result.hasUpdate) {
+        setUpdateMessage(`发现新版本 ${result.latestVersion}，点击前往下载`)
+        setUpdateUrl(result.releaseUrl)
+      } else {
+        setUpdateMessage('已是最新版本')
+      }
+    } catch (error) {
+      setUpdateMessage(error instanceof Error ? error.message : String(error))
+    } finally {
+      setCheckingUpdate(false)
+    }
+  }
+
   const entries = [
     { to: '/profile/edit', label: settings.userNickname, note: '编辑个人信息', avatar: settings.userAvatar },
     { to: '/experience-mode', label: '体验模式', note: settings.experienceMode === 'immersive' ? '沉浸模式' : '自由模式', icon: '◈' },
@@ -201,8 +248,21 @@ function SettingsList({ query }: { query: string }) {
     { to: '/settings', label: '通用设置', note: '模型、数据与隐私', icon: '⚙' },
     { to: '/modules', label: '功能模块', note: '启用或关闭扩展功能', icon: '▦' },
     { to: '/stickers', label: '表情包', note: '管理本地和远程表情', icon: '☺' },
+    ...(saveLoadEnabled ? [{ to: '/save-load', label: '存档与回档', note: '保存和恢复完整世界状态', icon: '💾' }] : []),
   ].filter((entry) => entry.label.toLowerCase().includes(query.trim().toLowerCase()))
-  return <>{entries.map((entry) => <button type="button" key={entry.to} className={`desktop-list-row ${location.pathname === entry.to ? 'active' : ''}`} onClick={() => navigate(entry.to)}>{entry.avatar ? <Avatar avatar={entry.avatar} size={48} /> : <span className="desktop-menu-avatar"><UiIcon name={entry.icon ?? 'settings'} size={20} /></span>}<span className="desktop-list-copy"><strong>{entry.label}</strong><small>{entry.note}</small></span></button>)}</>
+  const normalizedQuery = query.trim().toLowerCase()
+  const showSalary = careerEnabled && '每日工资'.includes(normalizedQuery)
+  const showUpdate = '检查更新'.includes(normalizedQuery)
+  const profileEntry = entries.find((entry) => entry.to === '/profile/edit')
+  const otherEntries = entries.filter((entry) => entry.to !== '/profile/edit')
+  const renderEntry = (entry: (typeof entries)[number]) => <button type="button" key={entry.to} className={`desktop-list-row ${location.pathname === entry.to ? 'active' : ''}`} onClick={() => navigate(entry.to)}>{entry.avatar ? <Avatar avatar={entry.avatar} size={48} /> : <span className="desktop-menu-avatar"><UiIcon name={entry.icon ?? 'settings'} size={20} /></span>}<span className="desktop-list-copy"><strong>{entry.label}</strong><small>{entry.note}</small></span></button>
+
+  return <>
+    {profileEntry && renderEntry(profileEntry)}
+    {showSalary && <button type="button" className="desktop-list-row" onClick={() => void claimSalary()} disabled={claimingSalary || !!salaryClaim || !settings.userOccupation}><span className="desktop-menu-avatar"><UiIcon name="💼" size={20} /></span><span className="desktop-list-copy"><strong>每日工资</strong><small>{salaryMessage || (claimingSalary ? '发放中…' : salaryClaim ? '今日已领取' : settings.userOccupation ? '点击领取，并为所有已入职 AI 发薪' : '尚未入职')}</small></span></button>}
+    {otherEntries.map(renderEntry)}
+    {showUpdate && <button type="button" className="desktop-list-row" onClick={() => void handleCheckUpdate()} disabled={checkingUpdate}><span className="desktop-menu-avatar"><UiIcon name="download" size={20} /></span><span className="desktop-list-copy"><strong>检查更新</strong><small>{checkingUpdate ? '检查中…' : updateMessage || `当前 v${__APP_VERSION__}`}</small></span></button>}
+  </>
 }
 
 function DesktopSidebarEmpty({ text }: { text: string }) {

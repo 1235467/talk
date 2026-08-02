@@ -34,6 +34,9 @@ import { isImageProviderReady, isStickerProviderReady } from './mediaProviders'
 import { featureActive, promptModuleEnabled } from './promptModules'
 import { realisticReplyDelayMs } from './replyTiming'
 import { buildExperiencePromptSlice, ensureOfflineExperiences } from './experiences'
+import { ensureLocationsInitialized, syncContactLocationsAt } from './locations'
+import { runActionCommittee, type ActionCommitteeDebug } from './actionCommittee'
+import { createSpecialTask, type CreateSpecialTaskResult } from './agentTasks'
 import type { AiBubble, AppSettings, Contact, Message, MessageType, ScheduleOverride, Sticker } from '../types'
 
 /**
@@ -194,8 +197,9 @@ function parseAiTurnDebugPayload(opts: {
   qualityCheck: { enabled: boolean; repaired: boolean; reason?: string; detectedInvalid?: boolean }
   injectedIntents: ReturnType<typeof activeIntents>
   promptTrace?: import('../types').PromptTrace
+  actionCommittee?: ActionCommitteeDebug & { toolResult?: CreateSpecialTaskResult }
 }): unknown {
-  const { mainPrompt, conversionPrompt, finalRaw, jsonRaw, rawText, bubbles, knowledgeQueries, mood, thought, qualityCheck, injectedIntents, promptTrace } = opts
+  const { mainPrompt, conversionPrompt, finalRaw, jsonRaw, rawText, bubbles, knowledgeQueries, mood, thought, qualityCheck, injectedIntents, promptTrace, actionCommittee } = opts
   const conversionParsed: unknown = parseJsonLoose(finalRaw)
   return {
     mainPrompt,
@@ -212,6 +216,7 @@ function parseAiTurnDebugPayload(opts: {
     injectedIntents,
     memoryUpdate: null,
     promptTrace,
+    actionCommittee,
   }
 }
 
@@ -385,6 +390,21 @@ async function runAiTurn(
     // ---- Step 1: build context sections (no JSON protocol) ----
     const nowDate = new Date(now)
     const scheduleText = describeUpcomingScheduleText(contact, nowDate)
+    let actionLocations: import('../types').LocationNode[] = []
+    let locationActionContext = ''
+    let locationFactsForReview = ''
+    if (isModuleEnabled('location')) {
+      await ensureLocationsInitialized()
+      await syncContactLocationsAt(nowDate)
+      const refreshedForTask = await db.contacts.get(contact.id)
+      if (refreshedForTask) contact = refreshedForTask
+      actionLocations = await db.locations.toArray()
+      const currentLocation = actionLocations.find((location) => location.id === contact.currentLocationId)
+      const leafLocations = actionLocations.filter((location) => !actionLocations.some((candidate) => candidate.parentId === location.id))
+      const locationCatalog = leafLocations.map((location) => `${location.name}(${location.id})`).join('、')
+      locationFactsForReview = `当前地点=${currentLocation?.name ?? '未知地点'}(${contact.currentLocationId ?? '未知'})\n可执行地点=${locationCatalog}`
+      locationActionContext = `【地点与特殊任务】你当前位于：${currentLocation?.name ?? '未知地点'}（${contact.currentLocationId ?? '未知'}）。你可以按照自己的人设和意愿同意或拒绝玩家的线下请求。若同意，请只用自然聊天明确说清日期、开始时间、持续多久和地点；不要输出JSON、工具名或协议标记。系统会在回复后独立判断并创建特殊任务。特殊任务一旦与某条默认任务重叠，那条默认任务会整项取消。以下列表是当前唯一可确认并执行的具体地点：${locationCatalog}。玩家提到列表外地点，或名称无法可靠对应列表时，不能假装去过、看过、知道它存在，也不能直接答应；请保持角色口吻自然询问位置或让对方进一步说明，不要提“系统”“目录”或地点ID。`
+    }
     const memoryPromptOn = promptModuleEnabled(settings, 'memory')
     const [recentMemories, financeContext, socialMemories, sharedOriginalContext, lifeEventText, experienceText, worldbookTrace] = await Promise.all([
       memoryPromptOn ? recentMemoriesText(contact.id) : Promise.resolve(''),
@@ -411,6 +431,8 @@ async function runAiTurn(
       ].filter(Boolean).join('\n'), { worldviewId: contact.worldviewId }) : Promise.resolve({ text: '', matches: [] }),
     ])
     const worldbookText = worldbookTrace.text
+    const contactAge = contact.birthday ? ageFromBirthday(contact.birthday) : null
+    const runtimeAgeFact = contactAge === null ? '' : `\n【当前年龄硬事实】生日为${contact.birthday}，按当前日期计算为${contactAge}岁；若旧人设文本中的年龄不同，以这里为准。`
     const relationshipText = `【你和对方的关系】${relationshipLine(
       featureActive(settings, 'relationship') ? (contact.relationshipBase || '朋友') : '朋友',
       featureActive(settings, 'relationship') ? (contact.relationshipDynamic || '') : '',
@@ -421,7 +443,7 @@ async function runAiTurn(
     const situationText = `【当前情境】现在: ${describeCurrentTime(nowDate)}。对方: ${buildUserProfileText(settings)}。${activeMood ? `你的心情: ${activeMood}。` : ''}【日程】${describeCurrentSchedule(contact, nowDate) ? `\n当前: ${describeCurrentSchedule(contact, nowDate)}` : '\n当前: 暂无安排'}${scheduleText ? `\n接下来:\n${scheduleText}` : '\n接下来: 暂无安排'}${memoryPromptOn && activeUpcomingPlansText(contact, nowDate) ? `\n约定: ${activeUpcomingPlansText(contact, nowDate)}` : ''}${recentEventsText ? `\n最近: ${recentEventsText}` : ''}`
     const contextSections = buildRawChatPrompt({
       name: contact.name,
-      persona: `${contact.systemPrompt}${featureActive(settings, 'personalityTraits') ? customPersonalityTraitsLine(contact.customPersonalityTraits, contact.warmth ?? 0) : ''}${featureActive(settings, 'career') && contact.occupation ? `\n当前职业：${contact.occupation}，现实月薪：${contact.monthlySalary ?? 0}。工作会真实影响你的作息和日常话题。` : ''}${financeContext}`,
+      persona: `${contact.systemPrompt}${runtimeAgeFact}${featureActive(settings, 'personalityTraits') ? customPersonalityTraitsLine(contact.customPersonalityTraits, contact.warmth ?? 0) : ''}${featureActive(settings, 'career') && contact.occupation ? `\n当前职业：${contact.occupation}，现实月薪：${contact.monthlySalary ?? 0}。工作会真实影响你的作息和日常话题。` : ''}${financeContext}`,
       personaConstraints: contact.personaConstraints,
       personaProfile: contact.personaProfile,
       stylePrompt: settings.globalSystemPrompt,
@@ -438,6 +460,7 @@ async function runAiTurn(
       memoryContext: [userMemoryText, habitText].join('\n\n'),
       situationContext: [
         situationText,
+        locationActionContext,
         experienceText,
         absenceContext,
         lifeEventText ? `【近期生活】${lifeEventText}` : '',
@@ -545,6 +568,10 @@ async function runAiTurn(
         promptModuleEnabled(settings, 'memory') && contact.sharedHistory ? `与用户共同过往（关系硬锚点）=${contact.sharedHistory.slice(0, 900)}` : '',
         featureActive(settings, 'worldview') && worldbookText ? `本轮命中世界书=${worldbookText.slice(0, 1000)}` : '',
         sharedOriginalContext ? `相关跨场景事实=${sharedOriginalContext.slice(-1000)}` : '',
+        contactAge === null ? '' : `当前年龄硬事实=${contactAge}岁（生日${contact.birthday}）`,
+        scheduleText ? `未来十四天日程=\n${scheduleText}` : '',
+        locationFactsForReview ? `地点硬事实=\n${locationFactsForReview}\n列表外地点不得当成已确认存在，也不得虚构去过、见过照片或了解其情况。` : '',
+        `事实来源规则=不得把用户没说、上下文没给出的片名类型、截稿日期、去过某地、看过预告或照片等细节写成既成事实。`,
       ].filter(Boolean).join('\n'),
       recentContext: formatRecentConversationForReview(recentHistory.slice(-4), contact),
       signal: controller.signal,
@@ -601,6 +628,39 @@ async function runAiTurn(
       finalRaw = serializePrivateTurn({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought })
       jsonRaw = finalRaw
     }
+    let actionCommittee: (ActionCommitteeDebug & { toolResult?: CreateSpecialTaskResult }) | undefined
+    if (!qualityCheckDebug.detectedInvalid && _triggeringUserText.trim() && isModuleEnabled('location') && actionLocations.length > 0) {
+      const visibleDraft = bubbles.map((bubble) => {
+        if (bubble.type === 'text') return bubble.content
+        if (bubble.type === 'scheduleChange') return bubble.summary
+        if (bubble.type === 'image') return bubble.caption || '[图片]'
+        if (bubble.type === 'sticker') return `[表情：${bubble.name}]`
+        return ''
+      }).filter(Boolean).join('\n')
+      actionCommittee = await runActionCommittee({
+        contact,
+        settings,
+        locations: actionLocations,
+        playerText: _triggeringUserText,
+        draftText: visibleDraft,
+        now,
+        signal: controller.signal,
+        turnId: streamId,
+        conversationId,
+      })
+      if (!turns.isCurrent(conversationId, streamId)) return
+      if (actionCommittee.approved && actionCommittee.task) {
+        const toolResult = await createSpecialTask(contact.id, { ...actionCommittee.task, sourceConversationId: conversationId }, now)
+        actionCommittee = { ...actionCommittee, toolResult }
+        if (!toolResult.success) {
+          console.warn(`[agent] 特殊任务执行失败 contact=${displayName(contact)} code=${toolResult.code}`)
+          bubbles = [{ type: 'text', content: '我刚才想了一下，这个安排现在还定不下来，等我确认好再告诉你。' }]
+          turnThought = undefined
+          finalRaw = serializePrivateTurn({ bubbles, knowledgeQueries: [], mood: turnMood, thought: turnThought })
+          jsonRaw = finalRaw
+        }
+      }
+    }
     console.info(`[chat-perf] review-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)} repaired=no`)
     const aiTurnId = uuid()
     await db.aiTurns.add({
@@ -619,6 +679,7 @@ async function runAiTurn(
         thought: turnThought,
         qualityCheck: qualityCheckDebug,
         injectedIntents,
+        actionCommittee,
         promptTrace: { sections: [{ label: '世界书', content: worldbookText }, { label: '结构化记忆', content: recentMemories }, { label: '特质规则', content: contact.customPersonalityTraits?.map((trait) => `${trait.name}: ${trait.meaning}`).join('\n') || contact.personalityTrait || '' }, { label: '关系与心情', content: relationshipText }, { label: '日程与当前情境', content: situationText }, { label: '主动话题', content: proactiveContext }].filter((section) => section.content), worldbookMatches: worldbookTrace.matches.map((match) => ({ id: match.entry.id, title: match.entry.title, score: match.score, chars: match.entry.content.length })), memorySummary: recentMemories, traitSummary: contact.customPersonalityTraits?.map((trait) => trait.name).join('、') || contact.personalityTrait, proactiveSource: proactiveContext || undefined },
       }),
       knowledgeQueries,
@@ -693,9 +754,8 @@ function revealBubbles(
           priority: 'special',
           createdAt: turnNow,
         }
-        // A new special arrangement replaces the previous one for that day;
-        // the generated weekly schedule remains the low-priority fallback.
-        await db.contacts.update(contact.id, { scheduleOverrides: [...pruned.filter((item) => item.date !== override.date), override] })
+        // Multiple non-overlapping special tasks may coexist on the same day.
+        await db.contacts.update(contact.id, { scheduleOverrides: [...pruned, override] })
       }
       const { imagePayload, imageFailed, remoteSticker, stickerFailed } =
         await resolveBubbleMedia(bubble, settings, stickers)

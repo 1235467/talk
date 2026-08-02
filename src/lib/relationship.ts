@@ -256,7 +256,17 @@ export function relationshipLine(
   warmth: number,
 ): string {
   const stage = warmthStage(warmth)
-  const parts: string[] = [`你们是${base}关系。${stage.prompt}`]
+  const establishedIntimateBase = /恋人|情侣|夫妻|伴侣|爱人|暧昧|家人|亲属|父|母|兄|姐|弟|妹/.test(base)
+  const establishedPrompt = warmth <= 20
+    ? '既有关系定位仍然成立，但当前互动较克制或有距离；不要把彼此写成刚认识'
+    : warmth <= 40
+      ? '在既有关系中保持熟悉感，亲密表达暂时克制'
+      : warmth <= 60
+        ? '在既有关系中相处自然，可以随意开玩笑并体现对应的亲密或熟悉感'
+        : warmth <= 80
+          ? '关系亲密而有默契，可以自然撒娇、调侃和表达偏爱'
+          : '关系有深厚情感连接，可以充分信任并自然表现强烈在意'
+  const parts: string[] = [`你们是${base}关系。${establishedIntimateBase && warmth >= 0 ? establishedPrompt : stage.prompt}`]
   if (dynamic) {
     const prefix = containsBreakupLanguage(dynamic) ? '⚠️ ' : ''
     parts.push(`当前状态: ${prefix}${dynamic}`)

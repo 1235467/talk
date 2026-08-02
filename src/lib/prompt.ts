@@ -121,12 +121,15 @@ export function customPersonalityTraitsLine(traits: import('../types').CustomPer
   return `\n\n【女娲自定义特质 — 高优先级】\n${blocks.join('\n')}\n这些特质必须共同体现；不要向用户解释规则或数值。`
 }
 
-export function personalityTraitLine(trait: string | undefined, warmth?: number): string {
+export function personalityTraitLine(trait: string | undefined, warmth?: number, relationshipBase?: string): string {
   if (!trait || trait === '无') return ''
   const prompt = TRAIT_PROMPTS[trait]
   const personaDescription = TRAIT_PERSONA_DESCRIPTIONS[trait]
   const examples = TRAIT_SPEECH_EXAMPLES[trait]
-  const stage = warmth === undefined ? '' : warmth <= 20
+  const establishedRelationship = relationshipBase && /恋人|情侣|夫妻|伴侣|爱人|暧昧|家人|亲属|父|母|兄|姐|弟|妹/.test(relationshipBase)
+  const stage = warmth === undefined ? '' : establishedRelationship && warmth <= 60
+    ? '【当前亲密阶段：关系已确立】保持既有关系应有的熟悉感，并按当前好感强度控制亲密表达；不要写成刚认识或正在建立关系。'
+    : warmth <= 20
     ? '【当前亲密阶段：保留边界】维持属性底色，但不主动交付私密感或过度亲近。'
     : warmth <= 60
       ? '【当前亲密阶段：逐渐熟悉】用该属性特有的方式自然建立熟悉互动。'
@@ -200,6 +203,8 @@ export interface PersonaGenerationResult {
 }
 
 export function buildPersonaGenerationPrompt(answers: PersonaAnswers, avatarCategory: AvatarCategory, promptModules?: PromptModuleSettings, worldbookText = ''): string {
+  const today = new Date()
+  const generationDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   const promptSettings = { promptModules: promptModules ?? createDefaultPromptModules() }
   if (!promptModuleEnabled(promptSettings, 'nuwaMode')) return ''
   const avatarInstruction =
@@ -234,6 +239,8 @@ export function buildPersonaGenerationPrompt(answers: PersonaAnswers, avatarCate
 ${worldbookText.trim()}` : ''
 
   return `${editable}${worldbookBlock}
+
+当前日期：${generationDate}。birthday、ageRange和persona中写出的年龄必须按该日期互相一致；不要生成一个生日对应另一年龄的角色。
 
 固定输出协议：只输出下列结构的JSON，不要Markdown代码块或解释：
 {
@@ -430,7 +437,7 @@ export function buildRawChatPromptParts(opts: {
   if (!promptModuleEnabled(promptSettings, 'chat')) return { logic: '', feeling: '', full: '' }
   const render = (moduleId: Parameters<typeof getPromptTemplate>[1], templateId: string, variables: Record<string, unknown> = {}) =>
     getPromptTemplate(promptSettings, moduleId, templateId, variables) ?? ''
-  const traitLine = personalityTraitLine(opts.personalityTrait, opts.personalityWarmth)
+  const traitLine = personalityTraitLine(opts.personalityTrait, opts.personalityWarmth, opts.relationshipBase)
   const hardPersona = [
     opts.personaConstraints?.trim() ? `用户补充说明（原文，不可遗忘或违背）: ${opts.personaConstraints.trim()}` : '',
     formatPersonaProfile(opts.personaProfile),

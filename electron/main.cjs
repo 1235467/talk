@@ -13,6 +13,14 @@ const distDir = path.join(rootDir, 'dist')
 const isDev = Boolean(process.env.TALK_DESKTOP_DEV_URL)
 let mainWindow
 
+// The local test client must be able to run beside an installed/portable Talk
+// release. A separate user-data directory also keeps test IndexedDB and settings
+// from changing the user's everyday data.
+if (isDev) {
+  app.setName('Talk Test')
+  app.setPath('userData', path.join(app.getPath('appData'), 'Talk Test'))
+}
+
 function jsonError(status, message) {
   return new Response(JSON.stringify({ error: message }), {
     status,
@@ -51,6 +59,7 @@ function sendWindowState() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
+    title: isDev ? 'Talk 测试版' : 'Talk',
     width: 1380,
     height: 860,
     minWidth: 980,

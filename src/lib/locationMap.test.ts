@@ -25,15 +25,28 @@ describe('location map', () => {
 
   it('builds a larger structured pixel city with distinct hills and mountains', () => {
     const map = createWorldMap('structured-city')
-    expect(map.generatorVersion).toBe(3)
+    expect(map.generatorVersion).toBe(4)
     expect(map.width).toBe(48)
     expect(map.height).toBe(48)
-    expect(map.roads?.length).toBeGreaterThanOrEqual(3)
+    expect(map.roads).toBeUndefined()
     expect(map.tiles.filter((tile) => tile === 'river').length).toBeGreaterThan(100)
     expect(map.tiles.filter((tile) => tile === 'urban').length).toBeGreaterThan(900)
     expect(map.tiles.filter((tile) => tile === 'hill').length).toBeGreaterThan(50)
     expect(map.tiles.filter((tile) => tile === 'mountain').length).toBeGreaterThan(30)
     expect(generateStructuredTerrain('structured-city')).toEqual(generateStructuredTerrain('structured-city'))
+  })
+
+  it('uses the seed to produce visibly different terrain and placements', () => {
+    const first = createWorldMap('regenerate-a')
+    const second = createWorldMap('regenerate-b')
+    const changedTiles = first.tiles.filter((tile, index) => tile !== second.tiles[index]).length
+    expect(changedTiles).toBeGreaterThan(200)
+    const specs = [
+      { id: 'home', allowedTerrains: ['urban' as const], buildingCategory: 'residence' },
+      { id: 'mall', allowedTerrains: ['urban' as const], buildingCategory: 'mall' },
+      { id: 'hospital', allowedTerrains: ['urban' as const], buildingCategory: 'hospital' },
+    ]
+    expect([...placeBuildings(first, specs).values()].map(({ x, y }) => [x, y])).not.toEqual([...placeBuildings(second, specs).values()].map(({ x, y }) => [x, y]))
   })
 
   it('blocks the complete three-by-three area around another marker', () => {

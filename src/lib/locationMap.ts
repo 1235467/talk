@@ -1,7 +1,7 @@
 import type { LocationMapBinding, LocationNode, TerrainType, WorldMapRecord } from '../types'
 
 export const MAP_SIZE = 48 as const
-export const MAP_GENERATOR_VERSION = 3 as const
+export const MAP_GENERATOR_VERSION = 4 as const
 export const MIN_LOCATION_DISTANCE = 2 as const
 const GENERATED_LOCATION_DISTANCE = 3
 
@@ -56,12 +56,21 @@ export function generateTerrain(seedText: string): TerrainType[] {
 export function generateStructuredTerrain(seedText: string, width = MAP_SIZE, height = MAP_SIZE): TerrainType[] {
   const seed = seedHash(seedText)
   const tiles: TerrainType[] = Array.from({ length: width * height }, () => 'grassland')
-  const city = { x: width * 0.46, y: height * 0.50 }
+  const city = {
+    x: width * (0.42 + random01(seed, 901, 17) * 0.11),
+    y: height * (0.44 + random01(seed, 902, 19) * 0.12),
+  }
+  const cityRadiusX = width * (0.39 + random01(seed, 903, 23) * 0.07)
+  const cityRadiusY = height * (0.36 + random01(seed, 904, 29) * 0.08)
+  const ridgeCenter = {
+    x: width * (0.09 + random01(seed, 905, 31) * 0.13),
+    y: height * (0.07 + random01(seed, 906, 37) * 0.14),
+  }
 
   for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
     const n = fbm(seed, x / 11, y / 11)
-    const cityDistance = Math.hypot((x - city.x) / (width * 0.43), (y - city.y) / (height * 0.40))
-    const ridge = 1 - Math.hypot((x - width * 0.13) / (width * 0.24), (y - height * 0.12) / (height * 0.30))
+    const cityDistance = Math.hypot((x - city.x) / cityRadiusX, (y - city.y) / cityRadiusY)
+    const ridge = 1 - Math.hypot((x - ridgeCenter.x) / (width * 0.24), (y - ridgeCenter.y) / (height * 0.30))
     const elevation = ridge * 0.78 + n * 0.42
     const index = tileIndex(x, y, width)
     if (elevation > 0.72) tiles[index] = 'mountain'
@@ -71,8 +80,11 @@ export function generateStructuredTerrain(seedText: string, width = MAP_SIZE, he
   }
 
   // A readable river stays east of the dense city and opens into a small south-east bay.
+  const riverBase = width * (0.70 + random01(seed, 907, 41) * 0.12)
+  const riverAmplitude = 1.5 + random01(seed, 908, 43) * 3.5
+  const riverPeriod = 4.2 + random01(seed, 909, 47) * 3.2
   for (let y = 0; y < height; y += 1) {
-    const riverX = Math.round(width * 0.77 + Math.sin((y + (seed % 11)) / 5.4) * 2.5)
+    const riverX = Math.round(riverBase + Math.sin((y + (seed % 17)) / riverPeriod) * riverAmplitude)
     const halfWidth = y > height * 0.72 ? 2 : 1
     for (let dx = -halfWidth; dx <= halfWidth; dx += 1) {
       const x = riverX + dx
@@ -93,11 +105,6 @@ export function createWorldMap(seed: string): WorldMapRecord {
   return {
     id: 'active', width: MAP_SIZE, height: MAP_SIZE, seed, generatorVersion: MAP_GENERATOR_VERSION, mode: 'fixed',
     tiles: generateStructuredTerrain(seed),
-    roads: [
-      { kind: 'primary', points: [{ x: 4, y: 34 }, { x: 14, y: 28 }, { x: 23, y: 23 }, { x: 34, y: 21 }, { x: 43, y: 17 }] },
-      { kind: 'primary', points: [{ x: 12, y: 9 }, { x: 19, y: 17 }, { x: 23, y: 23 }, { x: 27, y: 35 }, { x: 30, y: 45 }] },
-      { kind: 'secondary', points: [{ x: 7, y: 24 }, { x: 18, y: 22 }, { x: 30, y: 27 }, { x: 41, y: 32 }] },
-    ],
     createdAt: now, updatedAt: now,
   }
 }
@@ -133,11 +140,16 @@ export function placeBuildings(map: WorldMapRecord, specs: Array<{ id: string; a
   const used: LocationMapBinding[] = []
   const result = new Map<string, LocationMapBinding>()
   for (const spec of specs) {
-    const ideal = IDEALS[spec.buildingCategory] ?? IDEALS.custom
+    const baseIdeal = IDEALS[spec.buildingCategory] ?? IDEALS.custom
+    const placementSeed = seedHash(`${map.seed}:${spec.id}:ideal`)
+    const ideal = {
+      x: Math.max(.08, Math.min(.90, baseIdeal.x + (random01(placementSeed, 11, 13) - .5) * .18)),
+      y: Math.max(.08, Math.min(.90, baseIdeal.y + (random01(placementSeed, 17, 19) - .5) * .18)),
+    }
     const candidates = map.tiles.map((terrain, index) => ({ terrain, x: index % map.width, y: Math.floor(index / map.width) }))
       .filter((tile) => spec.allowedTerrains.includes(tile.terrain) && used.every((item) => Math.max(Math.abs(item.x - tile.x), Math.abs(item.y - tile.y)) >= GENERATED_LOCATION_DISTANCE))
       .sort((a, b) => {
-        const score = (tile: typeof a) => Math.hypot(tile.x / map.width - ideal.x, tile.y / map.height - ideal.y) + random01(seedHash(`${map.seed}:${spec.id}`), tile.x, tile.y) * 0.16
+        const score = (tile: typeof a) => Math.hypot(tile.x / map.width - ideal.x, tile.y / map.height - ideal.y) + random01(seedHash(`${map.seed}:${spec.id}`), tile.x, tile.y) * 0.28
         return score(a) - score(b)
       })
     const candidate = candidates[0]

@@ -136,14 +136,6 @@ export function LocationMapCanvas({ map, locations, activeLocationId, contacts =
       context.fillRect(x * CELL, y * CELL, CELL + .6, CELL + .6)
       terrainDetail(context, terrain, x, y, CELL)
     }
-    for (const road of map.roads ?? []) {
-      if (road.points.length < 2) continue
-      context.lineJoin = 'round'; context.lineCap = 'round'
-      context.strokeStyle = '#aab1a8'; context.lineWidth = road.kind === 'primary' ? 8 : 5
-      context.beginPath(); road.points.forEach((point, index) => index ? context.lineTo((point.x + .5) * CELL, (point.y + .5) * CELL) : context.moveTo((point.x + .5) * CELL, (point.y + .5) * CELL)); context.stroke()
-      context.strokeStyle = '#f1eee4'; context.lineWidth = road.kind === 'primary' ? 5 : 3
-      context.stroke()
-    }
   }, [map, mapHeight, mapWidth])
 
   const local = (clientX: number, clientY: number) => {
@@ -186,12 +178,12 @@ export function LocationMapCanvas({ map, locations, activeLocationId, contacts =
         const binding = location.mapBinding!, current = activeRoot?.id === location.id, selected = selectedLocationId === location.id
         const people = peopleByRoot.get(location.id) ?? [], icon = getLocationIcon(binding.iconId ?? binding.buildingCategory)
         return <button key={location.id} type="button" aria-label={`${location.name}${people.length > 0 ? ` · ${people.length}人` : ''}`} onPointerDown={(event) => event.stopPropagation()} onClick={() => onBuildingClick(location)} className="pointer-events-auto absolute z-10 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center" style={{ left: offset.x + (binding.x + .5) * CELL * scale, top: offset.y + (binding.y + .5) * CELL * scale }}>
-          <span className={`relative flex h-10 w-10 items-center justify-center rounded-2xl border-2 bg-white/90 text-[25px] shadow-lg transition-transform ${current ? 'border-[var(--ui-special)] ring-4 ring-[var(--ui-special-border)]' : selected ? 'border-gray-700 scale-110' : 'border-white'}`}>
+          <span className={`relative flex h-10 w-10 items-center justify-center rounded-2xl border-2 bg-[var(--ui-surface)] text-[25px] shadow-lg transition-transform ${current ? 'border-[var(--ui-special)] ring-4 ring-[var(--ui-special-border)]' : selected ? 'border-[var(--ui-text)] scale-110' : 'border-[var(--ui-border)]'}`}>
             {binding.customIconDataUrl ? <img src={binding.customIconDataUrl} alt="" className="h-8 w-8 object-contain" /> : icon.glyph}
             {people.length > 0 && <b className="absolute -right-2 -top-2 min-w-5 rounded-full bg-[var(--ui-special)] px-1 text-center text-[10px] leading-5 text-white">{people.length}</b>}
           </span>
-          <span className="absolute top-[47px] max-w-28 whitespace-nowrap rounded-md bg-white/95 px-1.5 py-0.5 text-[10px] font-semibold text-gray-800 shadow">{location.name}</span>
-          {people.length > 0 && <span className="absolute -bottom-5 flex -space-x-1">{people.slice(0, 2).map((contact) => <Avatar key={contact.id} avatar={contact.avatar} color={contact.avatarColor} size={18} />)}{people.length > 2 && <i className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-white bg-gray-800 px-0.5 text-[8px] not-italic text-white">+{people.length - 2}</i>}</span>}
+          <span className="absolute top-[47px] max-w-28 whitespace-nowrap rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--ui-text)] shadow">{location.name}</span>
+          {people.length > 0 && <span className="absolute -bottom-5 flex -space-x-1" aria-label={`${location.name}当前有${people.length}人`}>{people.slice(0, 2).map((contact) => <Avatar key={contact.id} avatar={contact.avatar} color={contact.avatarColor} size={18} />)}{people.length > 2 && <i title={`还有${people.length - 2}人`} className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-[var(--ui-surface)] bg-[var(--ui-text)] px-0.5 text-[8px] not-italic text-[var(--ui-surface)]">+{people.length - 2}</i>}</span>}
         </button>
       })}
     </div>
