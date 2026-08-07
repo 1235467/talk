@@ -789,7 +789,7 @@ export type PromptModuleSettings = Record<PromptModuleId, PromptModuleConfig>
 
 export interface AdminLogRecord { id: string; level: 'log' | 'info' | 'warn' | 'error'; message: string; createdAt: number }
 export type AdminAiTraceStage = 'first_chat' | 'first_quality' | 'second_chat' | 'other' | 'second_quality'
-export interface AdminAiTrace { id: string; purpose: AiUsagePurpose; model: string; messages: { role: string; content: string }[]; output?: string; error?: string; inputTokens: number; outputTokens: number; createdAt: number; turnId?: string; stage?: AdminAiTraceStage; conversationId?: string; diagnostics?: Record<string, unknown> }
+export interface AdminAiTrace { id: string; purpose: AiUsagePurpose; model: string; messages: { role: string; content: string }[]; output?: string; error?: string; inputTokens: number; outputTokens: number; durationMs?: number; createdAt: number; turnId?: string; stage?: AdminAiTraceStage; conversationId?: string; diagnostics?: Record<string, unknown> }
 export interface SaveSlot { id: string; slot: number; name: string; createdAt: number; updatedAt: number; snapshot: unknown }
 
 export type WalletOwnerId = string
@@ -1194,7 +1194,27 @@ export interface ContactGenerationError {
   finishReason?: string
   responseChars?: number
   failedFields?: string[]
+  /** Structured, privacy-safe explanation of persona output validation. */
+  validation?: ContactGenerationValidationDiagnostics
   occurredAt: number
+}
+
+export type ContactGenerationValidationCode =
+  | 'empty_output' | 'json_truncated' | 'json_invalid'
+  | 'required_field_missing' | 'required_field_invalid'
+
+export interface ContactGenerationValidationIssue {
+  code: ContactGenerationValidationCode
+  field?: string
+  message: string
+}
+
+export interface ContactGenerationValidationDiagnostics {
+  outputChars: number
+  jsonState: 'valid' | 'empty' | 'truncated' | 'invalid'
+  issues: ContactGenerationValidationIssue[]
+  repairAttempted?: boolean
+  repair?: Omit<ContactGenerationValidationDiagnostics, 'repairAttempted' | 'repair'>
 }
 
 /** Persisted job shown in the contact list until it becomes a real contact. */
@@ -1214,6 +1234,7 @@ export interface ContactGenerationTask {
   canon?: unknown
   rawOutput?: string
   validationRepairAttempted?: boolean
+  validationDiagnostics?: ContactGenerationValidationDiagnostics
   personaDraft?: import('../lib/prompt').PersonaGenerationResult
   finalAvatar?: string
   avatarPhotographer?: string

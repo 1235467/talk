@@ -12,7 +12,7 @@ import type {
   ContactRelationLink,
 } from '../types'
 import { useSettingsStore } from '../store/useSettingsStore'
-import { buildPersonaGenerationPrompt, parsePersonaGeneration, type PersonaGenerationResult } from './prompt'
+import { buildPersonaGenerationPrompt, diagnosePersonaGeneration, type PersonaGenerationResult } from './prompt'
 import { chatCompletionStream, chatCompletionText } from './deepseek'
 import { completedTopLevelJsonFields } from './incrementalJson'
 import { selectedWorldbookEntriesText, retrieveWorldbookContext } from './worldbook'
@@ -170,6 +170,8 @@ export function formatContactGenerationDiagnostic(task: ContactGenerationTask): 
     `模型：${error?.model ?? task.model}`,
     `自动/手动尝试次数：${task.attempt}`,
     `返回字符数：${error?.responseChars ?? task.rawOutput?.length ?? 0}`,
+    `校验结果：${error?.validation?.issues.map((issue) => issue.field ? `${issue.field}（${issue.message}）` : issue.message).join('；') ?? '无'}`,
+    error?.validation?.repair ? `自动修复后：${error.validation.repair.issues.map((issue) => issue.field ? `${issue.field}（${issue.message}）` : issue.message).join('；') || '通过'}` : '',
     `发生时间：${new Date(error?.occurredAt ?? task.updatedAt).toLocaleString()}`,
   ].join('\n')
 }
@@ -331,7 +333,10 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
   task.rawOutput = raw
   task.partialFields = completedTopLevelJsonFields(raw)
   await setStage(task, 'validating', { rawOutput: raw, partialFields: task.partialFields })
-  let parsed = parsePersonaGeneration(raw)
+  const originalValidation = diagnosePersonaGeneration(raw)
+  let parsed = originalValidation.result
+  let validationDiagnostics = originalValidation.diagnostics
+  await db.contactGenerationTasks.update(task.id, { validationDiagnostics, updatedAt: Date.now() })
   if (!parsed) {
     task.validationRepairAttempted = true
     await db.contactGenerationTasks.update(task.id, { validationRepairAttempted: true, updatedAt: Date.now() })
@@ -351,7 +356,11 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
       purpose: 'persona',
       trace: { turnId: task.id, stage: 'other' },
     })
-    parsed = parsePersonaGeneration(repaired)
+    const repairedValidation = diagnosePersonaGeneration(repaired)
+    parsed = repairedValidation.result
+    validationDiagnostics = { ...originalValidation.diagnostics, repairAttempted: true, repair: repairedValidation.diagnostics }
+    task.validationDiagnostics = validationDiagnostics
+    await db.contactGenerationTasks.update(task.id, { validationDiagnostics, updatedAt: Date.now() })
     if (parsed) {
       raw = repaired
       task.rawOutput = repaired
@@ -359,7 +368,21 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
       await db.contactGenerationTasks.update(task.id, { rawOutput: repaired, partialFields: task.partialFields, updatedAt: Date.now() })
     }
   }
-  if (!parsed) throw codedError('PERSONA_PARSE_FAILED', '模型已经返回内容，自动格式修复后仍然不完整或缺少姓名/完整人设', true, { responseChars: raw.length })
+  if (!parsed) {
+    const finalDiagnostics = validationDiagnostics.repair ?? validationDiagnostics
+    const firstIssue = finalDiagnostics.issues[0]
+    const code = validationDiagnostics.repairAttempted ? 'PERSONA_REPAIR_FAILED'
+      : firstIssue?.code === 'empty_output' ? 'PERSONA_EMPTY_OUTPUT'
+        : firstIssue?.code === 'json_truncated' ? 'PERSONA_JSON_TRUNCATED'
+          : firstIssue?.code === 'json_invalid' ? 'PERSONA_JSON_INVALID'
+            : firstIssue?.code === 'required_field_missing' ? 'PERSONA_REQUIRED_FIELD_MISSING'
+              : 'PERSONA_REQUIRED_FIELD_INVALID'
+    throw codedError(code, firstIssue?.message ?? '人物资料校验未通过', true, {
+      responseChars: raw.length,
+      failedFields: finalDiagnostics.issues.map((issue) => issue.field).filter((field): field is string => !!field),
+      validation: validationDiagnostics,
+    })
+  }
   if (canon.pastExperiences.length) {
     const existing = parsed.pastExperiences ?? []
     const seen = new Set(existing.map((item) => `${item.period}|${item.summary}`))
@@ -538,7 +561,7 @@ function classifyError(error: unknown, task: ContactGenerationTask): ContactGene
   else if (/timeout|timed out|超时/i.test(technicalMessage)) code = 'NETWORK_TIMEOUT'
   else if (/quota|balance|余额|额度/i.test(technicalMessage)) code = 'QUOTA_EXCEEDED'
   const messages: Record<string, string> = {
-    AUTH_MISSING: '还没有配置 API Key', AUTH_INVALID: 'API Key 无效或没有访问权限', RATE_LIMITED: '模型服务请求过于频繁，请稍后重试', NETWORK_TIMEOUT: '连接模型服务超时', QUOTA_EXCEEDED: '模型服务余额或额度不足', PERSONA_PARSE_FAILED: '人物资料格式不完整', WORLDBOOK_CANON_FAILED: '明确选择的世界书正史整理失败', REQUEST_ABORTED: '任务已被中断', GENERATION_FAILED: '联系人生成未能完成', DATABASE_COMMIT_FAILED: '联系人保存失败',
+    AUTH_MISSING: '还没有配置 API Key', AUTH_INVALID: 'API Key 无效或没有访问权限', RATE_LIMITED: '模型服务请求过于频繁，请稍后重试', NETWORK_TIMEOUT: '连接模型服务超时', QUOTA_EXCEEDED: '模型服务余额或额度不足', PERSONA_PARSE_FAILED: '人物资料格式不完整', PERSONA_EMPTY_OUTPUT: '模型没有返回人物资料', PERSONA_JSON_TRUNCATED: '人物资料在生成中被截断', PERSONA_JSON_INVALID: '模型没有按 JSON 格式返回人物资料', PERSONA_REQUIRED_FIELD_MISSING: '人物资料缺少关键字段', PERSONA_REQUIRED_FIELD_INVALID: '人物资料的关键字段无效', PERSONA_REPAIR_FAILED: '自动修复人物资料后仍未通过校验', WORLDBOOK_CANON_FAILED: '明确选择的世界书正史整理失败', REQUEST_ABORTED: '任务已被中断', GENERATION_FAILED: '联系人生成未能完成', DATABASE_COMMIT_FAILED: '联系人保存失败',
   }
   return {
     code,
@@ -551,6 +574,8 @@ function classifyError(error: unknown, task: ContactGenerationTask): ContactGene
     model: task.model,
     httpStatus: typeof record.httpStatus === 'number' ? record.httpStatus : undefined,
     responseChars: typeof record.responseChars === 'number' ? record.responseChars : task.rawOutput?.length,
+    failedFields: Array.isArray(record.failedFields) ? record.failedFields.filter((field): field is string => typeof field === 'string') : undefined,
+    validation: record.validation && typeof record.validation === 'object' ? record.validation as ContactGenerationError['validation'] : undefined,
     occurredAt: Date.now(),
   }
 }

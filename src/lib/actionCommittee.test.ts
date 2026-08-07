@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { arbitrateActionCommittee } from './actionCommittee'
+import { arbitrateActionCommittee, evaluateDirectSpecialTask } from './actionCommittee'
 
 describe('action committee arbitration', () => {
   const now = new Date(2026, 7, 3, 14, 0).getTime()
@@ -42,6 +42,29 @@ describe('action committee arbitration', () => {
       validLocationIds: new Set(['mall-cafe']),
       now,
     } as any)
+    expect(result).toMatchObject({ approved: false, reason: expect.stringContaining('合法') })
+  })
+
+  it('accepts a direct-output task using deterministic guards only', () => {
+    const raw = JSON.stringify({
+      specialTask: {
+        decision: 'create_special_task',
+        locationId: 'mall-cafe',
+        date: '2026-08-03',
+        startTime: '14:20',
+        durationMinutes: 30,
+        activity: '喝咖啡',
+        summary: '和玩家喝咖啡',
+        phoneAccess: 'available',
+      },
+    })
+    const result = evaluateDirectSpecialTask(raw, [{ id: 'mall-cafe', name: '咖啡店' } as any], now)
+    expect(result).toMatchObject({ approved: true, task: { locationId: 'mall-cafe', activity: '喝咖啡' } })
+  })
+
+  it('rejects an invalid direct-output task without asking another model', () => {
+    const raw = JSON.stringify({ specialTask: { decision: 'create_special_task', locationId: 'invented', date: '2026-08-03', startTime: '14:20', durationMinutes: 30, activity: '见面', summary: '见面' } })
+    const result = evaluateDirectSpecialTask(raw, [{ id: 'mall-cafe', name: '咖啡店' } as any], now)
     expect(result).toMatchObject({ approved: false, reason: expect.stringContaining('合法') })
   })
 })

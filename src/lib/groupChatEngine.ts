@@ -22,6 +22,7 @@ import { displayName } from './contact'
 import { previewForMessage } from './messagePreview'
 import { buildUserProfileText, nextMessageTimestamp, useChatEngineStore } from './chatEngine'
 import { reviewTurnLogic } from './turnLogicReviewer'
+import { buildDirectGroupOutputInstruction, parseDirectOutputReview } from './directOutput'
 import { trackRemoteStickerSend } from './remoteMedia'
 import { resolveBubbleMedia } from './bubbleMedia'
 import { createTurnController, revealSequentially } from './conversationRuntime'
@@ -135,6 +136,7 @@ async function updateGroupMemoryAndVibe(opts: {
   settings: AppSettings
   turnSummary: string
   groupVibe: string
+  directOutput?: boolean
 }): Promise<void> {
   const { group, aiTurnId, settings } = opts
   const now = Date.now()
@@ -150,7 +152,7 @@ async function updateGroupMemoryAndVibe(opts: {
     memoryTurnCount: nextTurnCount,
   }
 
-  if (nextTurnCount % 5 === 0 && appendedMemory.trim()) {
+  if (!opts.directOutput && nextTurnCount % 5 === 0 && appendedMemory.trim()) {
     try {
       const raw = await chatCompletion({
         apiKey: settings.apiKey,
@@ -364,6 +366,7 @@ async function runGroupAiTurn(
   streamId: string,
 ): Promise<void> {
   const engine = useChatEngineStore.getState()
+  const directOutput = isModuleEnabled('directOutput')
   const turnStartedAt = performance.now()
   engine.patch(conversationId, { aiTyping: true, error: '', typingLabel: '群成员' })
   console.log(`[group] 开始生成回复 群=${group.name} conversationId=${conversationId}`)
@@ -458,7 +461,7 @@ async function runGroupAiTurn(
     // prompt, a group turn's assistant block can contain several different
     // people, and role:"assistant" alone can't distinguish them across turns.
     const chatMessages: ChatMessage[] = coalesceConsecutiveRoles([
-      { role: 'system', content: [systemPrompt, sharedOriginalContext].filter(Boolean).join('\n\n') },
+      { role: 'system', content: [systemPrompt, sharedOriginalContext, directOutput ? buildDirectGroupOutputInstruction(speakers) : ''].filter(Boolean).join('\n\n') },
       ...recentHistory.map((m): ChatMessage => formatGroupHistoryMessage(m, contactById, messageById, settings.userNickname)),
     ])
     let rawText = await chatCompletion({
@@ -470,7 +473,9 @@ async function runGroupAiTurn(
       purpose: 'chat',
       thinking: 'disabled',
       temperature: 0.9,
-      maxTokens: 1000,
+      maxTokens: directOutput ? 1400 : 1000,
+      jsonMode: directOutput,
+      singleRequest: directOutput,
       trace: { turnId: streamId, stage: 'first_chat', conversationId },
     })
 
@@ -479,9 +484,9 @@ async function runGroupAiTurn(
     let draftFeedback: string | undefined
     let localDraft = parseGroupRawDraft(rawText, speakers, stickers.map((sticker) => sticker.name), remoteStickerSearchEnabled)
     localDraft.groupVibe = group.vibe || '自然、轻松的日常群聊。'
-    let parsedTurn = localDraft
-    let jsonRaw = serializeGroupTurn(localDraft)
-    if (!localDraft.valid || localDraft.needsUtility) {
+    let parsedTurn = directOutput ? { ...parseGroupAiResponse(rawText, speakers.length), valid: true, needsUtility: false } : localDraft
+    let jsonRaw = directOutput ? rawText : serializeGroupTurn(localDraft)
+    if (!directOutput && (!localDraft.valid || localDraft.needsUtility)) {
       draftFeedback = !localDraft.valid
         ? `格式已交给多功能模型修复：${localDraft.reason || '草稿格式不完整'}`
         : '本轮可能包含共同计划，交给多功能模型提取结构化动作。'
@@ -508,8 +513,10 @@ async function runGroupAiTurn(
       if (converted.bubbles.length > 0) parsedTurn = { ...converted, valid: true, needsUtility: false }
       else jsonRaw = serializeGroupTurn(localDraft)
       console.log(`[group] ${draftFeedback}`)
-    } else {
+    } else if (!directOutput) {
       console.log('[group] 本地解析完成，跳过草稿审查与多功能模型转换')
+    } else {
+      console.log('[group] 一次调用直出：主模型 JSON 已直接解析')
     }
 
     let finalRaw = jsonRaw
@@ -533,13 +540,17 @@ async function runGroupAiTurn(
       signal: controller.signal,
       trace: { turnId: streamId, stage, conversationId },
     })
-    let logicReview = bubbles.length > 0 ? await runLogicReview('first_quality') : undefined
+    const directReview = directOutput ? parseDirectOutputReview(rawText) : null
+    let logicReview = !directOutput && bubbles.length > 0 ? await runLogicReview('first_quality') : undefined
     if (!turns.isCurrent(conversationId, streamId)) return
     if (logicReview?.status === 'unavailable') {
       draftFeedback = `审查降级：${logicReview.reason}`
       console.warn(`[group] 逻辑审查不可用，放行已解析回复 群=${group.name} 原因=${logicReview.reason}`)
     }
-    if (logicReview?.status === 'reject') {
+    if (directReview?.valid === false) {
+      throw new Error(`群聊同次自审未通过：${directReview.reason || '未知原因'}`)
+    }
+    if (!directOutput && logicReview?.status === 'reject') {
       reviewFailure = logicReview.reason || '群聊回复存在客观逻辑问题'
       draftFeedback = reviewFailure
       console.warn(`[group] 逻辑自检要求主模型重写 群=${group.name} 原因=${reviewFailure}`)
@@ -606,7 +617,7 @@ async function runGroupAiTurn(
       }
     }
     knowledgeQueries = Array.from(new Set([...initiallyRequestedKnowledge, ...knowledgeQueries])).slice(0, 2)
-    if (featureActive(settings, 'knowledgeBase') && knowledgeQueries.length > 0) {
+    if (!directOutput && featureActive(settings, 'knowledgeBase') && knowledgeQueries.length > 0) {
       const knowledge = await resolveKnowledgeQueries(knowledgeQueries, settings)
       if (knowledge.text) {
         rawText = await chatCompletion({ apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.model,messages:[...chatMessages,{role:'user',content:`刚才出现了你们不了解的词。搜索结果如下：\n${knowledge.text}${reviewFailure?`\n\n上一版审查问题：${reviewFailure}，重写时同时修正。`:''}\n请基于结果重新生成群聊草稿，保持原群聊格式，像刚查明白后自然接话，不要写成报告。`}],signal:controller.signal, thinking:'disabled',temperature:0.9,maxTokens:1800,trace:{turnId:streamId,stage:'second_chat',conversationId} })
@@ -653,9 +664,9 @@ async function runGroupAiTurn(
       if (plan) createdPlans.push(plan)
     }
     for (const plan of createdPlans) await db.messages.add(planCardMessage(plan))
-    void updateGroupMemoryAndVibe({ group, aiTurnId, settings, turnSummary, groupVibe })
+    void updateGroupMemoryAndVibe({ group, aiTurnId, settings, turnSummary, groupVibe, directOutput })
     console.info(`[group-perf] 模型与自检完成=${Math.round(performance.now() - turnStartedAt)}ms 群=${group.name}`)
-    revealGroupBubbles(conversationId, group, members, speakers, bubbles, streamId, settings, stickers, aiTurnId, turnSummary, turnStartedAt)
+    revealGroupBubbles(conversationId, group, members, speakers, bubbles, streamId, settings, stickers, aiTurnId, turnSummary, turnStartedAt, directOutput)
   } catch (err) {
     if (!turns.isCurrent(conversationId, streamId)) return
     if (err instanceof DOMException && err.name === 'AbortError') return
@@ -677,6 +688,7 @@ function revealGroupBubbles(
   aiTurnId: string,
   turnSummary: string,
   turnStartedAt = performance.now(),
+  directOutput = false,
 ): void {
   revealSequentially({
     conversationId,
@@ -742,7 +754,7 @@ function revealGroupBubbles(
 
           if (i === bubbles.length - 1) {
         useChatEngineStore.getState().patch(conversationId, { aiTyping: false, typingLabel: undefined })
-        void maybeUpdateGroupMemory(group.id, conversationId, members, settings)
+        if (!directOutput) void maybeUpdateGroupMemory(group.id, conversationId, members, settings)
 
         // A group conversation is shared context: unlike a private chat, it
         // can naturally colour a member's later 1:1 chat and a follow-up

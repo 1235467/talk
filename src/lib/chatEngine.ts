@@ -35,8 +35,9 @@ import { featureActive, promptModuleEnabled } from './promptModules'
 import { realisticReplyDelayMs } from './replyTiming'
 import { buildExperiencePromptSlice, ensureOfflineExperiences } from './experiences'
 import { ensureLocationsInitialized, syncContactLocationsAt } from './locations'
-import { runActionCommittee, type ActionCommitteeDebug } from './actionCommittee'
+import { evaluateDirectSpecialTask, runActionCommittee, type ActionCommitteeDebug } from './actionCommittee'
 import { createSpecialTask, type CreateSpecialTaskResult } from './agentTasks'
+import { buildDirectOutputInstruction, parseDirectOutputReview } from './directOutput'
 import type { AiBubble, AppSettings, Contact, Message, MessageType, ScheduleOverride, Sticker } from '../types'
 
 /**
@@ -354,9 +355,10 @@ async function runAiTurn(
   engine.patch(conversationId, { aiTyping: true, error: '', typingLabel: displayName(contact) })
   console.log(`[chat] 开始生成回复 对方=${displayName(contact)} conversationId=${conversationId}`)
   try {
+    const directOutput = isModuleEnabled('directOutput')
     const history = await db.messages.where('conversationId').equals(conversationId).sortBy('createdAt')
     let absenceContext = ''
-    if (offlineFrom && now - offlineFrom >= 60 * 60 * 1000 && isModuleEnabled('lifeSimulation')) {
+    if (!directOutput && offlineFrom && now - offlineFrom >= 60 * 60 * 1000 && isModuleEnabled('lifeSimulation')) {
       try {
         const completed = await ensureOfflineExperiences({ contact, settings, from: offlineFrom, to: now })
         absenceContext = completed.absenceContext
@@ -370,7 +372,7 @@ async function runAiTurn(
 
     // Cold-start warmth evaluation: 好感度 is enabled but this contact
     // was created while the module was off → evaluate once from chat history.
-    if (featureActive(settings, 'relationship') && contact.warmth === undefined) {
+    if (!directOutput && featureActive(settings, 'relationship') && contact.warmth === undefined) {
       await evaluateInitialWarmth(contact, conversationId, settings)
       // Re-read the contact so the newly-set warmth is available below.
       const fresh = await db.contacts.get(contact.id)
@@ -482,7 +484,7 @@ async function runAiTurn(
     const controller = new AbortController()
     turns.setAbortController(conversationId, controller)
     const chatMessages: ChatMessage[] = coalesceConsecutiveRoles([
-      { role: 'system', content: [contextSections, socialMemories, sharedOriginalContext].filter(Boolean).join('\n\n') },
+      { role: 'system', content: [contextSections, socialMemories, sharedOriginalContext, directOutput ? buildDirectOutputInstruction(actionLocations) : ''].filter(Boolean).join('\n\n') },
       ...recentHistory.map((m): ChatMessage => {
         if (m.type === 'sticker') return formatStructuredHistoryEvent(m, 'sticker')
         if (m.type === 'link') return formatStructuredHistoryEvent(m, 'link')
@@ -505,7 +507,9 @@ async function runAiTurn(
       automatic: !!proactiveContext,
       thinking: 'disabled',
       temperature: 0.9,
-      maxTokens: proactiveContext ? 700 : 800,
+      maxTokens: directOutput ? 1200 : proactiveContext ? 700 : 800,
+      jsonMode: directOutput,
+      singleRequest: directOutput,
       trace: { turnId: streamId, stage: 'first_chat', conversationId },
     })
 
@@ -515,11 +519,11 @@ async function runAiTurn(
     // ---- Step 2: parse ordinary drafts locally; use the utility model only
     // when the main model did not follow the explicit line protocol. ----
     console.info(`[chat-perf] model-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)}`)
-    const localTurn = parseRawPrivateDraft(rawText, activeMood)
+    const localTurn = directOutput ? parseAiResponse(rawText) : parseRawPrivateDraft(rawText, activeMood)
     let conversionPrompt = '本轮使用本地草稿解析，无额外模型调用。'
     let jsonRaw = serializePrivateTurn(localTurn)
     let parsedTurn = localTurn
-    if (rawPrivateDraftNeedsUtility(rawText, localTurn)) {
+    if (!directOutput && rawPrivateDraftNeedsUtility(rawText, localTurn)) {
       conversionPrompt = buildJsonConversionPrompt(rawText)
       jsonRaw = await bestEffortUtilityCompletion({
         apiKey: settings.apiKey,
@@ -543,8 +547,11 @@ async function runAiTurn(
       if (converted.bubbles.length > 0) parsedTurn = converted
       else jsonRaw = serializePrivateTurn(localTurn)
       console.log(`[chat] 草稿格式不完整，已用多功能模型转换JSON: ${jsonRaw.slice(0, 200)}`)
-    } else {
+    } else if (!directOutput) {
       console.log(`[chat] 本地解析完成，跳过多功能模型转换`)
+    } else {
+      conversionPrompt = '一次调用直出：主模型直接返回最终 JSON，不调用格式转换模型。'
+      jsonRaw = rawText
     }
     let finalRaw = jsonRaw
     let { bubbles, knowledgeQueries, mood: turnMood, thought: turnThought } = parsedTurn
@@ -578,7 +585,7 @@ async function runAiTurn(
       trace: { turnId: streamId, stage, conversationId },
     })
     knowledgeQueries = Array.from(new Set([...initiallyRequestedKnowledge, ...knowledgeQueries])).slice(0, 2)
-    if (featureActive(settings, 'knowledgeBase') && knowledgeQueries.length > 0) {
+    if (!directOutput && featureActive(settings, 'knowledgeBase') && knowledgeQueries.length > 0) {
       const knowledge = await resolveKnowledgeQueries(knowledgeQueries, settings)
       if (knowledge.text) {
         const enrichedMessages = chatMessages.map((message, index) => index === 0
@@ -612,12 +619,24 @@ async function runAiTurn(
       engine.patch(conversationId, { error: proactiveContext ? '' : '对方这次没有正常回复 可以再发一条试试', aiTyping: false, typingLabel: undefined })
       return
     }
-    const logicReview = await runLogicReview('first_quality')
+    const directReview = directOutput ? parseDirectOutputReview(rawText) : null
+    const logicReview = directOutput ? null : await runLogicReview('first_quality')
     if (!turns.isCurrent(conversationId, streamId)) return
-    if (logicReview.status === 'unavailable') {
+    if (directOutput && directReview?.valid === false) {
+      qualityCheckDebug.detectedInvalid = true
+      qualityCheckDebug.reason = directReview.reason || '主模型同次自审未通过'
+      bubbles = [{ type: 'text', content: '我刚才没想清楚，能让我重新想一下吗？' }]
+      knowledgeQueries = []
+      turnMood = undefined
+      turnThought = undefined
+      finalRaw = serializePrivateTurn({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought })
+      jsonRaw = finalRaw
+    } else if (directOutput) {
+      qualityCheckDebug.reason = directReview ? `同次自审通过：${directReview.reason || '无客观冲突'}` : '同次自审字段缺失，已仅执行本地结构校验'
+    } else if (logicReview?.status === 'unavailable') {
       qualityCheckDebug.reason = `审查降级：${logicReview.reason}`
       console.warn(`[chat] 逻辑审查不可用，放行已解析回复 对方=${displayName(contact)} 原因=${logicReview.reason}`)
-    } else if (logicReview.status === 'reject') {
+    } else if (logicReview?.status === 'reject') {
       qualityCheckDebug.detectedInvalid = true
       qualityCheckDebug.reason = logicReview.reason
       console.warn(`[chat] 最终回复未通过逻辑自检，改发兜底提示 对方=${displayName(contact)} 原因=${logicReview.reason || '未知原因'}`)
@@ -637,7 +656,7 @@ async function runAiTurn(
         if (bubble.type === 'sticker') return `[表情：${bubble.name}]`
         return ''
       }).filter(Boolean).join('\n')
-      actionCommittee = await runActionCommittee({
+      actionCommittee = directOutput ? evaluateDirectSpecialTask(rawText, actionLocations, now) : await runActionCommittee({
         contact,
         settings,
         locations: actionLocations,
@@ -699,6 +718,7 @@ async function runAiTurn(
       finalRaw,
       injectedIntents.map((intent) => intent.id),
       now,
+      directOutput,
     )
     console.info(`[chat-perf] first-bubble-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)}`)
     } catch (err) {
@@ -724,6 +744,7 @@ function revealBubbles(
   finalRaw?: string,
   injectedIntentIds: string[] = [],
   turnNow = Date.now(),
+  directOutput = false,
 ): void {
   revealSequentially({
     conversationId,
@@ -846,7 +867,7 @@ function revealBubbles(
         if (injectedIntentIds.length > 0) {
           await markIntentsUsed(contact.id, injectedIntentIds)
         }
-        const memoryUpdate = await maybeUpdateMemory(contact.id, conversationId, settings)
+        const memoryUpdate = directOutput ? null : await maybeUpdateMemory(contact.id, conversationId, settings)
         if (memoryUpdate) {
           const turn = await db.aiTurns.get(aiTurnId)
           const parsed =
@@ -860,7 +881,7 @@ function revealBubbles(
             mood: { text: turnMood, expiresAt: turnNow + settings.moodExpiryMs },
           })
         }
-        if (_triggeringUserText && isModuleEnabled('selfIteration')) {
+        if (!directOutput && _triggeringUserText && isModuleEnabled('selfIteration')) {
           enqueueSelfIterationTask({
             conversationId,
             contactId: contact.id,

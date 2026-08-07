@@ -1,7 +1,7 @@
 import { validateScheduleBlocks } from './schedule'
-import { parseJsonLoose } from './aiProtocol'
+import { extractJsonObject, parseJsonLoose } from './aiProtocol'
 import type { AvatarCategory } from './avatarCategory'
-import { PERSONALITY_TRAIT_OPTIONS, type PersonaProfile, type PromptModuleSettings, type ScheduleBlock } from '../types'
+import { PERSONALITY_TRAIT_OPTIONS, type ContactGenerationValidationDiagnostics, type ContactGenerationValidationIssue, type PersonaProfile, type PromptModuleSettings, type ScheduleBlock } from '../types'
 import { createDefaultPromptModules, getPromptTemplate, promptModuleEnabled } from './promptModules'
 export { DEFAULT_STYLE_PROMPT } from './stylePrompt'
 
@@ -266,9 +266,21 @@ ${worldbookText.trim()}` : ''
 	}\nschedule中的location保留自然语言，同时尽量填写合法locationId。可用值：home-living、home-kitchen、school-classroom、school-canteen、school-playground、office-floor、office-lobby、mall-atrium、mall-cafe、mall-shop、hospital-lobby、hospital-clinic、park-lawn、park-riverside、beach-boardwalk、mountain-lookout、farm-field。${answers.draftMode ? '\ninitialWarmth 必须是 -100 到 100 的整数。请根据角色对用户的关系、过去的经历、性格和边界决定创建时的好感度，陌生疏离可为负数，亲密关系应与设定相符。' : ''}`
 }
 
-export function parsePersonaGeneration(raw: string): PersonaGenerationResult | null {
+export function diagnosePersonaGeneration(raw: string): { result: PersonaGenerationResult | null; diagnostics: ContactGenerationValidationDiagnostics } {
   const parsed = parseJsonLoose<Record<string, unknown>>(raw)
-  if (parsed && typeof parsed.name === 'string' && typeof parsed.persona === 'string') {
+  if (parsed) {
+      const issues: ContactGenerationValidationIssue[] = []
+      const requiredString = (field: 'name' | 'persona', label: string, minimumLength = 1) => {
+        const value = parsed[field]
+        if (value === undefined || value === null) issues.push({ code: 'required_field_missing', field, message: `缺少${label}` })
+        else if (typeof value !== 'string') issues.push({ code: 'required_field_invalid', field, message: `${label}应为文本，实际为${Array.isArray(value) ? '数组' : typeof value}` })
+        else if (value.trim().length < minimumLength) issues.push({ code: 'required_field_invalid', field, message: `${label}不能为空` })
+      }
+      requiredString('name', '姓名')
+      requiredString('persona', '完整人设')
+      if (issues.length) return { result: null, diagnostics: { outputChars: raw.length, jsonState: 'valid', issues } }
+      const name = parsed.name as string
+      const persona = parsed.persona as string
       const trait = typeof parsed.personalityTrait === 'string' ? parsed.personalityTrait.trim() : ''
       const speechSamples = Array.isArray(parsed.speechSamples)
         ? parsed.speechSamples
@@ -295,9 +307,9 @@ export function parsePersonaGeneration(raw: string): PersonaGenerationResult | n
         : []
       // Validate: must be exactly 4 letters from the MBTI dimensions.
       const mbti = /^[IE][SN][TF][JP]$/.test(mbtiRaw) ? mbtiRaw : ''
-      return {
+      return { result: {
         avatarKeyword: typeof parsed.avatarKeyword === 'string' ? parsed.avatarKeyword.trim() : '',
-        name: parsed.name.trim(),
+        name: name.trim(),
         realName: typeof parsed.realName === 'string' ? parsed.realName.trim().slice(0, 40) : undefined,
         nickname: typeof parsed.nickname === 'string' ? parsed.nickname.trim().slice(0, 40) : undefined,
         birthday: typeof parsed.birthday === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.birthday.trim()) ? parsed.birthday.trim() : undefined,
@@ -305,7 +317,7 @@ export function parsePersonaGeneration(raw: string): PersonaGenerationResult | n
         ageRange: typeof parsed.ageRange === 'string' ? parsed.ageRange.trim().slice(0, 30) : undefined,
         relationship: typeof parsed.relationship === 'string' ? parsed.relationship.trim().slice(0, 40) : undefined,
         occupation: typeof parsed.occupation === 'string' ? parsed.occupation.trim().slice(0, 60) : undefined,
-        persona: parsed.persona.trim(),
+        persona: persona.trim(),
         schedule: validateScheduleBlocks(parsed.schedule),
         personalityTrait: PERSONALITY_TRAIT_OPTIONS.some((opt) => opt.value === trait) ? trait : '无',
         speechSamples,
@@ -314,9 +326,21 @@ export function parsePersonaGeneration(raw: string): PersonaGenerationResult | n
         monthlySalary: typeof parsed.monthlySalary === 'number' && Number.isFinite(parsed.monthlySalary) ? Math.max(1000, Math.min(200000, Math.round(parsed.monthlySalary))) : undefined,
         initialWarmth: typeof parsed.initialWarmth === 'number' && Number.isFinite(parsed.initialWarmth) ? Math.max(-100, Math.min(100, Math.round(parsed.initialWarmth))) : undefined,
         pastExperiences,
-      }
+      }, diagnostics: { outputChars: raw.length, jsonState: 'valid', issues: [] } }
   }
-  return null
+  const text = typeof raw === 'string' ? raw.trim() : ''
+  const looksTruncated = !!text && (text.startsWith('{') || text.startsWith('```')) && !extractJsonObject(text)
+  const jsonState = !text ? 'empty' : looksTruncated ? 'truncated' : 'invalid'
+  const issue: ContactGenerationValidationIssue = jsonState === 'empty'
+    ? { code: 'empty_output', message: '模型没有返回可见正文' }
+    : jsonState === 'truncated'
+      ? { code: 'json_truncated', message: 'JSON 在闭合前结束，输出可能被截断' }
+      : { code: 'json_invalid', message: '返回内容不是可解析的 JSON 对象' }
+  return { result: null, diagnostics: { outputChars: raw.length, jsonState, issues: [issue] } }
+}
+
+export function parsePersonaGeneration(raw: string): PersonaGenerationResult | null {
+  return diagnosePersonaGeneration(raw).result
 }
 
 // ---- worldview drafting ----

@@ -39,7 +39,7 @@ export function coalesceConsecutiveRoles(messages: ChatMessage[]): ChatMessage[]
   return result
 }
 
-async function traceAiCall(opts: { purpose: AiUsagePurpose; model: string; messages: ChatMessage[]; output?: string; error?: string; inputTokens: number; outputTokens: number; turnId?: string; stage?: AdminAiTraceStage; conversationId?: string; diagnostics?: Record<string, unknown> }) {
+async function traceAiCall(opts: { purpose: AiUsagePurpose; model: string; messages: ChatMessage[]; output?: string; error?: string; inputTokens: number; outputTokens: number; durationMs?: number; turnId?: string; stage?: AdminAiTraceStage; conversationId?: string; diagnostics?: Record<string, unknown> }) {
   try {
     await db.adminAiTraces.add({ id: uuid(), ...opts, createdAt: Date.now() })
     const count = await db.adminAiTraces.count()
@@ -133,6 +133,8 @@ export interface ChatCompletionOptions {
   temperature?: number
   thinking?: 'enabled' | 'disabled'
   trace?: { turnId: string; stage: AdminAiTraceStage; conversationId?: string }
+  /** Never issue a compatibility/empty-response retry. Used by the explicit one-request experiment. */
+  singleRequest?: boolean
 }
 
 function stringAt(value: unknown): string {
@@ -259,13 +261,15 @@ export async function chatCompletion(opts: ChatCompletionOptions): Promise<ChatC
   if (automatic) await assertAutomaticAiBudget()
   const messages = opts.messages
   const inputTokens = messages.reduce((sum, message) => sum + estimateTokens(message.content), 0)
+  const startedAt = Date.now()
   try {
   const key = requireApiKey(opts.apiKey, 'AI')
   requireHttpUrl(opts.baseUrl || AI_PROVIDERS[provider].defaultBaseUrl, 'Base URL')
   const endpoint = resolveChatCompletionsUrl(opts.baseUrl, provider)
   let result: ChatCompletionResult | undefined
   let retryMode: { disableJson?: boolean; alternateToken?: boolean; emptyRetry?: boolean } = {}
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const maxAttempts = opts.singleRequest ? 1 : 2
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const res = await appFetch(endpoint, {
       method: 'POST', signal: opts.signal,
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
@@ -297,10 +301,11 @@ export async function chatCompletion(opts: ChatCompletionOptions): Promise<ChatC
   const recordedOutputTokens = typeof completionTokens === 'number' && Number.isFinite(completionTokens) ? completionTokens : estimateTokens(result.content)
   const content = result.content
   const success = result.status === 'ok' || (result.status === 'length' && !!content)
+  const durationMs = Date.now() - startedAt
   const usageWrite = recordAiUsage({ purpose, model: opts.model, automatic, success, inputTokens: recordedInputTokens, outputTokens: recordedOutputTokens, estimated: typeof promptTokens !== 'number' || typeof completionTokens !== 'number' })
   if (automatic) await usageWrite
   else void usageWrite.catch(() => undefined)
-  void traceAiCall({ purpose, model: opts.model, messages, output: content, inputTokens: recordedInputTokens, outputTokens: recordedOutputTokens, diagnostics: { provider, status: result.status, finishReason: result.finishReason, usage: result.usage, rawShapeSummary: result.rawShapeSummary, retried: result.retried ?? false }, ...opts.trace })
+  void traceAiCall({ purpose, model: opts.model, messages, output: content, inputTokens: recordedInputTokens, outputTokens: recordedOutputTokens, durationMs, diagnostics: { provider, status: result.status, finishReason: result.finishReason, usage: result.usage, rawShapeSummary: result.rawShapeSummary, retried: result.retried ?? false }, ...opts.trace })
   console.info(`[ai-call] purpose=${purpose} provider=${provider} model=${opts.model} status=${result.status} finish=${result.finishReason ?? 'unknown'} contentChars=${content.length} reasoningTokens=${result.usage?.reasoningTokens ?? 'unknown'} outputTokens=${result.usage?.completionTokens ?? 'unknown'} retried=${result.retried ? 'yes' : 'no'}`)
   if (!success) console.warn(`[ai-call] ${completionStatusMessage(result)}`)
   return result
@@ -308,7 +313,7 @@ export async function chatCompletion(opts: ChatCompletionOptions): Promise<ChatC
     const usageWrite = recordAiUsage({ purpose, model: opts.model, automatic, success: false, inputTokens, outputTokens: 0, estimated: true, error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200) })
     if (automatic) await usageWrite
     else void usageWrite.catch(() => undefined)
-    void traceAiCall({ purpose, model: opts.model, messages, error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500), inputTokens, outputTokens: 0, ...opts.trace })
+    void traceAiCall({ purpose, model: opts.model, messages, error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500), inputTokens, outputTokens: 0, durationMs: Date.now() - startedAt, ...opts.trace })
     throw new Error(friendlyConnectionError(error, 'AI 接口'))
   }
 }
@@ -326,6 +331,7 @@ export async function chatCompletionStream(opts: ChatCompletionOptions & { onDel
   const inputTokens = messages.reduce((sum, message) => sum + estimateTokens(message.content), 0)
   const key = requireApiKey(opts.apiKey, 'AI')
   const provider = opts.provider ?? useSettingsStore.getState().aiProvider ?? 'deepseek'
+  const startedAt = Date.now()
   const res = await appFetch(resolveChatCompletionsUrl(opts.baseUrl, provider), { method: 'POST', signal: opts.signal, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...requestBody(opts, messages, provider), stream: true }) })
   if (!res.ok || !res.body) {
     const text = await res.text()
@@ -347,8 +353,9 @@ export async function chatCompletionStream(opts: ChatCompletionOptions & { onDel
     opts.onDelta(result.content)
     const promptTokens = result.usage?.promptTokens ?? inputTokens
     const outputTokens = result.usage?.completionTokens ?? estimateTokens(result.content)
+    const durationMs = Date.now() - startedAt
     await recordAiUsage({ purpose, model: opts.model, automatic: opts.automatic ?? false, success: true, inputTokens: promptTokens, outputTokens, estimated: result.usage?.promptTokens === undefined || result.usage?.completionTokens === undefined })
-    await traceAiCall({ purpose, model: opts.model, messages, output: result.content, inputTokens: promptTokens, outputTokens, diagnostics: { provider, status: result.status, finishReason: result.finishReason, nonStreamingFallback: true }, ...opts.trace })
+    await traceAiCall({ purpose, model: opts.model, messages, output: result.content, inputTokens: promptTokens, outputTokens, durationMs, diagnostics: { provider, status: result.status, finishReason: result.finishReason, nonStreamingFallback: true }, ...opts.trace })
     return result.content
   }
   const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let output = ''
@@ -363,7 +370,8 @@ export async function chatCompletionStream(opts: ChatCompletionOptions & { onDel
     }
   }
   if (!output.trim()) throw new Error('模型流式响应结束，但没有返回可见正文')
+  const durationMs = Date.now() - startedAt
   await recordAiUsage({ purpose, model: opts.model, automatic: opts.automatic ?? false, success: true, inputTokens, outputTokens: estimateTokens(output), estimated: true })
-  await traceAiCall({ purpose, model: opts.model, messages, output, inputTokens, outputTokens: estimateTokens(output), ...opts.trace })
+  await traceAiCall({ purpose, model: opts.model, messages, output, inputTokens, outputTokens: estimateTokens(output), durationMs, ...opts.trace })
   return output
 }

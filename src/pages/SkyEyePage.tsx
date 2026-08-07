@@ -39,6 +39,12 @@ function reviewResult(trace: AdminAiTrace): { passed?: boolean; reason?: string 
   } catch { return {} }
 }
 
+function formatDuration(durationMs?: number): string {
+  if (typeof durationMs !== 'number' || !Number.isFinite(durationMs)) return '耗时未知'
+  if (durationMs < 1000) return `耗时 ${Math.max(0, Math.round(durationMs))} 毫秒`
+  return `耗时 ${(durationMs / 1000).toFixed(durationMs < 10_000 ? 2 : 1)} 秒`
+}
+
 export function SkyEyePage() {
   const logs = useConsoleCaptureStore((s) => s.logs)
   const clearLogs = useConsoleCaptureStore((s) => s.clear)
@@ -84,7 +90,7 @@ function TraceStep({ trace, index }: { trace: AdminAiTrace; index: number }) {
     {result.reason && <p className="mb-2 rounded bg-white/80 p-2 text-[11px] text-gray-600">审核原因：{result.reason}</p>}
     <details open={trace.stage === 'first_chat' || !trace.stage}><summary className="cursor-pointer text-[11px] text-gray-500">输入消息 / Prompt</summary><pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-white p-2 text-[11px]">{trace.messages.map((message) => `[${message.role}]\n${message.content}`).join('\n\n')}</pre></details>
     <details open><summary className="cursor-pointer text-[11px] text-gray-500">{trace.error ? '错误' : '模型输出'}</summary><pre className={`mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded p-2 text-[11px] ${trace.error ? 'bg-red-50 text-red-600' : 'bg-white'}`}>{trace.output || trace.error || '（无输出）'}</pre></details>
-    <p className="mt-1 text-right text-[10px] text-gray-400">输入 {trace.inputTokens} · 输出 {trace.outputTokens} tokens</p>
+    <p className="mt-1 text-right text-[10px] text-gray-400">输入 {trace.inputTokens} · 输出 {trace.outputTokens} tokens · {formatDuration(trace.durationMs)}</p>
   </div>
 }
 function Pager({ page, total, size, setPage }: { page: number; total: number; size: number; setPage: (page: number) => void }) { const pages = Math.max(1, Math.ceil(total / size)); return <div className="mt-2 flex justify-between text-xs"><button disabled={page === 0} onClick={() => setPage(page - 1)} className="disabled:text-gray-300">上一页</button><span>{page + 1} / {pages}</span><button disabled={page + 1 >= pages} onClick={() => setPage(page + 1)} className="disabled:text-gray-300">下一页</button></div> }

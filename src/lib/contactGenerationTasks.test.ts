@@ -15,7 +15,7 @@ vi.mock('./deepseek', () => ({
       const output = JSON.stringify({
         name: `队列角色${streamRuntime.calls}`, realName: '林澄', nickname: '阿澄', birthday: '2002-06-15',
         gender: '女', ageRange: '24岁', relationship: '朋友', occupation: '设计师',
-        persona: '慢热但真诚的朋友。', personalityTrait: '猫系', mbti: 'INFP',
+        persona: '慢热但真诚的朋友，平时说话克制却很会观察细节，和用户相处时总会用行动表达关心。', personalityTrait: '猫系', mbti: 'INFP',
         speechSamples: ['你好'], personaProfile: { facts: [], boundaries: [], habits: [], behaviorAnchors: [] },
         pastExperiences: [], monthlySalary: 8000, schedule: [], avatarKeyword: 'portrait',
       })

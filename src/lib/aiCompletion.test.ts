@@ -28,6 +28,17 @@ describe('structured chat completion result', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('does not retry when a caller requires exactly one request', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: '' } }] }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await chatCompletion({ ...base, singleRequest: true })
+
+    expect(result.status).toBe('empty')
+    expect(result.retried).not.toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps finish reason, reasoning and token diagnostics', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       choices: [{ finish_reason: 'length', message: { content: 'visible', reasoning_content: 'hidden' } }],

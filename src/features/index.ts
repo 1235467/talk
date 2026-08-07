@@ -18,6 +18,7 @@ import { aiReplyAssistModule } from './aiReplyAssist'
 import { realisticRepliesModule } from './realisticReplies'
 import { promptModuleEditorModule } from './promptModuleEditor'
 import { locationModule } from './location'
+import { directOutputModule } from './directOutput'
 import type { FeatureModule, ParentModule } from './types'
 
 // ---- parent modules (accordion groups in the UI) ----
@@ -66,6 +67,7 @@ export const ALL_MODULES: FeatureModule[] = [
   realisticRepliesModule,
   promptModuleEditorModule,
   locationModule,
+  directOutputModule,
 ]
 
 /** Modules that don't belong to any parent — shown as standalone toggles. */
@@ -152,5 +154,5 @@ export function getEnabledDiscoverEntries(): { to: string; icon: string; label: 
 
 /** Every module is on by default except opt-in background/debug modules. */
 export const DEFAULT_ENABLED_MODULES: string[] = ALL_MODULES
-  .filter((m) => m.id !== 'proactiveChat' && m.id !== 'mindReading' && m.id !== 'selfIteration' && m.id !== 'lifeSimulation' && m.id !== 'realisticReplies' && m.id !== 'promptModuleEditor')
+  .filter((m) => m.id !== 'proactiveChat' && m.id !== 'mindReading' && m.id !== 'selfIteration' && m.id !== 'lifeSimulation' && m.id !== 'realisticReplies' && m.id !== 'promptModuleEditor' && m.id !== 'directOutput')
   .map((m) => m.id)

@@ -101,6 +101,13 @@ export function ContactGenerationTaskPage() {
           <section className="mt-3 rounded-xl border border-red-100 bg-white p-4">
             <h3 className="text-sm font-medium text-red-600">{task.error.message}</h3>
             <p className="mt-2 text-xs leading-relaxed text-gray-500">失败阶段：{task.error.stage}<br/>错误代码：{task.error.code}<br/>技术原因：{task.error.technicalMessage}</p>
+            {task.error.validation && <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700">
+              <p className="font-medium">检测结果{task.error.validation.repairAttempted ? '（已尝试自动修复）' : ''}</p>
+              <ul className="mt-1 list-disc pl-4">{task.error.validation.issues.map((issue, index) => <li key={`${issue.code}-${issue.field ?? index}`}>{issue.message}</li>)}</ul>
+              {task.error.validation.repair && <><p className="mt-2 font-medium">自动修复后</p><ul className="mt-1 list-disc pl-4">{task.error.validation.repair.issues.map((issue, index) => <li key={`${issue.code}-${issue.field ?? index}`}>{issue.message}</li>)}</ul></>}
+              {task.error.failedFields?.length ? <p className="mt-2">受影响字段：{task.error.failedFields.join('、')}</p> : null}
+              <p className="mt-2 text-red-600/80">建议：{task.error.code === 'PERSONA_JSON_TRUNCATED' ? '精简世界书或附加设定后重试。' : task.error.code === 'PERSONA_EMPTY_OUTPUT' ? '重试；若持续发生，请更换模型或检查模型服务。' : '可直接重试；持续发生时请复制故障信息。'}</p>
+            </div>}
             <div className="mt-3 grid grid-cols-2 gap-2">
               {task.error.retryable && <button onClick={() => void resumeContactGenerationTask(task.id)} className="rounded-lg bg-gray-900 py-2.5 text-sm text-white">重试当前步骤</button>}
               <button onClick={() => void copyDiagnostic(task)} className="rounded-lg bg-gray-100 py-2.5 text-sm text-gray-700">复制故障信息</button>

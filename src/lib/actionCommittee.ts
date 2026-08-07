@@ -50,6 +50,43 @@ export interface ActionCommitteeDebug {
   task?: ProposedSpecialTask
 }
 
+/**
+ * Single-request mode lets the speaking model emit the task decision itself.
+ * We still run the same deterministic guards locally, without another model
+ * request. The synthetic votes make the decision visible in existing admin
+ * diagnostics while clearly identifying its source.
+ */
+export function evaluateDirectSpecialTask(raw: string, locations: LocationNode[], now: number): ActionCommitteeDebug {
+  const root = parseJsonLoose<Record<string, unknown>>(raw)
+  const value = root?.specialTask
+  if (!value || typeof value !== 'object') {
+    return { proposal: null, commitment: null, feasibility: null, approved: false, reason: '直出结果未包含特殊任务决策' }
+  }
+  const task = value as Record<string, unknown>
+  if (task.decision !== 'create_special_task') {
+    const proposal: ProposalVote = { decision: 'none', confidence: 1, reason: typeof task.reason === 'string' ? task.reason.slice(0, 240) : '本轮没有形成特殊任务' }
+    return { proposal, commitment: null, feasibility: null, approved: false, reason: proposal.reason }
+  }
+
+  const proposal: ProposalVote = {
+    decision: 'create_special_task',
+    locationId: typeof task.locationId === 'string' ? task.locationId.trim() : undefined,
+    date: typeof task.date === 'string' ? task.date.trim() : undefined,
+    startTime: typeof task.startTime === 'string' ? task.startTime.trim() : undefined,
+    durationMinutes: Number.isFinite(Number(task.durationMinutes)) ? Math.round(Number(task.durationMinutes)) : undefined,
+    activity: typeof task.activity === 'string' ? task.activity.trim().slice(0, 80) : undefined,
+    summary: typeof task.summary === 'string' ? task.summary.trim().slice(0, 120) : undefined,
+    phoneAccess: task.phoneAccess === 'unavailable' ? 'unavailable' : 'available',
+    confidence: 1,
+    reason: typeof task.reason === 'string' ? task.reason.trim().slice(0, 240) : '主模型在同一次调用中确认角色已明确答应',
+  }
+  const commitment: CommitmentVote = { commitment: 'agreed', locationId: proposal.locationId, confidence: 1, reason: '来自主模型同次结构化决策' }
+  const feasibility: FeasibilityVote = { allowed: true, hardConflict: false, locationId: proposal.locationId, confidence: 1, reason: '交由本地硬规则校验' }
+  const leafLocations = locations.filter((location) => !locations.some((candidate) => candidate.parentId === location.id))
+  const result = arbitrateActionCommittee({ proposal, commitment, feasibility, validLocationIds: new Set(leafLocations.map((location) => location.id)), now })
+  return { proposal, commitment, feasibility, ...result }
+}
+
 function clampConfidence(value: unknown) {
   const number = Number(value)
   return Number.isFinite(number) ? Math.max(0, Math.min(1, number)) : 0
