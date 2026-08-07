@@ -16,6 +16,7 @@ import { ensureWallets } from './lib/finance'
 import { ensureLegacyWorldviewMigrated } from './lib/worldbook'
 import { syncContactLocationsAt } from './lib/locations'
 import { initializeContactGenerationTasks } from './lib/contactGenerationTasks'
+import { ensureContactPromptSnapshots } from './lib/promptPresets'
 // Tab pages are the landing screen — keep them eager. Everything else is
 // route-level code-split (lazy) so the initial bundle stays small; matches
 // how features/* already lazy-load their pages.
@@ -30,14 +31,17 @@ const loadMomentsPage = () => import('./pages/MomentsPage')
 const loadSettingsPage = () => import('./pages/SettingsPage')
 const loadImageProviderListPage = () => import('./pages/ImageProviderListPage')
 const loadImageProviderSettingsPage = () => import('./pages/ImageProviderSettingsPage')
+const loadOtherInterfacesPage = () => import('./pages/OtherInterfacesPage')
 const ChatPage = lazy(() => loadChatPage().then((m) => ({ default: m.ChatPage })))
 const ContactCardPage = lazy(() => loadContactCardPage().then((m) => ({ default: m.ContactCardPage })))
+const ContactAdminPage = lazy(() => import('./pages/ContactAdminPage').then((m) => ({ default: m.ContactAdminPage })))
 const ContactAddPage = lazy(() => loadContactAddPage().then((m) => ({ default: m.ContactAddPage })))
 const ContactGenerationTaskPage = lazy(() => import('./pages/ContactGenerationTaskPage').then((m) => ({ default: m.ContactGenerationTaskPage })))
 const GroupAddPage = lazy(() => import('./pages/GroupAddPage').then((m) => ({ default: m.GroupAddPage })))
 const GroupInfoPage = lazy(() => import('./pages/GroupInfoPage').then((m) => ({ default: m.GroupInfoPage })))
 const MomentsPage = lazy(() => loadMomentsPage().then((m) => ({ default: m.MomentsPage })))
 const SettingsPage = lazy(() => loadSettingsPage().then((m) => ({ default: m.SettingsPage })))
+const GlobalPromptModulesPage = lazy(() => import('./pages/GlobalPromptModulesPage').then((m) => ({ default: m.GlobalPromptModulesPage })))
 const AppearancePage = lazy(() => import('./pages/AppearancePage').then((m) => ({ default: m.AppearancePage })))
 const ExperienceModePage = lazy(() => import('./pages/ExperienceModePage').then((m) => ({ default: m.ExperienceModePage })))
 const StickersPage = lazy(() => import('./pages/StickersPage').then((m) => ({ default: m.StickersPage })))
@@ -45,11 +49,15 @@ const StickerProviderListPage = lazy(() => import('./pages/StickerProviderListPa
 const StickerProviderSettingsPage = lazy(() => import('./pages/StickerProviderSettingsPage').then((m) => ({ default: m.StickerProviderSettingsPage })))
 const ImageProviderListPage = lazy(() => loadImageProviderListPage().then((m) => ({ default: m.ImageProviderListPage })))
 const ImageProviderSettingsPage = lazy(() => loadImageProviderSettingsPage().then((m) => ({ default: m.ImageProviderSettingsPage })))
+const OtherInterfacesPage = lazy(() => loadOtherInterfacesPage().then((m) => ({ default: m.OtherInterfacesPage })))
+const SpeechProviderListPage = lazy(() => import('./pages/SpeechProviderListPage').then((m) => ({ default: m.SpeechProviderListPage })))
+const SpeechProviderSettingsPage = lazy(() => import('./pages/SpeechProviderSettingsPage').then((m) => ({ default: m.SpeechProviderSettingsPage })))
 const AiTestCardsPage = lazy(() => import('./pages/AiTestCardsPage').then((m) => ({ default: m.AiTestCardsPage })))
 const ProfileEditPage = lazy(() => import('./pages/ProfileEditPage').then((m) => ({ default: m.ProfileEditPage })))
 const ModulesPage = lazy(() => import('./pages/ModulesPage').then((m) => ({ default: m.ModulesPage })))
 const SkyEyePage = lazy(() => import('./pages/SkyEyePage').then((m) => ({ default: m.SkyEyePage })))
 const SocialInboxPage = lazy(() => import('./pages/SocialInboxPage').then((m) => ({ default: m.SocialInboxPage })))
+const AlbumPage = lazy(() => import('./pages/AlbumPage').then((m) => ({ default: m.AlbumPage })))
 import { WebPrivacyNotice } from './components/WebPrivacyNotice'
 // Runs once at module load, regardless of admin mode — so there's already
 // log history by the time someone opens "天眼".
@@ -149,6 +157,7 @@ function App() {
   useEffect(() => { void ensureWallets() }, [enabledModules])
   useEffect(() => { void ensureLegacyWorldviewMigrated() }, [])
   useEffect(() => { void initializeContactGenerationTasks() }, [])
+  useEffect(() => { void ensureContactPromptSnapshots(useSettingsStore.getState()) }, [])
   useEffect(() => {
     if (!desktop) return
     // Warm the routes people open most often after the desktop shell settles.
@@ -218,11 +227,16 @@ function App() {
         <Route path="/group/:groupId" element={<GroupInfoPage />} />
         <Route path="/moments" element={<MomentsPage />} />
         <Route path="/social-inbox" element={<SocialInboxPage />} />
+        <Route path="/album" element={<AlbumPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/settings/other-interfaces" element={<OtherInterfacesPage />} />
+        <Route path="/settings/global-prompts" element={<GlobalPromptModulesPage />} />
         <Route path="/appearance" element={<AppearancePage />} />
         <Route path="/experience-mode" element={<ExperienceModePage />} />
         <Route path="/settings/image-generation" element={<ImageProviderListPage />} />
         <Route path="/settings/image-generation/:providerId" element={<ImageProviderSettingsPage />} />
+        <Route path="/settings/speech-generation" element={<SpeechProviderListPage />} />
+        <Route path="/settings/speech-generation/:providerId" element={<SpeechProviderSettingsPage />} />
         <Route path="/stickers" element={<StickersPage />} />
         <Route path="/stickers/remote" element={<StickerProviderListPage />} />
         <Route path="/stickers/remote/:providerId" element={<StickerProviderSettingsPage />} />
@@ -235,6 +249,7 @@ function App() {
           <>
             <Route path="/sky-eye" element={<SkyEyePage />} />
             <Route path="/ai-test-cards" element={<AiTestCardsPage />} />
+            <Route path="/contact/:contactId/admin" element={<ContactAdminPage />} />
           </>
         )}
         </Routes>

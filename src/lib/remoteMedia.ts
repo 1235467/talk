@@ -25,6 +25,7 @@ export interface RemoteStickerResult {
 
 export interface GeneratedImageResult {
   url: string
+  urls?: string[]
   caption?: string
   query?: string
   provider: Exclude<ImageProviderId, 'none'>
@@ -34,6 +35,19 @@ export interface ImageProviderOptions {
   models: string[]
   samplers: string[]
   schedulers: string[]
+  nodeTypes?: string[]
+}
+
+export interface ImageGenerationProgress {
+  stage: 'submitting' | 'queued' | 'running' | 'downloading'
+  message: string
+  promptId?: string
+  queueNumber?: number
+}
+
+export interface ImageGenerationOptions {
+  signal?: AbortSignal
+  onProgress?: (progress: ImageGenerationProgress) => void
 }
 
 type ResponseKind = 'json' | 'text' | 'bytes' | 'auto'
@@ -44,6 +58,7 @@ interface MediaRequestOptions {
   data?: unknown
   responseKind?: ResponseKind
   timeoutMs?: number
+  signal?: AbortSignal
 }
 
 interface MediaResponse {
@@ -101,6 +116,7 @@ function parseTextPayload(text: string): unknown {
 }
 
 async function mediaRequest(url: string, options: MediaRequestOptions = {}): Promise<MediaResponse> {
+  if (options.signal?.aborted) throw new DOMException('请求已取消', 'AbortError')
   const requestUrl = requireHttpUrl(url, '接口地址')
   const method = options.method ?? 'GET'
   const responseKind = options.responseKind ?? 'json'
@@ -121,6 +137,7 @@ async function mediaRequest(url: string, options: MediaRequestOptions = {}): Pro
       readTimeout: timeoutMs,
     })
     const contentType = headerContentType(response.headers)
+    if (options.signal?.aborted) throw new DOMException('请求已取消', 'AbortError')
     if (responseKind === 'bytes') {
       const bytes = typeof response.data === 'string' ? base64ToBytes(response.data) : new Uint8Array(response.data as ArrayBuffer)
       return { status: response.status, data: bytes, contentType }
@@ -140,6 +157,8 @@ async function mediaRequest(url: string, options: MediaRequestOptions = {}): Pro
   }
 
   const controller = new AbortController()
+  const abort = () => controller.abort()
+  options.signal?.addEventListener('abort', abort, { once: true })
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const response = await appFetch(requestUrl, {
@@ -164,6 +183,7 @@ async function mediaRequest(url: string, options: MediaRequestOptions = {}): Pro
     return { status: response.status, data: parseTextPayload(text), contentType }
   } finally {
     clearTimeout(timer)
+    options.signal?.removeEventListener('abort', abort)
   }
 }
 
@@ -502,8 +522,10 @@ async function generateNovelAi(
   return { url: bytesToDataUrl(imageEntry[1], contentType), query, provider: 'novelai' }
 }
 
-function comfyHeaders(apiKey: string): Record<string, string> {
-  return apiKey.trim() ? { Authorization: `Bearer ${apiKey.trim()}` } : {}
+function comfyHeaders(config: AppSettings['imageProviders']['comfyui']): Record<string, string> {
+  const apiKey = config.apiKey.trim()
+  if (!apiKey || config.authMode === 'none') return {}
+  return config.authMode === 'x-api-key' ? { 'X-API-Key': apiKey } : { Authorization: `Bearer ${apiKey}` }
 }
 
 function buildComfyWorkflow(config: AppSettings['imageProviders']['comfyui'], query: string): Record<string, unknown> {
@@ -536,57 +558,118 @@ function buildComfyWorkflow(config: AppSettings['imageProviders']['comfyui'], qu
 async function generateComfyUi(
   settings: Pick<AppSettings, 'imageProviders'>,
   query: string,
+  options: ImageGenerationOptions = {},
 ): Promise<GeneratedImageResult | null> {
   const config = settings.imageProviders.comfyui
   const baseUrl = trimBaseUrl(config.baseUrl)
-  const headers = { ...comfyHeaders(config.apiKey), 'Content-Type': 'application/json' }
+  const headers = { ...comfyHeaders(config), 'Content-Type': 'application/json' }
+  options.onProgress?.({ stage: 'submitting', message: '正在向 ComfyUI 提交工作流…' })
   const submit = await mediaRequest(`${baseUrl}/prompt`, {
     method: 'POST',
     headers,
     data: { prompt: buildComfyWorkflow(config, query), client_id: crypto.randomUUID() },
+    signal: options.signal,
   })
   ensureOk(submit, 'ComfyUI')
   const promptId = getPath(submit.data, 'prompt_id')
-  if (typeof promptId !== 'string' || !promptId) throw new Error('ComfyUI 没有返回 prompt_id')
+  if (typeof promptId !== 'string' || !promptId) throw new Error(comfyErrorMessage(submit.data, 'ComfyUI 拒绝了工作流'))
+  const queueNumberValue = getPath(submit.data, 'number')
+  const queueNumber = typeof queueNumberValue === 'number' ? queueNumberValue : undefined
+  options.onProgress?.({ stage: 'queued', message: queueNumber === undefined ? '工作流已进入 ComfyUI 队列' : `工作流已进入队列（序号 ${queueNumber}）`, promptId, queueNumber })
+  options.signal?.addEventListener('abort', () => {
+    void mediaRequest(`${baseUrl}/queue`, {
+      method: 'POST',
+      headers,
+      data: { delete: [promptId] },
+      timeoutMs: 10_000,
+    }).catch(() => undefined)
+  }, { once: true })
 
-  for (let attempt = 0; attempt < 120; attempt += 1) {
+  const attempts = Math.max(1, Math.ceil(Math.min(1_800, Math.max(30, config.timeoutSeconds)) / 1.5))
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (options.signal?.aborted) throw new DOMException('生成已取消', 'AbortError')
     const historyResponse = await mediaRequest(`${baseUrl}/history/${encodeURIComponent(promptId)}`, {
-      headers: comfyHeaders(config.apiKey),
+      headers: comfyHeaders(config),
+      signal: options.signal,
     })
     ensureOk(historyResponse, 'ComfyUI 历史查询')
     const history = getPath(historyResponse.data, promptId) ?? historyResponse.data
     const outputs = getPath(history, 'outputs')
     if (outputs && typeof outputs === 'object') {
-      for (const output of Object.values(outputs as Record<string, unknown>)) {
+      const outputRecord = outputs as Record<string, unknown>
+      const selectedOutputId = config.workflowMode === 'custom' ? config.workflowBindings?.outputNodeId : '9'
+      const outputRows = selectedOutputId
+        ? outputRecord[selectedOutputId] ? [[selectedOutputId, outputRecord[selectedOutputId]] as const] : []
+        : Object.entries(outputRecord)
+      for (const [, output] of outputRows) {
         if (!output || typeof output !== 'object') continue
         const record = output as Record<string, unknown>
         const media = Array.isArray(record.images) ? record.images : Array.isArray(record.gifs) ? record.gifs : []
-        const first = media[0]
-        if (!first || typeof first !== 'object') continue
-        const item = first as Record<string, unknown>
-        if (typeof item.filename !== 'string') continue
-        const params = new URLSearchParams({
-          filename: item.filename,
-          subfolder: typeof item.subfolder === 'string' ? item.subfolder : '',
-          type: typeof item.type === 'string' ? item.type : 'output',
-        })
-        const imageResponse = await mediaRequest(`${baseUrl}/view?${params}`, {
-          headers: comfyHeaders(config.apiKey),
-          responseKind: 'bytes',
-        })
-        ensureOk(imageResponse, 'ComfyUI 图片读取')
-        return {
-          url: bytesToDataUrl(imageResponse.data as Uint8Array, imageResponse.contentType.split(';')[0] || 'image/png'),
-          query,
-          provider: 'comfyui',
+        const items = media.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && typeof (item as Record<string, unknown>).filename === 'string').slice(0, 8)
+        if (items.length === 0) continue
+        options.onProgress?.({ stage: 'downloading', message: items.length > 1 ? `生成完成，正在读取 ${items.length} 张图片…` : '生成完成，正在读取图片…', promptId })
+        const urls: string[] = []
+        for (const item of items) {
+          const params = new URLSearchParams({
+            filename: String(item.filename),
+            subfolder: typeof item.subfolder === 'string' ? item.subfolder : '',
+            type: typeof item.type === 'string' ? item.type : 'output',
+          })
+          const imageResponse = await mediaRequest(`${baseUrl}/view?${params}`, {
+            headers: comfyHeaders(config),
+            responseKind: 'bytes',
+            signal: options.signal,
+          })
+          ensureOk(imageResponse, 'ComfyUI 图片读取')
+          urls.push(bytesToDataUrl(imageResponse.data as Uint8Array, imageResponse.contentType.split(';')[0] || 'image/png'))
         }
+        return { url: urls[0], urls, query, provider: 'comfyui' }
       }
     }
     const status = getPath(history, 'status.status_str')
-    if (status === 'error') throw new Error('ComfyUI 工作流执行失败，请检查模型与节点配置')
-    await new Promise((resolve) => setTimeout(resolve, 1_500))
+    if (status === 'error') throw new Error(comfyErrorMessage(history, 'ComfyUI 工作流执行失败'))
+    if (status === 'success' && outputs && config.workflowMode === 'custom' && config.workflowBindings?.outputNodeId) {
+      throw new Error(`ComfyUI 已执行完成，但指定的输出节点 #${config.workflowBindings.outputNodeId} 没有返回图片，请重新选择最终图片输出节点`)
+    }
+    options.onProgress?.({ stage: 'running', message: attempt === 0 ? 'ComfyUI 正在执行工作流…' : 'ComfyUI 正在生成，请稍候…', promptId })
+    await abortableDelay(1_500, options.signal)
   }
-  throw new Error('ComfyUI 生图等待超时，请检查队列')
+  throw new Error(`ComfyUI 等待超过 ${Math.min(1_800, Math.max(30, config.timeoutSeconds))} 秒，请检查队列或调高超时时间`)
+}
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(new DOMException('生成已取消', 'AbortError')); return }
+    const timer = setTimeout(done, ms)
+    const abort = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(new DOMException('生成已取消', 'AbortError')) }
+    function done() { signal?.removeEventListener('abort', abort); resolve() }
+    signal?.addEventListener('abort', abort, { once: true })
+  })
+}
+
+function comfyErrorMessage(payload: unknown, fallback: string): string {
+  const messages: string[] = []
+  const visit = (value: unknown, depth = 0) => {
+    if (depth > 5 || value == null) return
+    if (typeof value === 'string') {
+      const text = value.trim()
+      if (text && text.length < 600 && !/^\w+$/.test(text)) messages.push(text)
+      return
+    }
+    if (Array.isArray(value)) { value.forEach((item) => visit(item, depth + 1)); return }
+    if (typeof value !== 'object') return
+    const record = value as Record<string, unknown>
+    let followedKnownField = false
+    for (const key of ['message', 'error', 'details', 'exception_message']) {
+      if (key in record) { followedKnownField = true; visit(record[key], depth + 1) }
+    }
+    if ('node_errors' in record) { followedKnownField = true; visit(record.node_errors, depth + 1) }
+    if ('messages' in record) { followedKnownField = true; visit(record.messages, depth + 1) }
+    if (!followedKnownField) Object.values(record).forEach((item) => visit(item, depth + 1))
+  }
+  visit(payload)
+  const unique = Array.from(new Set(messages)).slice(0, 4)
+  return unique.length ? `${fallback}：${unique.join('；')}` : fallback
 }
 
 function stableDiffusionHeaders(username: string, password: string): Record<string, string> {
@@ -662,11 +745,12 @@ async function generateCustom(
 export async function generateRemoteImage(
   settings: Pick<AppSettings, 'imageProvider' | 'imageProviders'>,
   query: string,
+  options: ImageGenerationOptions = {},
 ): Promise<GeneratedImageResult | null> {
   if (!isImageProviderReady(settings)) return null
   if (settings.imageProvider === 'atlas') return generateAtlas(settings, query)
   if (settings.imageProvider === 'novelai') return generateNovelAi(settings, query)
-  if (settings.imageProvider === 'comfyui') return generateComfyUi(settings, query)
+  if (settings.imageProvider === 'comfyui') return generateComfyUi(settings, query, options)
   if (settings.imageProvider === 'stable-diffusion') return generateStableDiffusion(settings, query)
   if (settings.imageProvider === 'custom') return generateCustom(settings, query)
   return null
@@ -697,16 +781,21 @@ export async function loadImageProviderOptions(
   if (provider === 'comfyui') {
     const config = settings.imageProviders.comfyui
     const response = await mediaRequest(`${trimBaseUrl(config.baseUrl)}/object_info`, {
-      headers: comfyHeaders(config.apiKey),
+      headers: comfyHeaders(config),
     })
     ensureOk(response, 'ComfyUI')
     ensureObjectPayload(response, 'ComfyUI')
-    const loaded = {
-      models: optionList(getPath(response.data, 'CheckpointLoaderSimple.input.required.ckpt_name.0')),
+    const loaded: ImageProviderOptions = {
+      models: Array.from(new Set([
+        ...optionList(getPath(response.data, 'CheckpointLoaderSimple.input.required.ckpt_name.0')),
+        ...optionList(getPath(response.data, 'CheckpointLoader.input.required.ckpt_name.0')),
+        ...optionList(getPath(response.data, 'UNETLoader.input.required.unet_name.0')),
+      ])),
       samplers: optionList(getPath(response.data, 'KSampler.input.required.sampler_name.0')),
       schedulers: optionList(getPath(response.data, 'KSampler.input.required.scheduler.0')),
+      nodeTypes: Object.keys(response.data as Record<string, unknown>),
     }
-    if (loaded.models.length === 0) throw new Error('ComfyUI 已连接，但没有读取到模型，请检查是否已安装并选择模型')
+    if (config.workflowMode === 'basic' && loaded.models.length === 0) throw new Error('ComfyUI 已连接，但内置基础工作流没有可用 Checkpoint，请安装模型或改用自定义工作流')
     return loaded
   }
   if (provider === 'stable-diffusion') {
@@ -769,11 +858,14 @@ export async function testImageProviderConnection(
   if (provider === 'comfyui') {
     const config = settings.imageProviders.comfyui
     const response = await mediaRequest(`${trimBaseUrl(config.baseUrl)}/system_stats`, {
-      headers: comfyHeaders(config.apiKey),
+      headers: comfyHeaders(config),
     })
     ensureOk(response, 'ComfyUI')
     ensureObjectPayload(response, 'ComfyUI')
-    return 'ComfyUI 已连接'
+    const devices = getPath(response.data, 'devices')
+    const firstDevice = Array.isArray(devices) && devices[0] && typeof devices[0] === 'object' ? devices[0] as Record<string, unknown> : undefined
+    const deviceName = typeof firstDevice?.name === 'string' ? firstDevice.name : typeof firstDevice?.type === 'string' ? firstDevice.type : ''
+    return deviceName ? `ComfyUI 已连接 · ${deviceName}` : 'ComfyUI 已连接，官方接口可访问'
   }
   if (provider === 'stable-diffusion') {
     const options = await loadImageProviderOptions(settings, provider)

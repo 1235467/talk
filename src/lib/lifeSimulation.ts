@@ -6,6 +6,7 @@ import { useSettingsStore } from '../store/useSettingsStore'
 import { retrieveWorldbookContext } from './worldbook'
 import type { AppSettings, Contact, ContactLifeState, LifeEvent } from '../types'
 import { featureActive, getPromptTemplate } from './promptModules'
+import { canPublishNovelMoment } from './moments'
 
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
@@ -121,7 +122,9 @@ export async function runLifeSimulation(settings = useSettingsStore.getState()):
     for (const event of publicEvents) {
       const contact = contacts.find((item) => item.id === event.contactId)
       if (!contact) continue
-      await db.moments.add({ id: uuid(), contactId: contact.id, content: polished.get(event.id) || event.summary, createdAt: event.occurredAt })
+      const content = polished.get(event.id) || event.summary
+      if (!await canPublishNovelMoment(contact.id, content, event.occurredAt)) continue
+      await db.moments.add({ id: uuid(), contactId: contact.id, content, createdAt: event.occurredAt })
       await db.contacts.update(contact.id, { lastMomentAt: event.occurredAt })
       await db.lifeEvents.update(event.id, { surfacedAsMoment: true })
     }

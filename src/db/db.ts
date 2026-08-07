@@ -19,9 +19,9 @@ import type {
   WorldbookEntry,
   SimulationState, ContactLifeState, LifeEvent, ContactExperience, AiUsageRecord,
   SocialEvent, GroupPlan, AdminLogRecord, AdminAiTrace, SaveSlot, ContactStoryline, ContactSaveSnapshot, GlobalSaveSnapshot, SavedPersona, PersonaCreationRecord, ShopPurchaseHistory, ContactGenerationTask,
-  Sticker,
+  Sticker, SpeechCacheRecord,
   WalletAccount, WalletTransaction, Loan, JobListing, InterviewSession,
-  LocationNode, WorldMapRecord, LocationModuleState, AcousticEdge,
+  LocationNode, WorldMapRecord, LocationModuleState, AcousticEdge, InternalTask,
 } from '../types'
 
 export class TalkDB extends Dexie {
@@ -69,6 +69,8 @@ export class TalkDB extends Dexie {
   worldMaps!: Table<WorldMapRecord, string>
   locationModuleState!: Table<LocationModuleState, string>
   acousticEdges!: Table<AcousticEdge, string>
+  speechCache!: Table<SpeechCacheRecord, string>
+  internalTasks!: Table<InternalTask, string>
 
   constructor() {
     super('talk-db')
@@ -422,6 +424,12 @@ export class TalkDB extends Dexie {
       contactStorylines: 'id, contactId, worldviewId, updatedAt',
       contactSaveSnapshots: 'id, contactId, storylineId, createdAt, [contactId+createdAt], [storylineId+createdAt]',
       globalSaveSnapshots: 'id, resourceType, resourceId, createdAt, [resourceType+resourceId], [resourceId+createdAt]',
+    })
+    this.version(36).stores({
+      speechCache: '&id, messageId, provider, lastAccessedAt',
+    })
+    this.version(37).stores({
+      internalTasks: 'id, contactId, conversationId, status, createdAt',
     })
   }
 }

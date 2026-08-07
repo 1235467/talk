@@ -12,6 +12,7 @@ export function previewForMessage(m?: Message, speakerName?: string): string {
     if (m.type === 'link') return `[链接] ${m.content}`
     if (m.type === 'gift') return `[礼物] ${m.content}`
     if (m.type === 'scheduleChange') return `[日程] ${m.content}`
+    if (m.type === 'internalTask') return `[安排更新] ${m.content}`
     return m.content
   })()
   return speakerName ? `${speakerName}: ${body}` : body

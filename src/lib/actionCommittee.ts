@@ -56,7 +56,14 @@ export interface ActionCommitteeDebug {
  * request. The synthetic votes make the decision visible in existing admin
  * diagnostics while clearly identifying its source.
  */
-export function evaluateDirectSpecialTask(raw: string, locations: LocationNode[], now: number): ActionCommitteeDebug {
+export function evaluateDirectSpecialTask(raw: string, locations: LocationNode[], now: number, triggeringUserText = ''): ActionCommitteeDebug {
+  // A single-call response must never turn an open negotiation into a real
+  // task by inventing the missing time. These phrases are deliberately
+  // conservative: they express that the current user message still leaves
+  // the timing unresolved, regardless of what the model put in its JSON.
+  if (/(几点|什么时候|何时|你来定|你定时间|先洗头|先收拾|看情况)/.test(triggeringUserText)) {
+    return { proposal: null, commitment: null, feasibility: null, approved: false, reason: '当前对话仍在协商时间，不能创建特殊任务' }
+  }
   const root = parseJsonLoose<Record<string, unknown>>(raw)
   const value = root?.specialTask
   if (!value || typeof value !== 'object') {
@@ -175,5 +182,20 @@ export async function runActionCommittee(input: { contact: Contact; settings: Ap
   const commitment = parseCommitment(commitmentRaw)
   const feasibility = parseFeasibility(feasibilityRaw)
   const arbitration = arbitrateActionCommittee({ proposal, commitment, feasibility, validLocationIds, now: input.now })
+  if (arbitration.approved) return { proposal, commitment, feasibility, ...arbitration }
+
+  // The proposal judge is deliberately given the complete user text, visible
+  // reply and exact location catalogue. Requiring two additional model calls
+  // to independently reproduce the same structured decision made confirmed
+  // arrangements vanish in practice whenever one judge is conservative,
+  // malformed or transiently unavailable. Keep the strict deterministic
+  // time/location guards, but allow a high-confidence concrete proposal to
+  // be the fallback source of truth.
+  if (proposal?.decision === 'create_special_task' && proposal.confidence >= .75) {
+    const fallbackCommitment: CommitmentVote = { commitment: 'agreed', locationId: proposal.locationId, confidence: 1, reason: '高置信度行动提议的本地降级确认' }
+    const fallbackFeasibility: FeasibilityVote = { allowed: true, hardConflict: false, locationId: proposal.locationId, confidence: 1, reason: '沿用本地时间、地点与范围硬校验' }
+    const fallback = arbitrateActionCommittee({ proposal, commitment: fallbackCommitment, feasibility: fallbackFeasibility, validLocationIds, now: input.now })
+    if (fallback.approved) return { proposal, commitment, feasibility, ...fallback, reason: '其余行动审查未形成一致结果，已采用高置信度且通过本地硬校验的具体提议' }
+  }
   return { proposal, commitment, feasibility, ...arbitration }
 }

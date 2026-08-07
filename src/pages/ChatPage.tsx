@@ -16,20 +16,24 @@ import { displayName } from '../lib/contact'
 import { applyMessageFeedback } from '../lib/messageFeedback'
 import { buildPrivateStatusLine } from '../lib/contactStatus'
 import { downloadDataUrl, generateChatCaptureImage, shareDataUrl } from '../lib/chatCapture'
-import type { Contact, Message, Sticker } from '../types'
+import type { Contact, Message, SpeechCacheRecord, Sticker } from '../types'
 import { v4 as uuid } from 'uuid'
 import { claimRedPacket, transferFunds, USER_WALLET_ID } from '../lib/finance'
-import { draftReply } from '../lib/aiReplyAssist'
 import { searchRemoteStickers, trackRemoteStickerSend, type RemoteStickerResult } from '../lib/remoteMedia'
 import { isStickerProviderReady, stickerProviderName } from '../lib/mediaProviders'
 import { normalizeChatPageSize } from '../lib/chatPagination'
 import { resolveLocationParticipants, syncContactLocationsAt } from '../lib/locations'
-import { ArrowLeftRight, BriefcaseBusiness, CircleDollarSign, Gift, HandCoins, LoaderCircle, Package, Plus, ShoppingBag, Sparkles, Sticker as StickerIcon } from 'lucide-react'
+import { revertInternalTask } from '../lib/internalTasks'
+import { ArrowLeftRight, BriefcaseBusiness, CircleDollarSign, Gift, HandCoins, Package, Plus, ShoppingBag, Sticker as StickerIcon } from 'lucide-react'
 import { UiIcon } from '../components/UiIcon'
 import { isAiTestId } from '../lib/aiTestIsolation'
+import { contactSpeechVoice, isSpeechProviderReady } from '../lib/speechProviders'
+import { cacheSpeechForMessage, speechSignature } from '../lib/speechSynthesis'
+import { playSpeechMessage, playSpeechRecord, stopSpeechPlayback, useSpeechPlayerStore } from '../lib/speechPlayer'
 
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_STICKERS: Sticker[] = []
+const EMPTY_SPEECH_CACHE_ROWS: Array<SpeechCacheRecord | undefined> = []
 const LONG_PRESS_HINT_KEY = 'talk-chat-long-press-hint-seen-v1'
 
 export function ChatPage() {
@@ -42,7 +46,6 @@ export function ChatPage() {
   const setActiveConversation = useChatUiStore((s) => s.setActiveConversation)
   const mindReadingEnabled = useModuleEnabled('mindReading')
   const careerEnabled = useModuleEnabled('career')
-  const replyAssistEnabled = useModuleEnabled('aiReplyAssist')
   const shopEnabled = useModuleEnabled('shop')
   const warehouseEnabled = useModuleEnabled('warehouse')
   const desktop = Boolean(window.talkDesktop)
@@ -99,6 +102,15 @@ export function ChatPage() {
     return { items: newestFirst.reverse(), total }
   }, [conversationId, visibleMessageLimit])
   const messages = messagePage?.items ?? EMPTY_MESSAGES
+  const textMessageIdsKey = messages.filter((message) => message.type === 'text').map((message) => message.id).join('|')
+  const speechCacheRows = useLiveQuery(
+    () => textMessageIdsKey ? db.speechCache.bulkGet(textMessageIdsKey.split('|')) : [],
+    [textMessageIdsKey],
+  ) ?? EMPTY_SPEECH_CACHE_ROWS
+  const speechCacheByMessage = useMemo(
+    () => new Map(speechCacheRows.filter((row) => !!row).map((row) => [row!.messageId, row!])),
+    [speechCacheRows],
+  )
   const latestMessageId = messages.at(-1)?.id
   const hasOlderMessages = messages.length < (messagePage?.total ?? 0)
   const stickers = useLiveQuery(() => db.stickers.toArray(), []) ?? EMPTY_STICKERS
@@ -126,7 +138,7 @@ export function ChatPage() {
   // The AI-turn state (typing indicator / error) lives in a module-level
   // store, not local state — it keeps running in the background even when
   // this page unmounts, so it must be read reactively from there instead.
-  const { aiTyping, error, typingLabel } = useChatEngineStore(
+  const { aiTyping, error, typingLabel, timedOut } = useChatEngineStore(
     (s) => s.states[conversationId ?? ''] ?? DEFAULT_RUNTIME_STATE,
   )
 
@@ -149,6 +161,9 @@ export function ChatPage() {
   const [stickerResults, setStickerResults] = useState<RemoteStickerResult[]>([])
   const [stickerBusy, setStickerBusy] = useState(false)
   const [financeMode, setFinanceMode] = useState<'transfer'|'redPacket'|'loan'|null>(null)
+  const [generatingSpeechIds, setGeneratingSpeechIds] = useState<Set<string>>(() => new Set())
+  const speechPlayingId = useSpeechPlayerStore((state) => state.messageId)
+  const speechPlaying = useSpeechPlayerStore((state) => state.playing)
 
   useEffect(() => {
     if (localStorage.getItem(LONG_PRESS_HINT_KEY) === '1') return
@@ -166,9 +181,6 @@ export function ChatPage() {
   }
   const [financeAmount,setFinanceAmount]=useState('')
   const [financeNote,setFinanceNote]=useState('')
-  const [assistBusy, setAssistBusy] = useState(false)
-  const isPageMounted = useRef(true)
-  const currentConversationRef = useRef<string | undefined>(conversationId)
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const loadingOlderRef = useRef<{ scrollHeight: number } | null>(null)
@@ -177,6 +189,10 @@ export function ChatPage() {
   const messageById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages])
   const replyToMessage = replyToId ? messageById.get(replyToId) : undefined
   const menuMessage = menuMessageId ? messageById.get(menuMessageId) : undefined
+  const menuSpeechContact = menuMessage?.role === 'assistant'
+    ? (isGroupConv ? (menuMessage.speakerContactId ? memberById.get(menuMessage.speakerContactId) : undefined) : contact ?? undefined)
+    : undefined
+  const menuSpeechVoice = contactSpeechVoice(menuSpeechContact, settings.speechProvider)
   const regenerationMessage = regenerationMessageId ? messageById.get(regenerationMessageId) : undefined
   const selectedMessages = useMemo(
     () => messages.filter((message) => selectedMessageIds.includes(message.id)),
@@ -203,17 +219,6 @@ export function ChatPage() {
     setActiveConversation(conversationId)
     return () => setActiveConversation(null)
   }, [conversationId, setActiveConversation])
-
-  useEffect(() => {
-    isPageMounted.current = true
-    return () => {
-      isPageMounted.current = false
-    }
-  }, [])
-
-  useEffect(() => {
-    currentConversationRef.current = conversationId
-  }, [conversationId])
 
   // Marks everything as read whenever this chat is open — runs on mount
   // (clears existing unread) and again each time a new message streams in
@@ -288,6 +293,20 @@ export function ChatPage() {
     await sendMessage(conversationId, contact, settings, stickers, text)
   }
 
+  function retryCurrentTurn() {
+    if (!conversationId || aiTyping) return
+    if (isGroupConv) {
+      if (group) void triggerGroupAiTurn(conversationId, group, groupMembers, settings, stickers)
+      return
+    }
+    if (contact) void triggerAiTurn(conversationId, contact, settings, stickers)
+  }
+
+  function dismissReplyTimeout() {
+    if (!conversationId) return
+    useChatEngineStore.getState().patch(conversationId, { timedOut: false })
+  }
+
   function insertMention(member: Contact) {
     const name = displayName(member)
     setInput((prev) => {
@@ -328,8 +347,118 @@ export function ChatPage() {
   }
 
   async function deleteMessage(message: Message) {
-    await db.messages.delete(message.id)
+    if (speechPlayingId === message.id) stopSpeechPlayback()
+    await db.transaction('rw', db.messages, db.speechCache, async () => {
+      await db.messages.delete(message.id)
+      await db.speechCache.delete(message.id)
+    })
     if (replyToId === message.id) setReplyToId(null)
+  }
+
+  async function generateMessageSpeech(message: Message, force = false) {
+    if (message.type !== 'text' || message.role !== 'assistant') return
+    const currentSettings = useSettingsStore.getState()
+    if (!isSpeechProviderReady(currentSettings)) {
+      setToast('请先配置语音生成服务')
+      void navigate('/settings/speech-generation')
+      return
+    }
+    const speaker = isGroupConv
+      ? (message.speakerContactId ? memberById.get(message.speakerContactId) : undefined)
+      : contact ?? undefined
+    const voice = contactSpeechVoice(speaker, currentSettings.speechProvider)
+    if (!speaker || !voice) {
+      setToast(`还没有为${speaker ? displayName(speaker) : '这位联系人'}匹配当前服务的音色，请先去联系人名片设置`)
+      if (speaker) void navigate(`/contact/${speaker.id}`)
+      return
+    }
+    setGeneratingSpeechIds((current) => new Set(current).add(message.id))
+    try {
+      const record = await cacheSpeechForMessage(message.id, message.content, currentSettings, force, voice)
+      await playSpeechRecord(record)
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : String(error))
+    } finally {
+      setGeneratingSpeechIds((current) => {
+        const next = new Set(current)
+        next.delete(message.id)
+        return next
+      })
+    }
+  }
+
+  async function generateReplyRoundSpeech(anchor: Message) {
+    if (!conversationId || anchor.role !== 'assistant') return
+    const currentSettings = useSettingsStore.getState()
+    if (!isSpeechProviderReady(currentSettings)) {
+      setToast('请先配置语音生成服务')
+      void navigate('/settings/speech-generation')
+      return
+    }
+    const conversationMessages = (await db.messages.where('conversationId').equals(conversationId).toArray())
+      .sort((a, b) => a.createdAt - b.createdAt)
+    let roundMessages = anchor.debugAiTurnId
+      ? conversationMessages.filter((message) => message.debugAiTurnId === anchor.debugAiTurnId)
+      : anchor.bubbleGroupId
+        ? conversationMessages.filter((message) => message.bubbleGroupId === anchor.bubbleGroupId)
+        : []
+    // Older messages may not have a turn id. In that case, the assistant
+    // messages between the surrounding user messages are one reply round.
+    if (roundMessages.length === 0) {
+      const anchorIndex = conversationMessages.findIndex((message) => message.id === anchor.id)
+      if (anchorIndex >= 0) {
+        let start = anchorIndex
+        let end = anchorIndex
+        while (start > 0 && conversationMessages[start - 1]?.role === 'assistant') start -= 1
+        while (end + 1 < conversationMessages.length && conversationMessages[end + 1]?.role === 'assistant') end += 1
+        roundMessages = conversationMessages.slice(start, end + 1)
+      }
+    }
+    const textMessages = roundMessages.filter((message) => message.role === 'assistant' && message.type === 'text' && message.content.trim())
+    if (textMessages.length === 0) {
+      setToast('这一轮没有可生成语音的文字消息')
+      return
+    }
+    const items = textMessages.map((message) => {
+      const speaker = isGroupConv
+        ? (message.speakerContactId ? memberById.get(message.speakerContactId) : undefined)
+        : contact ?? undefined
+      return { message, speaker, voice: contactSpeechVoice(speaker, currentSettings.speechProvider) }
+    })
+    const missingSpeakers = Array.from(new Map(items.filter((item) => !item.voice && item.speaker).map((item) => [item.speaker!.id, item.speaker!])).values())
+    const unresolvedSpeaker = items.some((item) => !item.speaker)
+    if (missingSpeakers.length > 0 || unresolvedSpeaker) {
+      const names = missingSpeakers.map(displayName).join('、') || '本轮联系人'
+      setToast(`${names}还没有匹配当前服务的音色，请先去联系人名片设置`)
+      if (missingSpeakers[0]) void navigate(`/contact/${missingSpeakers[0].id}`)
+      return
+    }
+    const ids = new Set(textMessages.map((message) => message.id))
+    setGeneratingSpeechIds((current) => new Set([...current, ...ids]))
+    try {
+      for (const item of items) {
+        await cacheSpeechForMessage(item.message.id, item.message.content, currentSettings, false, item.voice!)
+      }
+      setToast(`已生成这一轮的 ${items.length} 条语音`)
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : String(error))
+    } finally {
+      setGeneratingSpeechIds((current) => {
+        const next = new Set(current)
+        ids.forEach((id) => next.delete(id))
+        return next
+      })
+    }
+  }
+
+  const handleSpeechClick = useCallback((message: Message) => {
+    void playSpeechMessage(message.id).catch((error) => setToast(error instanceof Error ? error.message : String(error)))
+  }, [])
+
+  async function deleteMessageSpeech(message: Message) {
+    if (speechPlayingId === message.id) stopSpeechPlayback()
+    await db.speechCache.delete(message.id)
+    setToast('已删除语音缓存')
   }
 
   async function sendFeedback(message: Message, kind: 'unlike' | 'avoid') {
@@ -350,31 +479,6 @@ export function ChatPage() {
       await regenerateAiTurn(conversationId, contact, settings, stickers, message.debugAiTurnId, instruction)
     }
     setToast('已重新生成这一轮')
-  }
-
-  async function generateAssist() {
-    if (!settings.apiKey || assistBusy || !conversationId) return
-    const capturedGroup = group
-    const capturedContact = contact
-    const capturedMentionIds = [...selectedMentionIds]
-    const capturedReplyToId = replyToId ?? undefined
-    setAssistBusy(true)
-    try {
-      const draft = await draftReply(settings, messages, capturedContact, capturedGroup)
-      if (isPageMounted.current && currentConversationRef.current === conversationId) {
-        setInput(draft)
-        return
-      }
-      if (isGroupConv && capturedGroup) {
-        await sendGroupMessage(conversationId, capturedGroup, groupMembers, settings, stickers, draft, capturedMentionIds, capturedReplyToId)
-      } else if (capturedContact) {
-        await sendMessage(conversationId, capturedContact, settings, stickers, draft)
-      }
-    } catch (e) {
-      if (isPageMounted.current) setToast(e instanceof Error ? e.message : String(e))
-    } finally {
-      if (isPageMounted.current) setAssistBusy(false)
-    }
   }
 
   async function submitFinance() {
@@ -430,6 +534,17 @@ export function ChatPage() {
     if(message.type==='redPacket'&&message.role==='assistant'&&message.finance?.transactionId&&message.finance.status==='pending'){try{await claimRedPacket(message.finance.transactionId,USER_WALLET_ID);await db.messages.update(message.id,{finance:{...message.finance,status:'claimed'}});setToast('红包已领取')}catch(e){setToast(e instanceof Error?e.message:String(e))}}
     if(message.type==='loanRequest'&&message.role==='assistant'&&message.finance?.loanId&&message.finance.status==='pending'&&contact){const accept=confirm(`${displayName(contact)}想借 ${message.finance.amount}，是否同意？`);if(accept){try{await transferFunds({from:USER_WALLET_ID,to:contact.id,amount:message.finance.amount,kind:'loan',note:message.finance.note,idempotencyKey:`loan:${message.finance.loanId}`});await db.loans.update(message.finance.loanId,{status:'active',resolvedAt:Date.now()});await db.messages.update(message.id,{finance:{...message.finance,status:'accepted'}})}catch(e){setToast(e instanceof Error?e.message:String(e))}}else{await db.loans.update(message.finance.loanId,{status:'rejected',resolvedAt:Date.now()});await db.messages.update(message.id,{finance:{...message.finance,status:'rejected'}})}}
   }, [contact])
+  const handleInternalTaskUndo = useCallback(async (message: Message) => {
+    if (message.type !== 'internalTask' || !message.internalTask || message.internalTask.status !== 'active') return
+    if (!window.confirm('撤销这次安排？特殊日程将删除，原先被覆盖的安排会恢复。')) return
+    try {
+      const task = await revertInternalTask(message.internalTask.taskId)
+      await db.messages.update(message.id, { internalTask: { ...message.internalTask, status: task.status } })
+      setToast('安排已撤销，原日程已恢复')
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : String(error))
+    }
+  }, [])
   // Stable per-message handlers so the memoized MessageBubble list skips re-rendering while the user types in the composer.
   const registerBubble = useCallback((id: string, el: HTMLDivElement | null) => {
     if (el) bubbleRefs.current.set(id, el)
@@ -618,7 +733,7 @@ export function ChatPage() {
       )}
       {showLongPressHint && (
         <div data-testid="long-press-hint" className="flex shrink-0 items-center gap-2 border-b border-[var(--ui-special-border)] bg-[var(--ui-special-soft)] px-4 py-2 text-[11px] text-[var(--ui-special-ink)]">
-          <span className="min-w-0 flex-1">提示：长按消息可以重新生成、反馈、复制或删除。</span>
+          <span className="min-w-0 flex-1">提示：长按 AI 文字消息可以生成单条或整轮语音，也可以重新生成、反馈、复制或删除。</span>
           <button type="button" onClick={dismissLongPressHint} className="shrink-0 rounded px-1.5 py-1 text-[var(--ui-special-ink)]">知道了</button>
         </div>
       )}
@@ -642,6 +757,10 @@ export function ChatPage() {
           const bubbleAvatar = isGroupConv ? (speaker ? speaker.avatar : group!.avatar) : contact!.avatar
           const bubbleAvatarColor = isGroupConv ? (speaker ? speaker.avatarColor : group!.avatarColor) : contact!.avatarColor
           const previousMessage = messages[index - 1]
+          const speechCache = speechCacheByMessage.get(m.id)
+          const speechOwner = m.role === 'assistant' ? (isGroupConv ? speaker : contact ?? undefined) : undefined
+          const speechVoice = contactSpeechVoice(speechOwner, settings.speechProvider)
+          const speechMatchesCurrentSettings = !!speechVoice && speechCache?.signature === speechSignature(m.content, settings, speechVoice)
           const showConversationTime = !previousMessage || m.createdAt - previousMessage.createdAt > 10 * 60 * 1000
           const msgBubble = (
             <div className="animate-[message-in_180ms_ease-out]">
@@ -664,7 +783,13 @@ export function ChatPage() {
               onLongPress={handleBubbleLongPress}
               onLinkClick={selectingMessages ? undefined : handleLinkClick}
               onFinanceClick={selectingMessages ? undefined : handleFinanceCard}
+              onInternalTaskUndo={selectingMessages ? undefined : handleInternalTaskUndo}
               onAvatarClick={selectingMessages ? undefined : handleAvatarClick}
+              speechAvailable={m.type === 'text' && !!speechCache && speechMatchesCurrentSettings}
+              speechLoading={generatingSpeechIds.has(m.id)}
+              speechPlaying={speechPlayingId === m.id && speechPlaying}
+              speechDurationMs={speechCache?.durationMs}
+              onSpeechClick={selectingMessages ? undefined : handleSpeechClick}
               showName={isGroupConv && m.role === 'assistant'}
               />
             </div>
@@ -691,7 +816,19 @@ export function ChatPage() {
         })}
       </div>
 
-      {error && <p className="bg-red-50 px-4 py-1.5 text-xs text-red-500">{error}</p>}
+      {error && (
+        <div className="flex items-center gap-3 bg-red-50 px-4 py-1.5 text-xs text-red-500">
+          <p className="min-w-0 flex-1">{error}</p>
+          <button
+            type="button"
+            onClick={retryCurrentTurn}
+            disabled={aiTyping}
+            className="shrink-0 rounded-md border border-red-200 bg-white px-2.5 py-1 font-medium text-red-600 disabled:opacity-50"
+          >
+            再次尝试
+          </button>
+        </div>
+      )}
       {toast && (
         <p className="bg-gray-100 px-4 py-1.5 text-center text-xs text-gray-500" onAnimationEnd={() => setToast('')}>
           {toast}
@@ -747,20 +884,18 @@ export function ChatPage() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
-                    if (!assistBusy && e.key === 'Enter' && !e.shiftKey) {
+                    if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
                       void handleSend()
                     }
                   }}
-                  disabled={assistBusy}
-                  placeholder={assistBusy ? 'AI代写中...' : aiTyping ? '对方正在输入，你可以直接插话打断' : '输入消息…'}
+                  placeholder={aiTyping ? '对方正在输入，你可以直接插话打断' : '输入消息…'}
                   rows={4}
                   className="desktop-chat-textarea"
                 />
                 <div className="desktop-chat-tools">
                   <div className="desktop-chat-tool-group">
                     <button type="button" onClick={() => { setStickerPickerOpen(true); setStickerQuery(''); setStickerResults([]) }} aria-label="搜索表情包" title="表情包"><StickerIcon size={18} /></button>
-                    {replyAssistEnabled && <button type="button" onClick={() => void generateAssist()} disabled={assistBusy} aria-label="AI代写" aria-busy={assistBusy} title="AI代写">{assistBusy ? <LoaderCircle size={18} className="animate-spin" /> : <Sparkles size={18} />}</button>}
                     {!isGroupConv && careerEnabled && <span className="desktop-chat-tool-divider" />}
                     {!isGroupConv && careerEnabled && <button type="button" onClick={() => setFinanceMode('transfer')} aria-label="转账" title="转账"><ArrowLeftRight size={18} /></button>}
                     {!isGroupConv && careerEnabled && <button type="button" onClick={() => setFinanceMode('redPacket')} aria-label="红包" title="红包"><Gift size={18} /></button>}
@@ -771,28 +906,26 @@ export function ChatPage() {
                     {shopEnabled && <button type="button" onClick={() => navigate('/shop')} aria-label="商城" title="商城"><ShoppingBag size={18} /></button>}
                     {warehouseEnabled && <button type="button" onClick={() => navigate('/warehouse')} aria-label="仓库" title="仓库"><Package size={18} /></button>}
                   </div>
-                  <button type="button" onClick={handleSend} disabled={assistBusy || !input.trim()} aria-label="发送消息" className="desktop-chat-send">发送</button>
+                  <button type="button" onClick={handleSend} disabled={!input.trim()} aria-label="发送消息" className="desktop-chat-send">发送</button>
                 </div>
               </div>
             ) : (
               <div className="flex items-end gap-2">
                 <button onClick={()=>setAppsOpen(true)} aria-label="更多聊天功能" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-600"><Plus size={20} /></button>
-                {replyAssistEnabled && <button type="button" onClick={() => void generateAssist()} disabled={assistBusy} aria-label="AI代写" aria-busy={assistBusy} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition duration-150 active:scale-90 disabled:cursor-wait ${assistBusy ? 'animate-pulse bg-[var(--ui-special)] text-white shadow-inner' : 'bg-[var(--ui-special-soft)] text-[var(--ui-special-ink)] active:bg-[var(--ui-special-border)]'}`}>{assistBusy ? <LoaderCircle size={18} className="animate-spin" /> : <Sparkles size={18} />}</button>}
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
-                    if (!assistBusy && e.key === 'Enter' && !e.shiftKey) {
+                    if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
                       void handleSend()
                     }
                   }}
-                  disabled={assistBusy}
-                  placeholder={assistBusy ? 'AI代写中...' : aiTyping ? '对方正在输入 你可以直接插话打断' : '发消息…'}
+                  placeholder={aiTyping ? '对方正在输入 你可以直接插话打断' : '发消息…'}
                   rows={1}
                   className="max-h-24 flex-1 resize-none rounded-xl border border-gray-200 px-3 py-2 text-[14.5px] outline-none disabled:cursor-wait disabled:bg-gray-50 disabled:text-gray-400"
                 />
-                <button onClick={handleSend} disabled={assistBusy || !input.trim()} aria-label="发送消息" className="shrink-0 rounded-xl bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-40">发送</button>
+                <button onClick={handleSend} disabled={!input.trim()} aria-label="发送消息" className="shrink-0 rounded-xl bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-40">发送</button>
               </div>
             )}
           </>
@@ -834,6 +967,18 @@ export function ChatPage() {
           onClose={() => setMenuMessageId(null)}
           options={[
             { label: '复制', onSelect: () => void copyMessage(menuMessage) },
+            ...(menuMessage.type === 'text' && menuMessage.role === 'assistant'
+              ? !!menuSpeechVoice && speechCacheByMessage.get(menuMessage.id)?.signature === speechSignature(menuMessage.content, settings, menuSpeechVoice)
+                ? [
+                    { label: speechPlayingId === menuMessage.id && speechPlaying ? '暂停语音' : '播放语音', onSelect: () => handleSpeechClick(menuMessage) },
+                    { label: '重新生成语音', onSelect: () => void generateMessageSpeech(menuMessage, true) },
+                    { label: '删除语音缓存', onSelect: () => void deleteMessageSpeech(menuMessage) },
+                  ]
+                : [{ label: '生成语音', onSelect: () => void generateMessageSpeech(menuMessage) }]
+              : []),
+            ...(menuMessage.role === 'assistant' && menuMessage.type === 'text'
+              ? [{ label: '生成这一轮全部语音', onSelect: () => void generateReplyRoundSpeech(menuMessage) }]
+              : []),
             { label: '选择转发截图', onSelect: () => beginMessageSelection(menuMessage.id) },
             ...(feedbackContactFor(menuMessage)
               ? [
@@ -848,6 +993,27 @@ export function ChatPage() {
             { label: '删除这条消息', onSelect: () => void deleteMessage(menuMessage), danger: true },
           ]}
         />
+      )}
+      {timedOut && (
+        <div className="absolute inset-0 z-[60] flex items-end bg-black/30" onClick={dismissReplyTimeout}>
+          <div className="w-full rounded-t-2xl bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]" onClick={(event) => event.stopPropagation()}>
+            <h2 className="text-base font-semibold text-gray-900">回复超时</h2>
+            <p className="mt-1 text-sm leading-6 text-gray-500">这轮回复等待超过 30 秒，已自动停止。你可以重新生成这一轮。</p>
+            <div className="mt-4 flex gap-2">
+              <button type="button" onClick={dismissReplyTimeout} className="flex-1 rounded-xl bg-gray-100 py-2.5 text-sm text-gray-700">取消</button>
+              <button
+                type="button"
+                onClick={() => {
+                  dismissReplyTimeout()
+                  retryCurrentTurn()
+                }}
+                className="flex-1 rounded-xl bg-gray-900 py-2.5 text-sm text-white"
+              >
+                重新生成
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {regenerationMessage && (
         <div className="absolute inset-0 z-50 flex items-end bg-black/30" onClick={() => setRegenerationMessageId(null)}>

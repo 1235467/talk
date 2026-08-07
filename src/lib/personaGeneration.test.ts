@@ -32,6 +32,21 @@ describe('persona initial warmth', () => {
     }))
     expect(parsed?.pastExperiences).toEqual([{ title: '重逢', period: '去年', summary: '与旧友重新取得联系。', relatedContactNames: ['周晴'], importance: 88 }])
   })
+
+  it('asks the persona model to assign only an available contact voice', () => {
+    const prompt = buildPersonaGenerationPrompt(answers, 'anime', undefined, '', {
+      provider: 'mimo',
+      options: [{ id: '冰糖', name: '冰糖 · 中文女声', gender: 'female', language: 'zh' }],
+    })
+    expect(prompt).toContain('speechVoiceId')
+    expect(prompt).toContain('冰糖｜冰糖 · 中文女声｜female｜zh')
+    const parsed = parsePersonaGeneration(JSON.stringify({
+      name: '林夏', persona: '测试人设', schedule: [], personalityTrait: '猫系', mbti: 'INFP',
+      speechVoiceId: '冰糖', speechStyleInstruction: '清亮、自然、语速稍慢',
+    }))
+    expect(parsed?.speechVoiceId).toBe('冰糖')
+    expect(parsed?.speechStyleInstruction).toBe('清亮、自然、语速稍慢')
+  })
 })
 
 describe('persona generation diagnostics', () => {

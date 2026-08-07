@@ -3,7 +3,10 @@ import { isAiTestId } from './aiTestIsolation'
 import type { AcousticEdge, Contact, LocationAudibility, LocationNode, TerrainType } from '../types'
 import { createUpgradedWorldMap, createWorldMap, defaultTerrainsForIcon, MAP_GENERATOR_VERSION, MAP_SIZE, placeBuildings } from './locationMap'
 import { useSettingsStore } from '../store/useSettingsStore'
-import { resolveActiveTask } from './schedule'
+import { resolveActiveTask, validateScheduleBlocks } from './schedule'
+import { chatCompletionText } from './deepseek'
+import { parseJsonLoose } from './aiProtocol'
+import type { AppSettings, ScheduleBlock } from '../types'
 
 export const LOCATION_GROUP_ID = 'talk-location-group'
 export const LOCATION_CONVERSATION_ID = 'talk-location-conversation'
@@ -125,7 +128,9 @@ export function ensureLocationsInitialized() {
     const existingMap = await db.worldMaps.get('active')
     const existingLocations = await db.locations.toArray()
     const existingLocationIds = new Set(existingLocations.map((item) => item.id))
-    const missingLocations = LOCATION_SEEDS.filter((item) => !existingLocationIds.has(item.id))
+    const state = await db.locationModuleState.get('active')
+    const deletedLocationIds = new Set(state?.deletedLocationIds ?? [])
+    const missingLocations = LOCATION_SEEDS.filter((item) => !existingLocationIds.has(item.id) && !deletedLocationIds.has(item.id))
     const builtInRootIds = new Set(ROOT_SPECS.map((item) => item.id))
     const missingRoot = missingLocations.some((item) => builtInRootIds.has(item.id))
     const shouldRebuild = !existingMap || existingMap.generatorVersion < MAP_GENERATOR_VERSION || existingMap.width !== MAP_SIZE || existingMap.height !== MAP_SIZE || missingRoot
@@ -174,8 +179,89 @@ export function childLocations(parentId: string, locations: LocationNode[]) {
   return locations.filter((item) => item.parentId === parentId).sort((a, b) => a.sortOrder - b.sortOrder)
 }
 
+export function locationTreeIds(locationId: string, locations: LocationNode[]) {
+  const ids = new Set([locationId])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const location of locations) {
+      if (location.parentId && ids.has(location.parentId) && !ids.has(location.id)) {
+        ids.add(location.id)
+        changed = true
+      }
+    }
+  }
+  return ids
+}
+
+/** Remove a location subtree and every runtime reference that could point into it. */
+export async function deleteLocationTree(locationId: string) {
+  const locations = await db.locations.toArray()
+  const deletedIds = locationTreeIds(locationId, locations)
+  const state = await db.locationModuleState.get('active')
+  const deletedBuiltIns = locations
+    .filter((location) => deletedIds.has(location.id) && !location.userCreated)
+    .map((location) => location.id)
+  const nextDeletedIds = [...new Set([...(state?.deletedLocationIds ?? []), ...deletedBuiltIns])]
+  const affectedContacts = (await db.contacts.toArray()).filter((contact) => contact.currentLocationId && deletedIds.has(contact.currentLocationId))
+  const affectedEdges = (await db.acousticEdges.toArray())
+    .filter((edge) => deletedIds.has(edge.fromLocationId) || deletedIds.has(edge.toLocationId))
+
+  await db.transaction('rw', db.locations, db.contacts, db.locationModuleState, db.acousticEdges, async () => {
+    await db.locations.bulkDelete([...deletedIds])
+    if (affectedEdges.length) await db.acousticEdges.bulkDelete(affectedEdges.map((edge) => edge.id))
+    if (affectedContacts.length) await db.contacts.bulkUpdate(affectedContacts.map((contact) => ({
+      key: contact.id,
+      changes: { currentLocationId: undefined, locationSource: 'unknown', locationUpdatedAt: Date.now() },
+    })))
+    await db.locationModuleState.put({
+      id: 'active',
+      currentLocationId: state?.currentLocationId && deletedIds.has(state.currentLocationId) ? undefined : state?.currentLocationId,
+      deletedLocationIds: nextDeletedIds,
+      updatedAt: Date.now(),
+    })
+  })
+}
+
 export function isLeafLocation(id: string, locations: LocationNode[]) {
   return !locations.some((item) => item.parentId === id)
+}
+
+/**
+ * A deleted location deliberately leaves its occupants at "unknown". Their
+ * next direct conversation uses the utility model once to choose a valid
+ * current leaf and repair the location IDs in their recurring schedule.
+ */
+export async function reassignUnknownContactLocation(contact: Contact, settings: AppSettings) {
+  if (contact.locationSource !== 'unknown') return false
+  await ensureLocationsInitialized()
+  const locations = await db.locations.toArray()
+  const leaves = locations.filter((location) => isLeafLocation(location.id, locations))
+  if (!leaves.length || !settings.apiKey) return false
+  const catalog = leaves.map((location) => `${location.id}=${location.name}`).join('；')
+  try {
+    const raw = await chatCompletionText({
+      apiKey: settings.apiKey,
+      baseUrl: settings.baseUrl,
+      provider: settings.aiProvider,
+      model: settings.utilityModel || settings.model,
+      purpose: 'persona',
+      jsonMode: true,
+      temperature: 0.2,
+      maxTokens: 3000,
+      messages: [{ role: 'system', content: `你负责在地点被删除后修复联系人位置。只能使用下方合法地点 ID；根据人设、职业和既有日程选择一个当前具体地点，并重写每周固定日程，使每条日程同时包含 location（自然语言地点名）和 locationId（合法具体地点 ID）。保留人物职业、作息和合理性。只输出 JSON：{"currentLocationId":"...","schedule":[...] }。\n联系人：${contact.name}\n人设：${contact.systemPrompt}\n职业：${contact.occupation ?? '未设置'}\n原日程：${JSON.stringify(contact.schedule ?? [])}\n合法地点：${catalog}` }],
+    })
+    const parsed = parseJsonLoose<{ currentLocationId?: unknown; schedule?: unknown }>(raw) ?? {}
+    const validIds = new Set(leaves.map((location) => location.id))
+    const currentLocationId = typeof parsed.currentLocationId === 'string' && validIds.has(parsed.currentLocationId) ? parsed.currentLocationId : undefined
+    const schedule = validateScheduleBlocks(parsed.schedule).map((item) => validIds.has(item.locationId ?? '') ? item : { ...item, locationId: currentLocationId })
+    if (!currentLocationId || schedule.length === 0) return false
+    await db.contacts.update(contact.id, { currentLocationId, locationSource: 'schedule', locationUpdatedAt: Date.now(), schedule: schedule as ScheduleBlock[] })
+    return true
+  } catch (error) {
+    console.warn('[locations] unknown location reassignment failed', error)
+    return false
+  }
 }
 
 function localDateKey(date: Date) {
@@ -254,6 +340,7 @@ export async function syncContactLocationAt(contactId: string, now = new Date())
   await ensureLocationsInitialized()
   const [locations, contact] = await Promise.all([db.locations.toArray(), db.contacts.get(contactId)])
   if (!contact) return false
+  if (contact.locationSource === 'unknown') return false
   const leafIds = new Set(locations.filter((item) => isLeafLocation(item.id, locations)).map((item) => item.id))
   const resolved = resolveContactRuntimeAt(contact, now, leafIds)
   const changed = contact.currentLocationId !== resolved.locationId || contact.locationSource !== resolved.source || contact.currentTaskId !== resolved.taskId || contact.currentTaskKind !== resolved.taskKind || contact.currentActivity !== resolved.activity
@@ -265,7 +352,7 @@ export async function syncContactLocationsAt(now = new Date()) {
   await ensureLocationsInitialized()
   const [locations, contacts] = await Promise.all([db.locations.toArray(), db.contacts.toArray().then((items) => items.filter((item) => !isAiTestId(item.id)))])
   const leafIds = new Set(locations.filter((item) => isLeafLocation(item.id, locations)).map((item) => item.id))
-  const updates = contacts.map((contact) => ({ contact, resolved: resolveContactRuntimeAt(contact, now, leafIds) }))
+  const updates = contacts.filter((contact) => contact.locationSource !== 'unknown').map((contact) => ({ contact, resolved: resolveContactRuntimeAt(contact, now, leafIds) }))
     .filter(({ contact, resolved }) => contact.currentLocationId !== resolved.locationId || contact.locationSource !== resolved.source || contact.currentTaskId !== resolved.taskId || contact.currentTaskKind !== resolved.taskKind || contact.currentActivity !== resolved.activity)
   if (updates.length) await db.contacts.bulkUpdate(updates.map(({ contact, resolved }) => ({ key: contact.id, changes: { currentLocationId: resolved.locationId, locationSource: resolved.source, locationUpdatedAt: now.getTime(), currentTaskId: resolved.taskId, currentTaskKind: resolved.taskKind, currentActivity: resolved.activity, taskUpdatedAt: now.getTime() } })))
   return updates.length

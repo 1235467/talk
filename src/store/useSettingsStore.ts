@@ -8,8 +8,10 @@ import {
   normalizeImageProviders,
   normalizeStickerProviders,
 } from '../lib/mediaProviders'
+import { createDefaultSpeechProviders, normalizeSpeechProviders } from '../lib/speechProviders'
 import type { AppSettings } from '../types'
 import { createDefaultPromptModules, normalizePromptModules } from '../lib/promptModules'
+import { SYSTEM_DEFAULT_PROMPT_PRESET_ID, normalizePromptPresets } from '../lib/promptPresets'
 import { normalizeChatPageSize } from '../lib/chatPagination'
 import type { AiProviderId } from '../lib/aiProviders'
 import { normalizeUiTheme } from '../lib/uiTheme'
@@ -48,6 +50,8 @@ export const useSettingsStore = create<SettingsState>()(
       utilityModel: 'deepseek-v4-flash',
       globalSystemPrompt: DEFAULT_STYLE_PROMPT,
       promptModules: createDefaultPromptModules(),
+      promptPresets: normalizePromptPresets(undefined, createDefaultPromptModules()),
+      activePromptPresetId: SYSTEM_DEFAULT_PROMPT_PRESET_ID,
       userNickname: '我',
       userAvatar: '🙂',
       userGender: '',
@@ -73,10 +77,17 @@ export const useSettingsStore = create<SettingsState>()(
       autoCompressLibraryImports: true,
       libraryCompressionThresholdTokens: 2000,
       pexelsApiKey: envPexelsKey,
+      animeNsfwEnabled: false,
+      avatarImageSource: 'anime',
+      momentsImageSource: 'generated',
+      hiddenAlbumUrls: [],
+      albumSavedImages: [],
       stickerProvider: envGiphyKey ? 'giphy' : 'none',
       stickerProviders: initialStickerProviders(),
       imageProvider: envAtlasKey ? 'atlas' : 'none',
       imageProviders: initialImageProviders(),
+      speechProvider: 'none',
+      speechProviders: createDefaultSpeechProviders(),
       stickerApiUrl: '',
       stickerApiKey: '',
       imageApiUrl: '',
@@ -91,14 +102,13 @@ export const useSettingsStore = create<SettingsState>()(
       animationsEnabled: true,
       customCurrencyEmoji: '💎',
       moodExpiryMs: 30 * 60 * 1000,
-      selfIterationGlobalPrompt: '',
       adminModeEnabled: false,
       enabledModules: ['shop', 'warehouse', 'worldview', 'knowledgeBase', 'relationship', 'personalityTraits', 'intent', 'storyOutline', 'career', 'location'],
       setSettings: (patch) => set(patch),
     }),
     {
       name: 'talk-settings',
-      version: 18,
+      version: 21,
       migrate: (persisted, version) => {
         const next = persisted as Partial<SettingsState>
         if (next.experienceMode !== 'immersive' && next.experienceMode !== 'free') next.experienceMode = 'free'
@@ -118,14 +128,14 @@ export const useSettingsStore = create<SettingsState>()(
         if (typeof next.userOccupation !== 'string') next.userOccupation = ''
         if (typeof next.userMonthlySalary !== 'number') next.userMonthlySalary = 0
         if (typeof next.jobBabyMode !== 'boolean') next.jobBabyMode = false
-        if (typeof next.selfIterationGlobalPrompt !== 'string') {
-          next.selfIterationGlobalPrompt = ''
-        }
         if (typeof next.topInsetAdjustmentPx !== 'number') next.topInsetAdjustmentPx = 0
         if (typeof next.worldbookMigrationCompleted !== 'boolean') next.worldbookMigrationCompleted = false
         if (typeof next.autoCompressLibraryImports !== 'boolean') next.autoCompressLibraryImports = true
         if (typeof next.libraryCompressionThresholdTokens !== 'number') next.libraryCompressionThresholdTokens = 2000
         if (typeof next.automaticAiDailyCap !== 'number') next.automaticAiDailyCap = 0
+        if (typeof next.animeNsfwEnabled !== 'boolean') next.animeNsfwEnabled = false
+        if (!['pexels', 'anime', 'generated'].includes(String(next.avatarImageSource))) next.avatarImageSource = 'anime'
+        if (!['pexels', 'anime', 'generated'].includes(String(next.momentsImageSource))) next.momentsImageSource = 'generated'
         if (typeof next.animationsEnabled !== 'boolean') next.animationsEnabled = true
         next.chatPageSize = normalizeChatPageSize(next.chatPageSize)
         if (typeof next.stickerApiUrl !== 'string') next.stickerApiUrl = ''
@@ -135,6 +145,7 @@ export const useSettingsStore = create<SettingsState>()(
         if (typeof next.imageApiResponsePath !== 'string') next.imageApiResponsePath = 'url'
         next.stickerProviders = normalizeStickerProviders(next.stickerProviders)
         next.imageProviders = normalizeImageProviders(next.imageProviders)
+        next.speechProviders = normalizeSpeechProviders(next.speechProviders)
         if (version < 9) {
           if (next.stickerApiUrl?.trim() && !next.stickerProviders.custom.endpoint) {
             next.stickerProviders.custom.endpoint = next.stickerApiUrl.trim()
@@ -160,10 +171,17 @@ export const useSettingsStore = create<SettingsState>()(
         }
         if (!['none', 'giphy', 'klipy', 'tenor', 'custom'].includes(String(next.stickerProvider))) next.stickerProvider = 'none'
         if (!['none', 'atlas', 'novelai', 'comfyui', 'stable-diffusion', 'custom'].includes(String(next.imageProvider))) next.imageProvider = 'none'
+        if (!['none', 'doubao', 'mimo'].includes(String(next.speechProvider))) next.speechProvider = 'none'
         if (Array.isArray(next.enabledModules)) next.enabledModules = next.enabledModules.filter((id) => id !== 'mood')
+        if (Array.isArray(next.enabledModules)) next.enabledModules = next.enabledModules.filter((id) => !['selfIteration', 'aiReplyAssist', 'promptModuleEditor'].includes(id))
         if (version < 16 && Array.isArray(next.enabledModules) && !next.enabledModules.includes('location')) next.enabledModules = [...next.enabledModules, 'location']
         next.uiTheme = normalizeUiTheme(next.uiTheme)
         next.promptModules = normalizePromptModules(next.promptModules, next.globalSystemPrompt)
+        const normalizedPresets = normalizePromptPresets(next.promptPresets, next.promptModules)
+        next.promptPresets = normalizedPresets
+        if (!normalizedPresets.some((preset) => preset.id === next.activePromptPresetId)) {
+          next.activePromptPresetId = normalizedPresets.find((preset) => !preset.systemDefault)?.id ?? SYSTEM_DEFAULT_PROMPT_PRESET_ID
+        }
         return next
       },
     },

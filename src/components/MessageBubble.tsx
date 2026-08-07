@@ -26,6 +26,12 @@ interface MessageBubbleProps {
   onSelect?: (id: string) => void
   onLinkClick?: (message: Message) => void
   onFinanceClick?: (message: Message) => void
+  onInternalTaskUndo?: (message: Message) => void
+  speechAvailable?: boolean
+  speechLoading?: boolean
+  speechPlaying?: boolean
+  speechDurationMs?: number
+  onSpeechClick?: (message: Message) => void
   onAvatarClick?: (message: Message) => void
   /** Stable ref registrar: called with (id, el) so the parent can track bubble DOM nodes without a per-item ref closure. */
   registerRef?: (id: string, el: HTMLDivElement | null) => void
@@ -49,6 +55,12 @@ export const MessageBubble = memo(function MessageBubble({
   onSelect,
   onLinkClick,
   onFinanceClick,
+  onInternalTaskUndo,
+  speechAvailable,
+  speechLoading,
+  speechPlaying,
+  speechDurationMs,
+  onSpeechClick,
   onAvatarClick,
   registerRef,
   showName = false,
@@ -100,13 +112,26 @@ export const MessageBubble = memo(function MessageBubble({
             </div>
           )}
           {message.type === 'text' && (
-            <div
-              className={`ui-font-reading whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-[14.5px] leading-relaxed ${
-                isUser ? 'bg-[#95ec69] text-gray-900' : 'bg-white text-gray-900'
-              }`}
-            >
-              <TextWithMentions text={message.content} names={mentionNames} />
-            </div>
+            <>
+              <div
+                className={`ui-font-reading whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-[14.5px] leading-relaxed ${
+                  isUser ? 'bg-[#95ec69] text-gray-900' : 'bg-white text-gray-900'
+                }`}
+              >
+                <TextWithMentions text={message.content} names={mentionNames} />
+              </div>
+              {(speechAvailable || speechLoading) && (
+                <button
+                  type="button"
+                  onClick={(event) => { event.stopPropagation(); if (!speechLoading) onSpeechClick?.(message) }}
+                  className={`mt-1 flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] ${isUser ? 'bg-[#7bd957] text-gray-800' : 'bg-white text-gray-500'}`}
+                  aria-label={speechLoading ? '语音生成中' : speechPlaying ? '暂停语音' : '播放语音'}
+                >
+                  <span aria-hidden="true">{speechLoading ? '◌' : speechPlaying ? 'Ⅱ' : '▶'}</span>
+                  <span>{speechLoading ? '正在生成语音…' : speechDurationMs ? `语音 · ${Math.max(1, Math.round(speechDurationMs / 1000))} 秒` : '播放语音'}</span>
+                </button>
+              )}
+            </>
           )}
 
           {message.type === 'sticker' && (
@@ -151,6 +176,17 @@ export const MessageBubble = memo(function MessageBubble({
               <p className="text-[12.5px] leading-relaxed text-gray-500">
                 {message.scheduleChange.startHour}:00-{message.scheduleChange.endHour}:00 · {message.scheduleChange.location}
               </p>
+            </div>
+          )}
+          {message.type === 'internalTask' && message.internalTask && (
+            <div className="w-56 rounded-xl border border-[var(--ui-special-border)] bg-[var(--ui-special-soft)] p-3">
+              <div className="mb-1.5 flex items-center gap-1.5 text-xs text-[var(--ui-special-ink)]"><UiIcon name="calendar" size={13} />安排已生效</div>
+              <p className="text-[14px] font-medium text-gray-900">{message.internalTask.presentation.activity}</p>
+              {message.internalTask.presentation.changedSections.includes('schedule') && <p className="mt-1 text-[12px] text-gray-600">日程：{message.internalTask.presentation.date} · {message.internalTask.presentation.startTime}–{message.internalTask.presentation.endTime}</p>}
+              {message.internalTask.presentation.changedSections.includes('location') && <p className="mt-1 text-[12px] text-gray-600">地点已变更至：{message.internalTask.presentation.locationName}</p>}
+              {!message.internalTask.presentation.changedSections.includes('location') && <p className="mt-1 text-[12px] text-gray-600">地点：{message.internalTask.presentation.locationName}</p>}
+              {message.internalTask.presentation.cancelledDefaultActivities.length > 0 && <p className="mt-1 text-[11px] text-gray-500">已覆盖：{message.internalTask.presentation.cancelledDefaultActivities.join('、')}</p>}
+              {message.internalTask.status === 'active' ? <button type="button" onClick={() => onInternalTaskUndo?.(message)} className="mt-3 w-full rounded-lg border border-[var(--ui-special-border)] bg-white py-1.5 text-xs text-[var(--ui-special-ink)]">撤销这次安排</button> : <p className="mt-3 text-center text-xs text-gray-400">已撤销，原日程已恢复</p>}
             </div>
           )}
           {message.type === 'groupPlan' && (

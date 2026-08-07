@@ -5,7 +5,9 @@ import { parseJsonLoose } from './aiProtocol'
 import { chatCompletionText as chatCompletion } from './deepseek'
 import { momentReactionProbability, uniqueRelationPairs } from './contactRelations'
 import { describeCurrentSchedule, isPhoneAvailable } from './schedule'
-import { searchPexelsPhoto } from './photoSearch'
+import { randomAnimeAvatar, searchPexelsPhoto } from './photoSearch'
+import { generateRemoteImage } from './remoteMedia'
+import { isImageProviderReady } from './mediaProviders'
 import { recordSocialEvent } from './socialEvents'
 import { displayName } from './contact'
 import { customPersonalityTraitsLine, formatSpeechSamplesForScene, personalityTraitLine } from './prompt'
@@ -14,15 +16,18 @@ import { recentMemoriesText, socialMemoriesText } from './memory'
 import { recentSocialEventsText } from './socialEvents'
 import { recentSharedOriginalContext } from './sharedRecentContext'
 import { parseTurnLogicReview } from './turnLogicReviewer'
-import type { AppSettings, Contact } from '../types'
+import type { AppSettings, Contact, Moment } from '../types'
 import { featureActive, getPromptTemplate, promptModuleEnabled } from './promptModules'
+import { useSettingsStore } from '../store/useSettingsStore'
 
-const ELIGIBLE_WINDOW_MS = 10 * 60 * 1000
 /** Of the friends who *do* react (relationship allows it and the dice roll passed), this fraction also leave a comment instead of just liking. */
 const COMMENT_SHARE = 0.55
 /** Even a friend/good relationship has a chance of just scrolling past without reacting at all. */
 /** Not every moment gets a photo — matches real WeChat moments where plenty of posts are text-only. Decided in code before the model even writes the content, same "code decides, model fills in" split as everywhere else. */
 const MOMENT_PHOTO_PROBABILITY = 0.6
+const MOMENT_COOLDOWN_MS = 3 * 60 * 60 * 1000
+const MOMENT_HISTORY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
+const MOMENT_HISTORY_LIMIT = 7
 
 const COMMENT_STICKER_PATTERN = /\[sticker:([^[\]]+)\]/i
 
@@ -68,8 +73,49 @@ function shuffle<T>(arr: T[]): T[] {
 export function eligiblePosters(contacts: Contact[], now: number): Contact[] {
   const nowDate = new Date(now)
   return contacts.filter(
-    (c) => (!c.lastMomentAt || now - c.lastMomentAt > ELIGIBLE_WINDOW_MS) && isPhoneAvailable(c, nowDate),
+    (c) => (!c.lastMomentAt || now - c.lastMomentAt > MOMENT_COOLDOWN_MS) && isPhoneAvailable(c, nowDate),
   )
+}
+
+function normalizeMomentText(value: string): string {
+  return value.toLocaleLowerCase().replace(/[\s\p{P}\p{S}]/gu, '')
+}
+
+function bigrams(value: string): Set<string> {
+  const result = new Set<string>()
+  for (let index = 0; index < value.length - 1; index++) result.add(value.slice(index, index + 2))
+  return result
+}
+
+/** A deterministic final guard; LLM review is useful but must never be the only duplicate protection. */
+export function momentNoveltyIssue(content: string, history: Pick<Moment, 'content'>[]): string | null {
+  const normalized = normalizeMomentText(content)
+  if (!normalized) return '动态正文为空。'
+  for (const item of history) {
+    const previous = normalizeMomentText(item.content)
+    if (!previous) continue
+    if (previous === normalized) return `与近期动态完全相同：“${item.content.slice(0, 80)}”`
+    if (Math.min(previous.length, normalized.length) >= 12 && (previous.includes(normalized) || normalized.includes(previous))) return `与近期动态几乎是同一句话：“${item.content.slice(0, 80)}”`
+    const a = bigrams(previous)
+    const b = bigrams(normalized)
+    const common = [...a].filter((part) => b.has(part)).length
+    if (Math.min(previous.length, normalized.length) >= 18 && (2 * common) / Math.max(1, a.size + b.size) >= 0.82) return `与近期动态题材和表达高度相似：“${item.content.slice(0, 80)}”`
+  }
+  return null
+}
+
+async function recentMomentsFor(contactId: string, now = Date.now()): Promise<Moment[]> {
+  const rows = await db.moments.where('contactId').equals(contactId).toArray()
+  return rows.filter((item) => item.createdAt >= now - MOMENT_HISTORY_WINDOW_MS).sort((a, b) => b.createdAt - a.createdAt).slice(0, MOMENT_HISTORY_LIMIT)
+}
+
+/** Shared guard for every automatic source that writes an AI moment. */
+export async function canPublishNovelMoment(contactId: string, content: string, at = Date.now()): Promise<boolean> {
+  return !momentNoveltyIssue(content, await recentMomentsFor(contactId, at))
+}
+
+function recentMomentHistoryText(rows: Moment[]): string {
+  return rows.length ? rows.map((item) => `${new Date(item.createdAt).toLocaleString()}：${item.content}`).join('\n') : '（近 14 天没有已发布动态，可自由选择真实、公开的日常题材。）'
 }
 
 /**
@@ -316,6 +362,10 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
     return [contact.id, [originalContext, privateMemories, socialMemories, events].filter(Boolean).join('\n\n').slice(0, 10_500)] as const
   }))
   const contexts = new Map(contextRows)
+  const historyRows = new Map(await Promise.all(posters.map(async (contact) => [contact.id, await recentMomentsFor(contact.id, now)] as const)))
+  for (const poster of posters) {
+    contexts.set(poster.id, `${contexts.get(poster.id) || ''}\n\n【近期本人动态：本次必须避让】\n${recentMomentHistoryText(historyRows.get(poster.id) || [])}`.slice(0, 12_000))
+  }
   const momentsWorldbookPrompt =
     featureActive(settings, 'worldview')
       ? (getPromptTemplate(settings, 'worldview', 'momentsRuntime', {
@@ -343,15 +393,42 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
   const parsed = parseMomentsResponse(reviewedRaw, expectedCommentCounts)
   if (!parsed) return { postedCount: 0, message: '生成失败 请再刷新试试' }
 
+  // A rejected post is regenerated individually. This preserves successful
+  // posters and gives the model a concrete correction instead of silently
+  // dropping the entire refresh when the contact list is small.
+  const finalParsed = [...parsed]
+  let retryIndexes = finalParsed.flatMap((item, index) => momentNoveltyIssue(item.content, historyRows.get(entries[index].poster.id) || []) ? [index] : [])
+  for (let attempt = 0; retryIndexes.length > 0 && attempt < 3; attempt++) {
+    const retryEntries = retryIndexes.map((index) => entries[index])
+    const retryContexts = new Map(contexts)
+    for (const index of retryIndexes) {
+      const issue = momentNoveltyIssue(finalParsed[index].content, historyRows.get(entries[index].poster.id) || []) || '本条没有换掉近期重复题材。'
+      retryContexts.set(entries[index].poster.id, `【本次必须纠正】${issue}\n不得改几个字重发旧内容；必须换一个近期未使用的具体题材、场景或情绪落点。\n${contexts.get(entries[index].poster.id) || ''}`.slice(0, 12_000))
+    }
+    const retryRaw = await chatCompletion({
+      apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, jsonMode: true, purpose: 'moments', automatic: true,
+      messages: [{ role: 'system', content: buildMomentsPrompt(retryEntries, momentsWorldbookPrompt, stickerNames, retryContexts, settings) }, { role: 'user', content: '请根据【本次必须纠正】重新生成，并在输出前逐项检查。' }],
+    })
+    const retryReviewed = await reviewMomentPayload(settings, retryRaw, '{"moments":[{"content":"...","imageKeyword":"...","comments":["..."]}]}', personaContext)
+    const retryParsed = parseMomentsResponse(retryReviewed, retryEntries.map((entry) => entry.commenters.filter((commenter) => commenter.willComment).length))
+    if (!retryParsed) continue
+    retryIndexes.forEach((index, retryIndex) => { finalParsed[index] = retryParsed[retryIndex] })
+    retryIndexes = retryIndexes.filter((index) => !!momentNoveltyIssue(finalParsed[index].content, historyRows.get(entries[index].poster.id) || []))
+  }
+
+  let publishedCount = 0
   for (let i = 0; i < entries.length; i++) {
     const { poster, commenters, willHavePhoto } = entries[i]
-    const { content, comments, imageKeyword } = parsed[i]
+    const { content, comments, imageKeyword } = finalParsed[i]
+    // Never write an exact/high-similarity duplicate even if an upstream
+    // model ignored every repair instruction. Other selected posters still publish.
+    if (momentNoveltyIssue(content, historyRows.get(poster.id) || [])) continue
     const momentId = uuid()
 
     let imageUrl: string | undefined
     let imagePhotographer: string | undefined
     let imagePhotographerUrl: string | undefined
-    if (willHavePhoto && imageKeyword && settings.pexelsApiKey) {
+    if (willHavePhoto && imageKeyword && settings.momentsImageSource === 'pexels' && settings.pexelsApiKey) {
       try {
         const photo = await searchPexelsPhoto(settings.pexelsApiKey, imageKeyword, 'landscape')
         if (photo) {
@@ -361,6 +438,22 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
         }
       } catch {
         // the photo is a nice-to-have; the moment text itself already succeeded
+      }
+    }
+    if (willHavePhoto && settings.momentsImageSource === 'anime') {
+      try {
+        const image = await randomAnimeAvatar(settings.animeNsfwEnabled)
+        if (image) imageUrl = image.url
+      } catch {
+        // Leave the Moment as text only when the optional gallery is unavailable.
+      }
+    }
+    if (willHavePhoto && imageKeyword && settings.momentsImageSource === 'generated' && isImageProviderReady(settings)) {
+      try {
+        const image = await generateRemoteImage(settings, `anime-style illustration for a Chinese social-media moment: ${imageKeyword}`)
+        if (image) imageUrl = image.url
+      } catch {
+        // Leave the Moment as text only when image generation fails.
       }
     }
 
@@ -373,6 +466,7 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
       imagePhotographer,
       imagePhotographerUrl,
     })
+    publishedCount++
     await recordSocialEvent({
       type: 'moment_posted',
       actorId: poster.id,
@@ -423,7 +517,67 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
     }
   }
 
-  return { postedCount: entries.length }
+  return { postedCount: publishedCount, message: publishedCount === 0 ? '本轮动态都需要重新构思，请稍后再刷新' : undefined }
+}
+
+/** Replaces an AI-authored post after the user gives a direction. Its old interaction
+ * thread is intentionally reset: comments about the old text must not survive. */
+export async function regenerateMoment(momentId: string, requirement: string, settings: AppSettings): Promise<void> {
+  const moment = await db.moments.get(momentId)
+  if (!moment || moment.contactId === 'user') throw new Error('只能重新生成 AI 发布的动态')
+  if (!settings.apiKey) throw new Error('还没有配置 API Key')
+  const poster = await db.contacts.get(moment.contactId)
+  if (!poster) throw new Error('找不到动态发布者')
+  const history = (await recentMomentsFor(poster.id)).filter((item) => item.id !== moment.id)
+  const contexts = new Map([[poster.id, `【用户对本次重生成的要求】${requirement.trim() || '保持人设自然，换一个更合适的公开表达。'}\n【近期本人动态：必须避让】\n${recentMomentHistoryText(history)}`]])
+  let parsed: ParsedMoment[] | null = null
+  let correction = ''
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const raw = await chatCompletion({
+      apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, jsonMode: true, purpose: 'moments',
+      messages: [{ role: 'system', content: buildMomentsPrompt([{ poster, commenters: [], willHavePhoto: false }], '', [], new Map([[poster.id, `${correction}${contexts.get(poster.id)}`]]), settings) }, { role: 'user', content: '请重新生成这条动态。必须优先服从用户要求。' }],
+    })
+    const reviewed = await reviewMomentPayload(settings, raw, '{"moments":[{"content":"...","imageKeyword":"...","comments":[]}]}', `Poster ${poster.name}: ${poster.systemPrompt}`)
+    parsed = parseMomentsResponse(reviewed, [0])
+    const issue = parsed?.[0] ? momentNoveltyIssue(parsed[0].content, history) : '输出格式不正确。'
+    if (parsed?.[0] && !issue) break
+    correction = `【本次必须纠正】${issue}\n不得改几个字重发旧内容，换一个近期未使用的题材。\n`
+    parsed = null
+  }
+  if (!parsed?.[0]) throw new Error('重生成未能得到不重复的动态，请换一个要求再试')
+  await db.transaction('rw', db.moments, db.momentComments, db.momentLikes, db.socialEvents, async () => {
+    const commentIds = await db.momentComments.where('momentId').equals(momentId).primaryKeys()
+    await db.momentComments.where('momentId').equals(momentId).delete()
+    await db.momentLikes.where('momentId').equals(momentId).delete()
+    const eventIds = await db.socialEvents.filter((event) => event.momentId === momentId || (!!event.messageId && commentIds.includes(event.messageId))).primaryKeys()
+    if (eventIds.length) await db.socialEvents.bulkDelete(eventIds as string[])
+    await db.moments.update(momentId, { content: parsed![0].content, imageUrl: undefined, imagePhotographer: undefined, imagePhotographerUrl: undefined })
+    await recordSocialEvent({ type: 'moment_posted', actorId: poster.id, relatedContactIds: [poster.id], momentId, summary: `${poster.name}重新发布了一条朋友圈: ${parsed![0].content}`, importance: 1, createdAt: Date.now() })
+  })
+}
+
+/** Rewrites one AI comment and clears replies that were written against its old text. */
+export async function regenerateMomentComment(commentId: string, requirement: string, settings: AppSettings): Promise<void> {
+  const comment = await db.momentComments.get(commentId)
+  if (!comment || comment.authorContactId === 'user') throw new Error('只能重新生成 AI 跟评')
+  if (!settings.apiKey) throw new Error('还没有配置 API Key')
+  const [moment, author, allComments, contacts] = await Promise.all([db.moments.get(comment.momentId), db.contacts.get(comment.authorContactId), db.momentComments.where('momentId').equals(comment.momentId).sortBy('createdAt'), db.contacts.toArray()])
+  if (!moment || !author) throw new Error('找不到原评论上下文')
+  const names = new Map(contacts.map((contact) => [contact.id, contact.name]))
+  const thread = allComments.map((item) => `${item.authorContactId === 'user' ? settings.userNickname || '用户' : names.get(item.authorContactId) || '某人'}: ${item.content}`).join('\n')
+  const raw = await chatCompletion({
+    apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, purpose: 'moments',
+    messages: [{ role: 'system', content: buildMomentReplyPrompt(author, moment.content, [thread, `【用户对本次重生成的要求】${requirement.trim() || '更自然、更符合人设。'}`], '', [], '', settings) }, { role: 'user', content: '请只重写指定的这条跟评。' }],
+  })
+  const content = cleanPlainReply(raw).slice(0, 180)
+  if (!content) throw new Error('没有生成有效跟评')
+  await db.transaction('rw', db.momentComments, db.socialEvents, async () => {
+    const descendants = allComments.filter((item) => item.replyToCommentId === commentId)
+    if (descendants.length) await db.momentComments.bulkDelete(descendants.map((item) => item.id))
+    const eventIds = await db.socialEvents.filter((event) => event.messageId === commentId || descendants.some((item) => item.id === event.messageId)).primaryKeys()
+    if (eventIds.length) await db.socialEvents.bulkDelete(eventIds as string[])
+    await db.momentComments.update(commentId, { content })
+  })
 }
 
 /** How likely a contact is to react to the user's own moment — driven by warmth. */
@@ -595,7 +749,7 @@ function buildMomentReplyPrompt(
   const samples = formatSpeechSamplesForScene(poster.speechSamples, 'moment', 2)
   const replyContext = `${worldviewSection}人设：${poster.systemPrompt}\n${personalityTraitLine(poster.personalityTrait, poster.warmth ?? 0) || '性格特质: 无'}${customPersonalityTraitsLine(poster.customPersonalityTraits, poster.warmth ?? 0)}${samples ? `\n说话样例：\n${samples}` : ''}\n${scheduleSection}关系：${poster.relationshipBase || '朋友'} ${poster.relationshipDynamic || ''}；好感度=${poster.warmth ?? 0}；心情=${poster.mood?.text || '平静'}\n共同过往：${poster.sharedHistory || '无具体记录'}\n最近素材：${context || '无'}\n动态：${momentContent}\n评论串：\n${threadLines.join('\n')}\n${stickerCommentInstruction(stickerNames)}`
   const editable = getPromptTemplate(settings, 'moments', 'reply', { posterName: poster.name, replyContext }) ?? ''
-  return `${editable}\n\n固定输出协议：只输出一句纯文字回复，不要JSON、Markdown或引号。`
+  return `【身份硬约束】你现在只能是${poster.name}。只用${poster.name}的人设、经历和说话习惯回应；不得代入评论区其他人，不得替别人说话，也不得输出姓名或作者标记。\n${editable}\n\n【输出前硬检查】这句话只能由${poster.name}说出。固定输出协议：只输出一句纯文字回复，不要JSON、Markdown或引号。`
 }
 
 /**
@@ -629,6 +783,7 @@ export async function generateMomentReply(
       recentSharedOriginalContext([poster.id], settings.userNickname, { maxMessages: 60, maxChars: 8_000 }),
     ])
     const contactById = new Map(allContacts.map((c) => [c.id, c]))
+    if (existingComments.some((comment) => comment.authorContactId === poster.id && comment.replyToCommentId === triggeringCommentId)) return
     const labelFor = (authorContactId: string) =>
       authorContactId === 'user' ? settings.userNickname || '我' : (contactById.get(authorContactId)?.name ?? '某人')
     const threadLines = existingComments.map((c) => `${labelFor(c.authorContactId)}: ${c.content}`)
@@ -707,6 +862,23 @@ export async function generateMomentDiscussion(
     ])
     if (!moment) return
     const byId = new Map(contacts.map((contact) => [contact.id, contact]))
+    const initiatingComment = comments.find((comment) => comment.id === triggeringCommentId)
+    const addressedAuthorId = initiatingComment?.replyToCommentId
+      ? comments.find((comment) => comment.id === initiatingComment.replyToCommentId)?.authorContactId
+      : undefined
+    const primaryId = addressedAuthorId && addressedAuthorId !== 'user' ? addressedAuthorId : moment.contactId
+    const primary = byId.get(primaryId)
+    const sameWorld = contacts.filter((contact) => contact.worldviewId === primary?.worldviewId)
+    const available = sameWorld.filter((contact) => isPhoneAvailable(contact, new Date()))
+    // Identity is selected in code. The model receives only this responder's
+    // persona, so a visible author can never accidentally speak as somebody else.
+    const responder = primary && isPhoneAvailable(primary, new Date())
+      ? primary
+      : available[Math.floor(Math.random() * available.length)] || sameWorld[Math.floor(Math.random() * sameWorld.length)] || primary
+    if (responder) {
+      await generateMomentReply(momentId, responder, triggeringCommentId, settings)
+      return
+    }
     const trigger = comments.find((comment) => comment.id === triggeringCommentId)
     const directId = trigger?.replyToCommentId ? comments.find((comment) => comment.id === trigger.replyToCommentId)?.authorContactId : posterContactId
     const candidateIds = Array.from(new Set([
@@ -773,6 +945,27 @@ export async function deleteMomentCompletely(momentId: string): Promise<boolean>
       await db.contacts.update(moment.contactId, { lastMomentAt: lastMomentAt || undefined })
     }
   })
+  // The album also collects images used by Moments. Preserve this image as a
+  // standalone album item before its only remaining reference is removed.
+  if (moment.imageUrl) {
+    const settings = useSettingsStore.getState()
+    const source = moment.imagePhotographer || /images\.pexels\.com/i.test(moment.imageUrl)
+      ? 'Pexels 实拍图'
+      : /waifu\.im/i.test(moment.imageUrl)
+        ? '动漫图库'
+        : '生图系统'
+    const savedImages = settings.albumSavedImages ?? []
+    if (!savedImages.some((image) => image.url === moment.imageUrl)) {
+      settings.setSettings({
+        albumSavedImages: [{
+          url: moment.imageUrl,
+          createdAt: moment.createdAt,
+          source,
+          caption: moment.content,
+        }, ...savedImages],
+      })
+    }
+  }
   return true
 }
 

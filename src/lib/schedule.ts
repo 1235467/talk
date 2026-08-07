@@ -80,6 +80,77 @@ export interface ResolvedContactTask {
   endsAt: number
 }
 
+/** A visible slice of one task inside one local calendar day. Default blocks
+ * are expanded from the weekly routine; special tasks are preserved at their
+ * minute-precision range. A default occurrence disappears entirely whenever a
+ * special task overlaps it, matching the runtime scheduling rule. */
+export interface ScheduleDayOccurrence {
+  id: string
+  kind: 'default' | 'special'
+  task: ScheduleBlock | ScheduleOverride
+  startsAt: number
+  endsAt: number
+  continuesFromPreviousDay: boolean
+  continuesIntoNextDay: boolean
+}
+
+function localDayRange(date: Date) {
+  const startsAt = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+  return { startsAt, endsAt: startsAt + 24 * 60 * 60 * 1000 }
+}
+
+function defaultOccurrenceRange(block: ScheduleBlock, date: Date) {
+  const start = new Date(date)
+  start.setHours(block.startHour, 0, 0, 0)
+  const end = new Date(start)
+  end.setHours(block.endHour, 0, 0, 0)
+  if (block.startHour > block.endHour) end.setDate(end.getDate() + 1)
+  return { startsAt: start.getTime(), endsAt: end.getTime() }
+}
+
+/** Expands the effective schedule for one local calendar day. This is the
+ * canonical source for calendar presentation, including overnight blocks. */
+export function scheduleOccurrencesForDate(contact: ScheduleSource, date: Date): ScheduleDayOccurrence[] {
+  const day = localDayRange(date)
+  const overrides = (contact.scheduleOverrides ?? []).filter((task) => task.status !== 'cancelled')
+  const result: ScheduleDayOccurrence[] = []
+  const starts = [new Date(day.startsAt - 24 * 60 * 60 * 1000), new Date(day.startsAt)]
+
+  for (const startDate of starts) {
+    for (const block of contact.schedule ?? []) {
+      if (block.dayOfWeek !== startDate.getDay()) continue
+      const range = defaultOccurrenceRange(block, startDate)
+      if (!rangesOverlap(range, day)) continue
+      if (overrides.some((task) => rangesOverlap(range, specialTaskRange(task)))) continue
+      result.push({
+        id: `${block.id}:${range.startsAt}`,
+        kind: 'default',
+        task: block,
+        startsAt: Math.max(range.startsAt, day.startsAt),
+        endsAt: Math.min(range.endsAt, day.endsAt),
+        continuesFromPreviousDay: range.startsAt < day.startsAt,
+        continuesIntoNextDay: range.endsAt > day.endsAt,
+      })
+    }
+  }
+
+  for (const task of overrides) {
+    const range = specialTaskRange(task)
+    if (!rangesOverlap(range, day)) continue
+    result.push({
+      id: `${task.id}:${day.startsAt}`,
+      kind: 'special',
+      task,
+      startsAt: Math.max(range.startsAt, day.startsAt),
+      endsAt: Math.min(range.endsAt, day.endsAt),
+      continuesFromPreviousDay: range.startsAt < day.startsAt,
+      continuesIntoNextDay: range.endsAt > day.endsAt,
+    })
+  }
+
+  return result.sort((a, b) => a.startsAt - b.startsAt || (a.kind === 'special' ? -1 : 1))
+}
+
 /** A special task wins. If it overlaps a default task occurrence, that whole
  * default occurrence is cancelled, including the time before and after it. */
 export function resolveActiveTask(contact: ScheduleSource, now: Date): ResolvedContactTask | undefined {
@@ -157,29 +228,34 @@ export function pruneExpiredOverrides(overrides: ScheduleOverride[], now: Date):
 }
 
 /** Cleans up the schedule the model generates alongside a new persona — drops any block that doesn't make structural sense rather than rejecting the whole batch. */
-export function validateScheduleBlocks(raw: unknown): ScheduleBlock[] {
-  if (!Array.isArray(raw)) return []
-  const result: ScheduleBlock[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
-    const b = item as Record<string, unknown>
+export function normalizeScheduleBlock(raw: unknown, id = uuid()): ScheduleBlock | null {
+    if (!raw || typeof raw !== 'object') return null
+    const b = raw as Record<string, unknown>
     const dayOfWeek = Number(b.dayOfWeek)
     const startHour = Number(b.startHour)
     const endHour = Number(b.endHour)
     const phoneAccess = b.phoneAccess
-    const location = typeof b.location === 'string' ? b.location.trim() : ''
-    const activity = typeof b.activity === 'string' ? b.activity.trim() : ''
+    const location = typeof b.location === 'string' ? b.location.trim().slice(0, 20) : ''
+    const activity = typeof b.activity === 'string' ? b.activity.trim().slice(0, 16) : ''
 
-    if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) continue
-    if (!Number.isInteger(startHour) || !Number.isInteger(endHour)) continue
+    if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) return null
+    if (!Number.isInteger(startHour) || !Number.isInteger(endHour)) return null
     // startHour > endHour is a valid overnight block (e.g. 23 -> 7); only a
     // zero-length or out-of-range block is actually invalid.
-    if (startHour < 0 || startHour > 23 || endHour < 1 || endHour > 24 || startHour === endHour) continue
-    if (phoneAccess !== 'available' && phoneAccess !== 'unavailable') continue
-    if (!location || !activity) continue
+    if (startHour < 0 || startHour > 23 || endHour < 1 || endHour > 24 || startHour === endHour) return null
+    if (phoneAccess !== 'available' && phoneAccess !== 'unavailable') return null
+    if (!location || !activity) return null
 
     const locationId = typeof b.locationId === 'string' && b.locationId.trim() ? b.locationId.trim() : undefined
-    result.push({ id: uuid(), dayOfWeek, startHour, endHour, phoneAccess, location, locationId, activity })
+    return { id, dayOfWeek, startHour, endHour, phoneAccess, location, locationId, activity }
+}
+
+export function validateScheduleBlocks(raw: unknown): ScheduleBlock[] {
+  if (!Array.isArray(raw)) return []
+  const result: ScheduleBlock[] = []
+  for (const item of raw) {
+    const normalized = normalizeScheduleBlock(item)
+    if (normalized) result.push(normalized)
   }
   return result
 }

@@ -32,7 +32,7 @@ export function ContactGenerationTaskPage() {
     return <div className="flex h-[var(--app-height)] flex-col overflow-hidden bg-[#f4f4f6]"><TopBar title="生成任务" showBack/><div className="flex flex-1 items-center justify-center text-sm text-gray-400">正在读取任务…</div></div>
   }
   if (task === null) {
-    return <div className="flex h-[var(--app-height)] flex-col overflow-hidden bg-[#f4f4f6]"><TopBar title="生成任务" showBack/><div className="flex flex-1 items-center justify-center text-sm text-gray-400">这个任务已完成或不存在</div></div>
+    return <div className="flex h-[var(--app-height)] flex-col overflow-hidden bg-[#f4f4f6]"><TopBar title="生成任务" showBack/><div className="flex flex-1 flex-col items-center justify-center px-6 text-center"><p className="text-sm text-gray-400">这个任务已完成或不存在</p><button type="button" onClick={() => navigate('/contacts')} className="mt-4 rounded-lg bg-gray-900 px-5 py-2.5 text-sm text-white">返回联系人</button></div></div>
   }
   const currentTask = task
 

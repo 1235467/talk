@@ -45,13 +45,30 @@ describe('connection checks', () => {
   })
 
   it('only reports AI success for a compatible chat response', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       choices: [{ message: { role: 'assistant', content: '你好' } }],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
 
     const result = await testConnection('sk-test', 'https://api.example.com', 'test-model')
 
     expect(result).toEqual({ ok: true, message: '连接成功，模型已正常返回回复' })
+    const body = JSON.parse(String((fetchMock.mock.calls as unknown[][])[0]?.[1] && ((fetchMock.mock.calls as unknown[][])[0]?.[1] as RequestInit).body))
+    expect(body.messages).toEqual([{ role: 'user', content: '请只回复 OK，不要解释。' }])
+    expect(body).not.toHaveProperty('max_tokens')
+    expect(body).not.toHaveProperty('max_completion_tokens')
+  })
+
+  it('does not present a blank length-limited result as a generic connection failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ finish_reason: 'length', message: { role: 'assistant', content: '' } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+
+    const result = await testConnection('sk-test', 'https://api.example.com', 'test-model')
+
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain('接口已响应')
+    expect(result.message).toContain('实际聊天仍可能可用')
   })
 
   it('explains a copied Pexels label instead of exposing the Headers error', async () => {

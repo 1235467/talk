@@ -16,7 +16,7 @@ export interface CreateSpecialTaskInput {
 }
 
 export type CreateSpecialTaskResult =
-  | { success: true; task: ScheduleOverride; cancelledDefaultTasks: Array<{ id: string; activity: string }> }
+  | { success: true; task: ScheduleOverride; cancelledDefaultTasks: Array<{ id: string; activity: string }>; replacedSpecialTasks: ScheduleOverride[] }
   | { success: false; code: string; message: string }
 
 export async function createSpecialTask(contactId: string, input: CreateSpecialTaskInput, now = Date.now()): Promise<CreateSpecialTaskResult> {
@@ -31,8 +31,8 @@ export async function createSpecialTask(contactId: string, input: CreateSpecialT
   if (input.startsAt < now - 5 * 60_000) return { success: false, code: 'START_IN_PAST', message: '特殊任务不能从已经过去的时间开始' }
   if (input.startsAt > now + 14 * 86_400_000) return { success: false, code: 'TOO_FAR_AHEAD', message: '特殊任务最多提前十四天安排' }
   if (input.endsAt - input.startsAt > 24 * 60 * 60_000) return { success: false, code: 'TOO_LONG', message: '单个特殊任务不能超过二十四小时' }
-  const activity = input.activity.trim().slice(0, 80)
-  const summary = input.summary.trim().slice(0, 120)
+  const activity = input.activity.trim().slice(0, 16)
+  const summary = input.summary.trim().slice(0, 40)
   if (!activity || !summary) return { success: false, code: 'MISSING_DESCRIPTION', message: '特殊任务需要活动和摘要' }
 
   const cancelledDefaults = defaultTasksOverlappingRange(contact, input.startsAt, input.endsAt)
@@ -57,6 +57,7 @@ export async function createSpecialTask(contactId: string, input: CreateSpecialT
     createdAt: now,
   }
 
+  let replacedSpecialTasks: ScheduleOverride[] = []
   await db.transaction('rw', db.contacts, async () => {
     const fresh = await db.contacts.get(contactId)
     if (!fresh) throw new Error('联系人不存在')
@@ -67,9 +68,10 @@ export async function createSpecialTask(contactId: string, input: CreateSpecialT
       const range = specialTaskRange(item)
       return !(range.startsAt < nextRange.endsAt && nextRange.startsAt < range.endsAt)
     })
+    replacedSpecialTasks = existing.filter((item) => !kept.includes(item))
     await db.contacts.update(contactId, { scheduleOverrides: [...kept, task] })
   })
 
   if (input.startsAt <= now && now < input.endsAt) await syncContactLocationAt(contactId, new Date(now))
-  return { success: true, task, cancelledDefaultTasks: cancelledDefaults.map((item) => ({ id: item.id, activity: item.activity })) }
+  return { success: true, task, cancelledDefaultTasks: cancelledDefaults.map((item) => ({ id: item.id, activity: item.activity })), replacedSpecialTasks }
 }

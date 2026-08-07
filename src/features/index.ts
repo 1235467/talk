@@ -9,14 +9,11 @@ import { personalityTraitsModule } from './personalityTraits'
 import { proactiveChatModule } from './proactiveChat'
 import { mindReadingModule } from './mindReading'
 import { intentModule } from './intent'
-import { selfIterationModule } from './selfIteration'
 import { storyOutlineModule } from './storyOutline'
 import { careerModule } from './career'
 import { lifeSimulationModule } from './lifeSimulation'
 import { saveLoadModule } from './saveLoad'
-import { aiReplyAssistModule } from './aiReplyAssist'
 import { realisticRepliesModule } from './realisticReplies'
-import { promptModuleEditorModule } from './promptModuleEditor'
 import { locationModule } from './location'
 import { directOutputModule } from './directOutput'
 import type { FeatureModule, ParentModule } from './types'
@@ -58,14 +55,11 @@ export const ALL_MODULES: FeatureModule[] = [
   proactiveChatModule,
   mindReadingModule,
   intentModule,
-  selfIterationModule,
   storyOutlineModule,
   careerModule,
   lifeSimulationModule,
   saveLoadModule,
-  aiReplyAssistModule,
   realisticRepliesModule,
-  promptModuleEditorModule,
   locationModule,
   directOutputModule,
 ]
@@ -73,7 +67,7 @@ export const ALL_MODULES: FeatureModule[] = [
 /** Modules that don't belong to any parent — shown as standalone toggles. */
 export const STANDALONE_MODULES = ALL_MODULES.filter((m) => !m.parentId)
 
-export const IMMERSIVE_RESTRICTED_MODULES = new Set(['location', 'mindReading', 'intent', 'lifeSimulation', 'storyOutline', 'promptModuleEditor'])
+export const IMMERSIVE_RESTRICTED_MODULES = new Set(['location', 'mindReading', 'intent', 'lifeSimulation', 'storyOutline'])
 
 export function isModuleAllowedInExperienceMode(id: string, mode = useSettingsStore.getState().experienceMode): boolean {
   return mode !== 'immersive' || !IMMERSIVE_RESTRICTED_MODULES.has(id)
@@ -154,5 +148,5 @@ export function getEnabledDiscoverEntries(): { to: string; icon: string; label: 
 
 /** Every module is on by default except opt-in background/debug modules. */
 export const DEFAULT_ENABLED_MODULES: string[] = ALL_MODULES
-  .filter((m) => m.id !== 'proactiveChat' && m.id !== 'mindReading' && m.id !== 'selfIteration' && m.id !== 'lifeSimulation' && m.id !== 'realisticReplies' && m.id !== 'promptModuleEditor' && m.id !== 'directOutput')
+  .filter((m) => m.id !== 'proactiveChat' && m.id !== 'mindReading' && m.id !== 'lifeSimulation' && m.id !== 'realisticReplies' && m.id !== 'directOutput')
   .map((m) => m.id)

@@ -225,6 +225,39 @@ describe('image generation providers', () => {
     expect(result?.provider).toBe('comfyui')
   })
 
+  it('shows ComfyUI workflow validation details when prompt submission is rejected', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      error: { message: 'Prompt outputs failed validation' },
+      node_errors: { '4': { errors: [{ message: 'Value not in list: ckpt_name' }] } },
+    })))
+    const providers = createDefaultImageProviders()
+    providers.comfyui.model = 'missing.safetensors'
+
+    await expect(generateRemoteImage({ imageProvider: 'comfyui', imageProviders: providers }, 'portrait'))
+      .rejects.toThrow(/Prompt outputs failed validation.*ckpt_name/)
+  })
+
+  it('uses X-API-Key authentication and returns every image from the selected output', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(new Headers(init?.headers).get('X-API-Key')).toBe('secret-key')
+      const url = String(input)
+      if (url.endsWith('/prompt')) return jsonResponse({ prompt_id: 'batch-1', number: 2 })
+      if (url.endsWith('/history/batch-1')) return jsonResponse({
+        'batch-1': { outputs: { '9': { images: [{ filename: 'one.png', type: 'output' }, { filename: 'two.png', type: 'output' }] } } },
+      })
+      return new Response(new Uint8Array([1, 2]), { status: 200, headers: { 'Content-Type': 'image/png' } })
+    }))
+    const providers = createDefaultImageProviders()
+    providers.comfyui.model = 'model.safetensors'
+    providers.comfyui.authMode = 'x-api-key'
+    providers.comfyui.apiKey = 'secret-key'
+
+    const result = await generateRemoteImage({ imageProvider: 'comfyui', imageProviders: providers }, 'batch portrait')
+
+    expect(result?.urls).toHaveLength(2)
+    expect(result?.url).toBe(result?.urls?.[0])
+  })
+
   it('calls the A1111 / Forge txt2img endpoint and wraps its base64 image', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       expect(String(input)).toBe('http://127.0.0.1:7860/sdapi/v1/txt2img')

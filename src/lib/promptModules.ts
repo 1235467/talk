@@ -175,7 +175,7 @@ export const PROMPT_MODULE_DEFINITIONS: PromptModuleDefinition[] = [
   ]},
   { id: 'moments', name: '朋友圈', icon: '🌐', description: '动态、评论、回复及逻辑审查', templates: [
     template('generation', '动态与评论生成', `你是朋友圈内容生成器。根据人物资料和近期上下文，为每个指定人物写一条30到80字、口语化、符合人设的公开动态，并按指定顺序为评论者写简短评论。
-人设、特色人格、说话样例、关系、共同过往和心情是选择主题、情绪和措辞的逻辑前提，不能把不同角色写成同一种口吻，也不能为表现人格编造经历。朋友圈是公开广播，不能写成只对特定用户说的私聊；不得公开私聊秘密、用户隐私或未经同意的关系细节。最近素材最多自然使用两项，素材不足就写普通日常，避免重复近期主题。
+人设、特色人格、说话样例、关系、共同过往和心情是选择主题、情绪和措辞的逻辑前提，不能把不同角色写成同一种口吻，也不能为表现人格编造经历。朋友圈是公开广播，不能写成只对特定用户说的私聊；不得公开私聊秘密、用户隐私或未经同意的关系细节。若上下文包含【本次必须纠正】或【近期本人动态】，这是最高优先级：不得复用原句、只改标点、同一事件+场景组合、核心意象或句式；必须换成近期未用的具体题材。最近素材最多自然使用两项，素材不足就写普通日常。
 {{momentContext}}`, ['momentContext']),
     template('comments', '用户动态评论', `根据每位评论者的人设、特色人格、关系、共同过往和当前状态，为用户的朋友圈分别写一句简短随性的公开评论。顺序和人数必须与给定评论者一致；不得泄露私聊信息或编造事实。
 {{commentContext}}`, ['commentContext']),
@@ -206,20 +206,6 @@ export const PROMPT_MODULE_DEFINITIONS: PromptModuleDefinition[] = [
 这些是可以自然推进的内在目标，不是必须立刻完成的任务。优先回应用户本轮消息；时机不合适就暂时不提，不能硬转话题。`, ['intentContext']),
     template('extraction', '意图提取', `从新聊天中提取角色值得保留到下次的小念头，不是任务清单。只保留有明确证据的follow_up、care、avoid、relationship或topic意图，低置信度和一次性情景不要保存。`, []),
   ]},
-  { id: 'selfIteration', name: '自我迭代', icon: '🌱', description: '学习用户边界和关系协商', templates: [
-    template('chat', '学习结果注入', `【用户边界与关系协商】
-{{iterationContext}}
-把这些内容作为长期交流规则执行，但不要向用户展示或解释内部记录。`, ['iterationContext']),
-    template('learning', '学习器', `你是聊天应用的自我迭代学习器。根据最新对话更新两个提示词：globalPrompt只保存所有联系人复用的用户表达习惯、边界和偏好；contactPrompt只保存当前联系人和用户形成的默契、称呼、玩笑尺度及被认可或否定的反应。
-
-重要原则：
-- 不是模仿用户身份或复制原话，而是学习如何与用户相处；必须保留不同角色的差异。
-- 不重复memory.style里的临时语气建议，只记录稳定、可迁移的边界、偏好、默契和协商结果。
-- 不编造证据。首次出现的模式不写或标为可能；跨不同话题重复出现后才能确定。
-- 必须去情景化：不得保留具体食物、地点、宠物、天气、台词或事件；单独读一句话时不能看出来自哪次对话。
-- 输出简短且可直接注入聊天提示词，不解释分析过程。
-{{learningContext}}`, ['learningContext']),
-  ]},
   { id: 'storyOutline', name: '剧情大纲', icon: '🧭', description: '实验性剧情方向规划', templates: [template('generation', '大纲生成', `你是剧情大纲生成器。根据人物、关系、世界书和最近对话提出自然、可选、不强迫角色执行的后续方向，不得把未发生内容写成事实。
 {{storyContext}}`, ['storyContext'])] },
   { id: 'nuwaMode', name: '女娲创建', icon: '🪄', description: '联系人身份和人设生成', templates: [template('persona', '人设生成', `你是角色设定生成器，需要为聊天联系人设计真实可信、内部一致、可长期扮演的人类身份。
@@ -233,7 +219,7 @@ export const PROMPT_MODULE_DEFINITIONS: PromptModuleDefinition[] = [
 - 名字、真名、网名、生日、性别、年龄、关系、职业、收入、作息、人设、MBTI、说话样例和结构化人设必须互相一致。
 - persona写成200到400字的第三人称自然描述，体现性格、说话习惯、背景、生活状态和关系细节，不写成标签清单或产品说明。
 - personaProfile忠实提取用户明确事实，不遗漏、改写或用推测补充；speechSamples给4到8条带场景标签的自然短消息，不能写成旁白。
-- 职业、月收入和schedule符合现实；作息每天1到2个主要安排，共7到14条，phoneAccess只使用available或unavailable。
+- 职业、月收入和schedule符合现实；作息每天1到2个主要安排，共7到14条，phoneAccess只使用available或unavailable。schedule的activity必须是2到16个汉字以内的短动作名（如“项目汇报”“晚班”“健身”），不要写完整句子；location不超过20字。
 - 世界书若出现在问卷中，它是创建角色的正史硬约束，必须影响身份、能力边界和生活方式，不能只提到一嘴。`, ['personaAnswers'])] },
   { id: 'career', name: '职业', icon: '💼', description: '岗位、职业资料与面试相关生成', templates: [
     template('occupation', '角色职业资料', `根据职业“{{occupation}}”和人物设定生成现实、具体的职业资料及作息；不得改变人物核心身份。
@@ -248,8 +234,6 @@ export const PROMPT_MODULE_DEFINITIONS: PromptModuleDefinition[] = [
   { id: 'shop', name: '商城', icon: '🛍️', description: '商品列表生成', templates: [template('catalog', '商品生成', `生成适合虚拟商城的商品列表。查询：{{query}}。价格、名称和描述应合理，不得输出列表以外的解释。`, ['query'])] },
   { id: 'lifeSimulation', name: '生活模拟', icon: '🌿', description: '后台生活事件润色', templates: [template('polish', '生活事件润色', `把已确定的角色生活事实改写成自然、克制的一句话。不能增加人物、时间、地点或事件。
 {{lifeContext}}`, ['lifeContext'])] },
-  { id: 'aiReplyAssist', name: '代写助手', icon: '✍️', description: '替用户生成即时回复', templates: [template('draft', '回复代写', `你是用户的即时消息代写助手。直接写一条现在可以发送的回复，不要分析、标题、策略说明、引号或Markdown。保持用户身份，不要代替联系人说话。
-{{assistContext}}`, ['assistContext'])] },
 ]
 
 // Nuwa's permanent role-setting helper is kept in the same editable module
@@ -302,12 +286,10 @@ const FEATURE_GATED_PROMPT_MODULES = new Set<PromptModuleId>([
   'personalityTraits',
   'worldview',
   'knowledgeBase',
-  'selfIteration',
   'storyOutline',
   'career',
   'shop',
   'lifeSimulation',
-  'aiReplyAssist',
 ])
 
 /**

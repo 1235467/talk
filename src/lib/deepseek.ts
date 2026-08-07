@@ -79,6 +79,12 @@ export async function testConnection(
   model: string,
   provider: AiProviderId = useSettingsStore.getState().aiProvider,
 ): Promise<{ ok: boolean; message: string }> {
+  const controller = new AbortController()
+  let timedOut = false
+  const timeoutId = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, 20_000)
   try {
     if (!model.trim()) throw new Error('请先填写或选择模型')
     const result = await chatCompletion({
@@ -86,15 +92,24 @@ export async function testConnection(
       baseUrl,
       model,
       provider,
-      messages: [{ role: 'user', content: '你好' }],
-      maxTokens: 32,
+      // Do not impose a tiny output cap here. Reasoning-capable models can
+      // consume it before emitting visible text, turning a healthy endpoint
+      // into a false-negative connection test.
+      messages: [{ role: 'user', content: '请只回复 OK，不要解释。' }],
+      signal: controller.signal,
       temperature: 0.2,
       purpose: 'other',
     })
+    if (result.status === 'length' && !result.content.trim()) {
+      return { ok: false, message: '接口已响应，但模型在短测试中没有返回正文；这可能是推理模型的输出额度不足，实际聊天仍可能可用' }
+    }
     if (result.status !== 'ok' || !result.content.trim()) return { ok: false, message: completionStatusMessage(result) }
     return { ok: true, message: '连接成功，模型已正常返回回复' }
   } catch (err) {
+    if (timedOut) return { ok: false, message: 'AI 接口连接超时（20 秒），请检查网络、接口地址或服务状态后重试' }
     return { ok: false, message: friendlyConnectionError(err, 'AI 接口') }
+  } finally {
+    clearTimeout(timeoutId)
   }
 }
 
@@ -133,9 +148,16 @@ export interface ChatCompletionOptions {
   temperature?: number
   thinking?: 'enabled' | 'disabled'
   trace?: { turnId: string; stage: AdminAiTraceStage; conversationId?: string }
-  /** Never issue a compatibility/empty-response retry. Used by the explicit one-request experiment. */
+  /** Never issue an empty-response retry. Reserved for explicit diagnostics. */
   singleRequest?: boolean
 }
+
+/**
+ * Empty 200 responses are usually transient supplier failures. Keep retries
+ * bounded so a persistently broken endpoint cannot leave the chat spinning
+ * forever; a user-initiated retry starts a fresh five-attempt cycle.
+ */
+export const EMPTY_COMPLETION_MAX_ATTEMPTS = 5
 
 function stringAt(value: unknown): string {
   if (typeof value === 'string') return value
@@ -223,7 +245,7 @@ function extractCompletion(json: Record<string, any>, provider: AiProviderId): C
 function completionStatusMessage(result: ChatCompletionResult): string {
   if (result.status === 'blocked') return '模型拒绝或安全策略拦截了本次回复，请调整内容后再试'
   if (result.status === 'length') return result.content ? '模型回复达到长度上限，内容可能不完整' : '模型达到长度上限但没有返回正文'
-  if (result.status === 'empty') return result.reasoning ? '模型只返回了思考内容，没有返回可见正文' : '接口返回成功，但模型正文为空'
+  if (result.status === 'empty') return result.reasoning ? '模型只返回了思考内容，没有返回可见正文' : `接口连续 ${EMPTY_COMPLETION_MAX_ATTEMPTS} 次返回成功但正文为空，请点击“再次尝试”重新请求`
   if (result.status === 'malformed') return '接口返回成功，但响应结构不兼容 Chat Completions 协议'
   return '模型没有返回有效正文'
 }
@@ -268,7 +290,7 @@ export async function chatCompletion(opts: ChatCompletionOptions): Promise<ChatC
   const endpoint = resolveChatCompletionsUrl(opts.baseUrl, provider)
   let result: ChatCompletionResult | undefined
   let retryMode: { disableJson?: boolean; alternateToken?: boolean; emptyRetry?: boolean } = {}
-  const maxAttempts = opts.singleRequest ? 1 : 2
+  const maxAttempts = opts.singleRequest ? 1 : EMPTY_COMPLETION_MAX_ATTEMPTS
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const res = await appFetch(endpoint, {
       method: 'POST', signal: opts.signal,
@@ -290,7 +312,10 @@ export async function chatCompletion(opts: ChatCompletionOptions): Promise<ChatC
       throw new Error(httpFailureMessage('AI 接口', res.status, json))
     }
     result = extractCompletion(json, provider)
-    if (attempt === 0 && result.status === 'empty') { retryMode = { disableJson: opts.jsonMode, emptyRetry: true }; continue }
+    if (attempt < maxAttempts - 1 && result.status === 'empty') {
+      retryMode = { disableJson: opts.jsonMode, emptyRetry: true }
+      continue
+    }
     if (attempt > 0) result.retried = true
     break
   }

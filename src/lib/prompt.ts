@@ -3,6 +3,13 @@ import { extractJsonObject, parseJsonLoose } from './aiProtocol'
 import type { AvatarCategory } from './avatarCategory'
 import { PERSONALITY_TRAIT_OPTIONS, type ContactGenerationValidationDiagnostics, type ContactGenerationValidationIssue, type PersonaProfile, type PromptModuleSettings, type ScheduleBlock } from '../types'
 import { createDefaultPromptModules, getPromptTemplate, promptModuleEnabled } from './promptModules'
+
+const GENERATED_SCHEDULE_LOCATION_IDS = new Set([
+  'home-living', 'home-kitchen', 'school-classroom', 'school-canteen', 'school-playground',
+  'office-floor', 'office-lobby', 'mall-atrium', 'mall-cafe', 'mall-shop',
+  'hospital-lobby', 'hospital-clinic', 'park-lawn', 'park-riverside',
+  'beach-boardwalk', 'mountain-lookout', 'farm-field',
+])
 export { DEFAULT_STYLE_PROMPT } from './stylePrompt'
 
 /**
@@ -191,6 +198,9 @@ export interface PersonaGenerationResult {
   gender?: string
   ageRange?: string
   occupation?: string
+  /** Chosen only from the voice candidates injected for this generation. */
+  speechVoiceId?: string
+  speechStyleInstruction?: string
   /** Nuwa mode lets the model choose this from the completed persona. */
   initialWarmth?: number
   pastExperiences?: Array<{
@@ -202,7 +212,7 @@ export interface PersonaGenerationResult {
   }>
 }
 
-export function buildPersonaGenerationPrompt(answers: PersonaAnswers, avatarCategory: AvatarCategory, promptModules?: PromptModuleSettings, worldbookText = ''): string {
+export function buildPersonaGenerationPrompt(answers: PersonaAnswers, avatarCategory: AvatarCategory, promptModules?: PromptModuleSettings, worldbookText = '', speechVoiceContext?: { provider: string; options: Array<{ id: string; name: string; gender: string; language: string }> }): string {
   const today = new Date()
   const generationDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   const promptSettings = { promptModules: promptModules ?? createDefaultPromptModules() }
@@ -237,8 +247,13 @@ export function buildPersonaGenerationPrompt(answers: PersonaAnswers, avatarCate
 【本次角色生成最高优先级世界观】
 以下内容包含用户为这个角色明确选择的参考资料，以及角色所属世界中检索到的正史硬约束。世界正史必须约束角色身份、种族、经历、能力边界、关系、生活方式和行为逻辑；参考资料用于可靠补全，不得冒充已经确认的世界事实。
 ${worldbookText.trim()}` : ''
+  const speechVoiceBlock = speechVoiceContext ? `
 
-  return `${editable}${worldbookBlock}
+【联系人语音音色匹配】
+当前已配置语音服务为 ${speechVoiceContext.provider}。请根据角色的性别、年龄、语言、气质和说话方式，从下面候选中选择最合适的一项；speechVoiceId 必须逐字复制候选 id，不能自造。speechStyleInstruction 用一句简短自然语言描述语速、情绪和声线表演方式。
+${speechVoiceContext.options.map((option) => `- ${option.id}｜${option.name}｜${option.gender}｜${option.language}`).join('\n')}` : ''
+
+  return `${editable}${worldbookBlock}${speechVoiceBlock}
 
 当前日期：${generationDate}。birthday、ageRange和persona中写出的年龄必须按该日期互相一致；不要生成一个生日对应另一年龄的角色。
 
@@ -249,6 +264,7 @@ ${worldbookText.trim()}` : ''
   "ageRange": "角色年龄或年龄段",
   "relationship": "与用户的关系定位",
   "occupation": "现实职业",
+  ${speechVoiceContext ? '"speechVoiceId": "从候选音色中选择的id",\n  "speechStyleInstruction": "贴合角色的简短声音表演指导",' : ''}
   "realName": "真实姓名",
   "nickname": "网名/昵称",
   "birthday": "YYYY-MM-DD",
@@ -263,7 +279,7 @@ ${worldbookText.trim()}` : ''
     { "dayOfWeek": 1, "startHour": 9, "endHour": 18, "phoneAccess": "unavailable", "location": "公司", "locationId": "office-floor", "activity": "上班" },
     { "dayOfWeek": 1, "startHour": 23, "endHour": 7, "phoneAccess": "unavailable", "location": "家里", "locationId": "home-living", "activity": "睡觉" }
   ]${avatarInstruction}
-	}\nschedule中的location保留自然语言，同时尽量填写合法locationId。可用值：home-living、home-kitchen、school-classroom、school-canteen、school-playground、office-floor、office-lobby、mall-atrium、mall-cafe、mall-shop、hospital-lobby、hospital-clinic、park-lawn、park-riverside、beach-boardwalk、mountain-lookout、farm-field。${answers.draftMode ? '\ninitialWarmth 必须是 -100 到 100 的整数。请根据角色对用户的关系、过去的经历、性格和边界决定创建时的好感度，陌生疏离可为负数，亲密关系应与设定相符。' : ''}`
+	}\nschedule 中 locationId 为必填项，必须逐字填写下列已有具体地点 ID；location 只作为由 ID 派生的显示名，不能杜撰地点或只填“家里”等自由文本。可用值：home-living、home-kitchen、school-classroom、school-canteen、school-playground、office-floor、office-lobby、mall-atrium、mall-cafe、mall-shop、hospital-lobby、hospital-clinic、park-lawn、park-riverside、beach-boardwalk、mountain-lookout、farm-field。${answers.draftMode ? '\ninitialWarmth 必须是 -100 到 100 的整数。请根据角色对用户的关系、过去的经历、性格和边界决定创建时的好感度，陌生疏离可为负数，亲密关系应与设定相符。' : ''}`
 }
 
 export function diagnosePersonaGeneration(raw: string): { result: PersonaGenerationResult | null; diagnostics: ContactGenerationValidationDiagnostics } {
@@ -317,8 +333,13 @@ export function diagnosePersonaGeneration(raw: string): { result: PersonaGenerat
         ageRange: typeof parsed.ageRange === 'string' ? parsed.ageRange.trim().slice(0, 30) : undefined,
         relationship: typeof parsed.relationship === 'string' ? parsed.relationship.trim().slice(0, 40) : undefined,
         occupation: typeof parsed.occupation === 'string' ? parsed.occupation.trim().slice(0, 60) : undefined,
+        speechVoiceId: typeof parsed.speechVoiceId === 'string' ? parsed.speechVoiceId.trim().slice(0, 160) : undefined,
+        speechStyleInstruction: typeof parsed.speechStyleInstruction === 'string' ? parsed.speechStyleInstruction.trim().slice(0, 240) : undefined,
         persona: persona.trim(),
-        schedule: validateScheduleBlocks(parsed.schedule),
+        // Persona generation only knows the built-in map catalogue. Discard a
+        // block without a real map anchor instead of letting free text drive
+        // the location runtime later.
+        schedule: validateScheduleBlocks(parsed.schedule).filter((block) => !!block.locationId && GENERATED_SCHEDULE_LOCATION_IDS.has(block.locationId)),
         personalityTrait: PERSONALITY_TRAIT_OPTIONS.some((opt) => opt.value === trait) ? trait : '无',
         speechSamples,
         mbti,
@@ -407,8 +428,6 @@ export function buildRawChatPrompt(opts: {
   recentContext: string
   latestUserText?: string
   activeIntentText?: string
-  selfIterationGlobalText?: string
-  selfIterationContactText?: string
   stickerNames: string[]
   remoteStickerSearchEnabled?: boolean
   imageGenerationEnabled?: boolean
@@ -438,8 +457,6 @@ export function buildRawChatPromptParts(opts: {
   recentContext: string
   latestUserText?: string
   activeIntentText?: string
-  selfIterationGlobalText?: string
-  selfIterationContactText?: string
   stickerNames: string[]
   remoteStickerSearchEnabled?: boolean
   imageGenerationEnabled?: boolean
@@ -480,10 +497,6 @@ export function buildRawChatPromptParts(opts: {
       ? '- 想发送一张真实照片时，单独写[image:简洁具体的英文 Pexels 搜图关键词:配文]；只有真的适合发图时才用。'
       : '- 当前没有可用图片服务，不要输出[image:...]标记。'
   const mbtiLine = opts.mbti ? ` MBTI: ${opts.mbti}（你的性格底层框架 一切反应和决定都要符合这个类型）` : ''
-  const selfIterationText = [
-    opts.selfIterationGlobalText ? `【用户边界与偏好 - 全局】\n${opts.selfIterationGlobalText}` : '',
-    opts.selfIterationContactText ? `【你和用户的关系协商记录】\n${opts.selfIterationContactText}` : '',
-  ].filter(Boolean).join('\n\n')
   const identityBlock = render('chat', 'identity', {
     name: opts.name,
     persona: opts.persona || '（自由发挥，扮演一个普通朋友）',
@@ -500,9 +513,8 @@ export function buildRawChatPromptParts(opts: {
   })
   const situationSource = opts.situationContext ?? opts.recentContext
   const contextBlock = render('chat', 'context', { situationContext: situationSource, latestUserText: opts.latestUserText || '（后台事件）' })
-  const selfIterationBlock = selfIterationText ? render('selfIteration', 'chat', { iterationContext: selfIterationText }) : ''
   const intentBlock = opts.activeIntentText ? render('intent', 'chat', { intentContext: opts.activeIntentText }) : ''
-  const logicModules = [identityBlock, worldbookBlock, relationshipBlock, personalityBlock, memoryBlock, contextBlock, selfIterationBlock, intentBlock].filter(Boolean).join('\n\n')
+  const logicModules = [identityBlock, worldbookBlock, relationshipBlock, personalityBlock, memoryBlock, contextBlock, intentBlock].filter(Boolean).join('\n\n')
   const logic = render('chat', 'logicWrapper', { logicModules })
   const styleBlock = render('chat', 'style')
   const mediaBlock = render('chat', 'media', { stickerHint, imageHint })
@@ -532,10 +544,9 @@ export function buildRawChatPromptParts(opts: {
 /**
  * Step 2: Prompt the utility model to convert raw chat text into JSON.
  */
-export function buildJsonConversionPrompt(rawText: string): string {
-  return `将以下聊天回复解析为JSON。消息正文只做机械提取，不要修改原文；mood/thought是内部元数据。
+export const DEFAULT_JSON_CONVERSION_PROMPT = `将以下聊天回复解析为JSON。消息正文只做机械提取，不要修改原文；mood/thought是内部元数据。
 
-${rawText}
+{{rawText}}
 
 规则:
 - 按换行拆成多条text消息，去除每行的<thought>...</thought>和最后的<mood>...</mood>标签
@@ -546,4 +557,14 @@ ${rawText}
 - thought优先取原文第一条<thought>...</thought>；若缺失，再根据整段回复推断一句简短、第一人称的真实想法，不能写进messages正文
 - mood取原文<mood>...</mood>内容；若缺失再根据语气判断，15字以内，不能为空
 - messages允许的完整类型示例：{"messages":[{"type":"text","content":"..."},{"type":"image","query":"orange cat sunlight","caption":"你看这个"},{"type":"transfer","amount":100,"note":"拿去买奶茶"},{"type":"giftPurchase","amount":299,"name":"围巾","icon":"🧣","description":"给你挑的"}],"mood":"...","thought":"...","knowledgeQueries":[]}。只输出JSON对象`
+
+const REQUIRED_JSON_PROTOCOL_MARKERS = ['{{rawText}}', 'messages', 'type', 'mood', 'thought', 'knowledgeQueries']
+
+export function validateJsonConversionPrompt(template: string): string[] {
+  return REQUIRED_JSON_PROTOCOL_MARKERS.filter((marker) => !template.includes(marker))
+}
+
+export function buildJsonConversionPrompt(rawText: string, override?: string): string {
+  const template = override?.trim() && validateJsonConversionPrompt(override).length === 0 ? override : DEFAULT_JSON_CONVERSION_PROMPT
+  return template.replaceAll('{{rawText}}', rawText)
 }

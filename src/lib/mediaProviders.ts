@@ -131,7 +131,18 @@ export function createDefaultImageProviders(): ImageProvidersSettings {
     comfyui: {
       baseUrl: 'http://127.0.0.1:8188',
       apiKey: '',
+      authMode: 'none',
       workflowMode: 'basic',
+      workflowOverrides: {
+        negativePrompt: true,
+        seed: true,
+        steps: true,
+        cfg: true,
+        sampler: true,
+        scheduler: true,
+        width: true,
+        height: true,
+      },
       model: '',
       width: 768,
       height: 768,
@@ -141,6 +152,7 @@ export function createDefaultImageProviders(): ImageProvidersSettings {
       scheduler: 'normal',
       negativePrompt: 'low quality, blurry, text, watermark',
       promptPrefix: '',
+      timeoutSeconds: 300,
     },
     stableDiffusion: {
       baseUrl: 'http://127.0.0.1:7860',
@@ -185,10 +197,20 @@ export function normalizeStickerProviders(value: unknown): StickerProvidersSetti
 export function normalizeImageProviders(value: unknown): ImageProvidersSettings {
   const defaults = createDefaultImageProviders()
   const record = value && typeof value === 'object' ? value as Partial<ImageProvidersSettings> : {}
+  const comfy = mergeNested(defaults.comfyui, record.comfyui)
+  const timeoutSeconds = Number(comfy.timeoutSeconds)
   return {
     atlas: mergeNested(defaults.atlas, record.atlas),
     novelai: mergeNested(defaults.novelai, record.novelai),
-    comfyui: mergeNested(defaults.comfyui, record.comfyui),
+    comfyui: {
+      ...comfy,
+      authMode: ['none', 'bearer', 'x-api-key'].includes(comfy.authMode) ? comfy.authMode : defaults.comfyui.authMode,
+      timeoutSeconds: Number.isFinite(timeoutSeconds) ? Math.min(1_800, Math.max(30, timeoutSeconds)) : defaults.comfyui.timeoutSeconds,
+      workflowOverrides: {
+        ...defaults.comfyui.workflowOverrides,
+        ...(record.comfyui?.workflowOverrides ?? {}),
+      },
+    },
     stableDiffusion: mergeNested(defaults.stableDiffusion, record.stableDiffusion),
     custom: mergeNested(defaults.custom, record.custom),
   }

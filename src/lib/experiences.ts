@@ -1,4 +1,5 @@
 import { v4 as uuid } from 'uuid'
+import { canPublishNovelMoment } from './moments'
 import { db } from '../db/db'
 import type { AppSettings, Contact, ContactExperience, ContactLifeState } from '../types'
 import { chatCompletionText as chatCompletion } from './deepseek'
@@ -79,6 +80,7 @@ async function createMomentFromExperience(contact: Contact, experience: ContactE
   const recent = await db.moments.where('contactId').equals(contact.id).reverse().sortBy('createdAt')
   if (recent[0] && (experience.endedAt ?? experience.createdAt) - recent[0].createdAt < 2 * HOUR) return
   const createdAt = Math.max(experience.startedAt ?? experience.createdAt, Math.min(experience.endedAt ?? experience.createdAt, experience.createdAt))
+  if (!await canPublishNovelMoment(contact.id, content, createdAt)) return
   const id = uuid()
   await db.moments.add({ id, contactId: contact.id, content: content.trim().slice(0, 500), createdAt, sourceExperienceId: experience.id })
   await db.contacts.update(contact.id, { lastMomentAt: createdAt })

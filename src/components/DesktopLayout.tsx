@@ -184,6 +184,7 @@ function DiscoverList({ query }: { query: string }) {
   const entries = useMemo(() => {
     const result = [{ to: '/moments', label: '朋友圈', icon: '◉', note: '查看朋友们的最新动态' }, { to: '/social-inbox', label: '互动收件箱', icon: '✦', note: '点赞、评论与回复' }]
     if (adminModeEnabled) result.push({ to: '/ai-test-cards', label: 'AI 自动测试', icon: '🧪', note: '后台运行人工评测用例' })
+    result.push({ to: '/album', label: '相册', icon: '🖼️', note: '查看已生成和已使用的图片' })
     for (const module of ALL_MODULES) {
       if (!enabledModules.includes(module.id)) continue
       for (const entry of module.discoverEntries ?? []) result.push({ ...entry, note: '功能模块' })
@@ -246,6 +247,7 @@ function SettingsList({ query }: { query: string }) {
     { to: '/experience-mode', label: '体验模式', note: settings.experienceMode === 'immersive' ? '沉浸模式' : '自由模式', icon: '◈' },
     { to: '/appearance', label: '软件风格切换', note: `${uiThemeName(settings.uiTheme)} · ${settings.themeMode === 'dark' ? '深色' : '浅色'}`, icon: '◐' },
     { to: '/settings', label: '通用设置', note: '模型、数据与隐私', icon: '⚙' },
+    { to: '/settings/other-interfaces', label: '其他接口', note: '图像、语音、Pexels、Tavily 与动漫图库', icon: '◌' },
     { to: '/modules', label: '功能模块', note: '启用或关闭扩展功能', icon: '▦' },
     { to: '/stickers', label: '表情包', note: '管理本地和远程表情', icon: '☺' },
     ...(saveLoadEnabled ? [{ to: '/save-load', label: '存档与回档', note: '保存和恢复完整世界状态', icon: '💾' }] : []),

@@ -93,21 +93,60 @@ export async function testPexelsConnection(apiKey: string, signal?: AbortSignal)
   return { photo, fingerprint: apiKeyFingerprint(key), verifiedAt: Date.now() }
 }
 
-/** waifu.pics has no search — just returns one random image per category, no key needed. Anime avatars pick randomly between a couple of generic (not single-character) categories for variety. */
+/** Waifu.im returns a tagged random anime illustration without requiring a user key. */
 const ANIME_CATEGORIES = ['waifu', 'neko']
 
-export async function randomAnimeAvatar(): Promise<PhotoResult | null> {
+type WaifuImageResponse = { items?: Array<{ url?: unknown }> }
+
+export async function requestAnimeImageLegacy(params: URLSearchParams): Promise<PhotoResult | null> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= 1; attempt++) {
+    try {
+      const res = await appFetch(`https://api.waifu.im/images?${params}`)
+      if (!res.ok) {
+        // A malformed/unknown tag will not become valid by retrying.
+        if (res.status === 400) throw Object.assign(new Error('没有这个动漫图库标签；可试试 waifu、husbando、maid、neko'), { noRetry: true })
+        throw new Error(`Waifu.im请求失败 HTTP ${res.status}`)
+      }
+      const json = await res.json() as WaifuImageResponse
+      const url = json.items?.[0]?.url
+      if (typeof url === 'string') return { url }
+      throw new Error('Waifu.im返回结果没有图片链接')
+    } catch (error) {
+      lastError = error
+      if ((error as { noRetry?: boolean }).noRetry || attempt === 1) break
+      console.warn(`[photo] Waifu.im 第 ${attempt} 次请求失败，正在重试`, error)
+    }
+  }
+  throw new Error(`Waifu.im 连续请求五次失败，请稍后再试${lastError instanceof Error ? `（${lastError.message}）` : ''}`)
+}
+
+/** One request per user action: retries are deliberately manual. */
+async function requestAnimeImage(params: URLSearchParams): Promise<PhotoResult | null> {
+  try {
+    const res = await appFetch(`https://api.waifu.im/images?${params}`)
+    if (!res.ok) throw new Error(`Waifu.im request failed: HTTP ${res.status}`)
+    const json = await res.json() as WaifuImageResponse
+    const url = json.items?.[0]?.url
+    if (typeof url !== 'string') throw new Error('Waifu.im did not return an image URL')
+    return { url }
+  } catch (error) {
+    throw error instanceof Error ? error : new Error('Anime image request failed')
+  }
+}
+
+export async function randomAnimeAvatar(nsfw = false): Promise<PhotoResult | null> {
   const category = ANIME_CATEGORIES[Math.floor(Math.random() * ANIME_CATEGORIES.length)]
-  const res = await appFetch(`https://api.waifu.pics/sfw/${category}`)
-  if (!res.ok) {
-    console.warn(`[photo] waifu.pics请求失败 category=${category} HTTP ${res.status}`)
-    throw new Error(`waifu.pics请求失败 HTTP ${res.status}`)
-  }
-  const json = await res.json()
-  if (typeof json?.url !== 'string') {
-    console.warn(`[photo] waifu.pics返回结果没有图片链接 category=${category}`)
-    return null
-  }
-  console.log(`[photo] waifu.pics获取成功 category=${category}`)
-  return { url: json.url }
+  const params = new URLSearchParams({ IncludedTags: category, IsNsfw: nsfw ? 'All' : 'False', PageSize: '1' })
+  const image = await requestAnimeImage(params)
+  console.log(`[photo] Waifu.im获取成功 category=${category}`)
+  return image
+}
+
+/** Search the curated anime archive by one of its tags (for example `maid`, `waifu`, or `husbando`). */
+export async function searchAnimeAvatar(tag: string, nsfw = false): Promise<PhotoResult | null> {
+  const normalized = tag.trim().toLowerCase()
+  if (!normalized) return null
+  const params = new URLSearchParams({ IncludedTags: normalized, IsNsfw: nsfw ? 'All' : 'False', PageSize: '1' })
+  return requestAnimeImage(params)
 }

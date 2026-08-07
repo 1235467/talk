@@ -794,6 +794,37 @@ html, body, #root { background: var(--ui-bg); font-family: var(--ui-font-body); 
 .ui-cover-gradient { background: linear-gradient(135deg, var(--ui-cover-start), var(--ui-cover-end)); }
 .finance-card { background: linear-gradient(135deg, #fb923c, #ef4444); }
 
+/* Schedule blocks are information-bearing. Their small, explicitly scoped
+   palette stays stable across themes; surrounding calendar chrome uses the
+   normal semantic tokens above. */
+.schedule-week-scroll { overflow: visible; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-card); background: var(--ui-surface); }
+.schedule-week-header { z-index: 1; display: grid; grid-template-columns: 2.6rem repeat(7, minmax(0, 1fr)); border-bottom: 1px solid var(--ui-border); background: var(--ui-surface); }
+.schedule-week-header > span { min-height: 46px; padding-top: 6px; color: var(--ui-text-2); text-align: center; font-size: 12px; }
+.schedule-week-header b { display: block; margin-top: 2px; color: var(--ui-text); font-size: 15px; font-weight: 500; }
+.schedule-week-header .schedule-week-today { color: var(--ui-danger-ink); }
+.schedule-week-header .schedule-week-today b { width: 24px; height: 24px; margin: 2px auto 0; padding-top: 4px; border-radius: 999px; background: var(--ui-danger-soft); color: var(--ui-danger-ink); }
+.schedule-week-body { position: relative; display: grid; grid-template-columns: 2.6rem repeat(7, minmax(0, 1fr)); min-height: 528px; }
+.schedule-week-hours { position: relative; border-right: 1px solid var(--ui-border-soft); }
+.schedule-week-hours span { position: absolute; right: 5px; transform: translateY(-7px); color: var(--ui-text-3); font-size: 11px; line-height: 14px; }
+.schedule-week-day { position: relative; min-width: 0; border-right: 1px solid var(--ui-border-soft); background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 21px, var(--ui-border-soft) 21px, var(--ui-border-soft) 22px); }
+.schedule-week-day:last-child { border-right: 0; }
+.schedule-week-event { position: absolute; right: 2px; left: 3px; z-index: 2; overflow: hidden; border-left: 2px solid; border-radius: var(--ui-radius-control); padding: 2px; }
+.schedule-week-add { position: absolute; right: 4px; left: 4px; z-index: 3; height: 18px; transform: translateY(-9px); border: 1px dashed var(--ui-border); border-radius: var(--ui-radius-control); background: var(--ui-surface); color: var(--ui-text-2); font-size: 15px; line-height: 15px; }
+.schedule-week-event-title { display: flex; min-height: 100%; align-items: center; justify-content: center; overflow: hidden; padding: 1px; text-align: center; word-break: break-all; font-weight: 500; line-height: 1.12; }
+.schedule-week-event-phone { position: absolute; right: 2px; bottom: 1px; display: flex; opacity: .82; }
+.schedule-week-event--work { border-color: #4ade80; background: #eef6f1; color: #276749; }
+.schedule-week-event--personal { border-color: #a78bfa; background: #f5efff; color: #6d3cb0; }
+.schedule-week-event--rest { border-color: #9ca3af; background: #edf4ff; color: #475569; }
+.schedule-week-event--special { border-color: #f59e0b; background: #f7f0e8; color: #92400e; }
+.schedule-week-event--current { border-color: #ef4444; background: #fff3f0; color: #b91c1c; box-shadow: 0 0 0 2px rgba(239, 68, 68, .16); }
+.schedule-week-now { position: absolute; z-index: 4; right: 0; left: 0; height: 2px; background: #ef4444; pointer-events: none; }
+.schedule-week-now i { position: absolute; top: -4px; left: -4px; width: 9px; height: 9px; border-radius: 999px; background: #ef4444; }
+.schedule-week-legend { display: flex; flex-wrap: wrap; gap: 6px 10px; padding-top: 10px; color: var(--ui-text-2); font-size: 10px; }
+.schedule-week-legend > span { display: flex; align-items: center; gap: 4px; }
+.schedule-week-swatch { width: 10px; height: 10px; border-left: 2px solid; border-radius: 2px; }
+.schedule-week-swatch--work { border-color: #4ade80; background: #eef6f1; }.schedule-week-swatch--personal { border-color: #a78bfa; background: #f5efff; }.schedule-week-swatch--rest { border-color: #9ca3af; background: #edf4ff; }.schedule-week-swatch--special { border-color: #f59e0b; background: #f7f0e8; }.schedule-week-swatch--current { border-color: #ef4444; background: #fff3f0; }
+@media (min-width: 800px) { .schedule-week-scroll { max-width: 680px; margin: 0 auto; } }
+
 :root[data-ui-theme='fox'] .app-shell button.bg-gray-900,
 :root[data-ui-theme='fox'] .app-shell button.bg-\[\#07c160\] { border-radius: 999px; }
 :root[data-ui-theme='ink'] .app-shell button { letter-spacing: .01em; }

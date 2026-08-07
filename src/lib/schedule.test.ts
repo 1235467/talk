@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Contact, ScheduleOverride } from '../types'
-import { describeCurrentSchedule, describeUpcomingScheduleText, resolveActiveTask } from './schedule'
+import { describeCurrentSchedule, describeUpcomingScheduleText, resolveActiveTask, scheduleOccurrencesForDate, validateScheduleBlocks } from './schedule'
 
 const contact = (overrides: ScheduleOverride[] = []): Contact => ({
   id: 'contact', name: '小满', avatar: '🙂', avatarColor: '#ddd', systemPrompt: '自然', createdAt: 1,
@@ -38,5 +38,22 @@ describe('AI task schedule', () => {
     const text = describeUpcomingScheduleText(value, new Date(2026, 7, 2, 19, 0))
     expect(text).toContain('周五(2026-08-07)')
     expect(text).toContain('16-18点:给宠物买用品')
+  })
+
+  it('expands overnight tasks into both affected calendar days', () => {
+    const value = contact()
+    value.schedule = [{ id: 'sleep', dayOfWeek: 1, startHour: 23, endHour: 7, phoneAccess: 'unavailable', location: '家里', activity: '睡觉' }]
+    expect(scheduleOccurrencesForDate(value, new Date(2026, 7, 3))).toMatchObject([{ task: { id: 'sleep' }, startsAt: new Date(2026, 7, 3, 23).getTime(), endsAt: new Date(2026, 7, 4).getTime(), continuesIntoNextDay: true }])
+    expect(scheduleOccurrencesForDate(value, new Date(2026, 7, 4))).toMatchObject([{ task: { id: 'sleep' }, startsAt: new Date(2026, 7, 4).getTime(), endsAt: new Date(2026, 7, 4, 7).getTime(), continuesFromPreviousDay: true }])
+  })
+
+  it('removes a default occurrence from the calendar when a special task overlaps it', () => {
+    expect(scheduleOccurrencesForDate(contact([special()]), new Date(2026, 7, 3))).toMatchObject([{ kind: 'special', task: { id: 'coffee' } }])
+  })
+
+  it('normalizes generated titles to the compact calendar limits', () => {
+    const [block] = validateScheduleBlocks([{ dayOfWeek: 1, startHour: 9, endHour: 18, phoneAccess: 'available', location: '地点'.repeat(16), activity: '日程'.repeat(16) }])
+    expect(block.location).toHaveLength(20)
+    expect(block.activity).toHaveLength(16)
   })
 })

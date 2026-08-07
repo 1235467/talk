@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   parseJsonLoose,
+  parseStructuredAiResponse,
+  looksLikeStructuredAiResponse,
   parseRawPrivateDraft,
   rawPrivateDraftNeedsUtility,
   serializePrivateTurn,
@@ -21,6 +23,29 @@ describe('parseJsonLoose', () => {
     expect(parseJsonLoose('')).toBeNull()
     expect(parseJsonLoose('{"ok":true')).toBeNull()
     expect(parseJsonLoose('not json at all')).toBeNull()
+  })
+})
+
+describe('structured chat reply detection', () => {
+  it('accepts a final messages payload without falling back to its JSON lines', () => {
+    const raw = '```json\n{"messages":[{"type":"text","content":"已经收到啦"}],"mood":"开心","thought":"想自然回应"}\n```'
+
+    expect(looksLikeStructuredAiResponse(raw)).toBe(true)
+    expect(parseStructuredAiResponse(raw)).toMatchObject({
+      bubbles: [{ type: 'text', content: '已经收到啦' }],
+      thought: '想自然回应',
+    })
+  })
+
+  it('recognizes a valid payload even when a compatible service prepends prose', () => {
+    const raw = '按要求返回如下：\n{"messages":[{"type":"text","content":"好呀"}]}'
+    expect(looksLikeStructuredAiResponse(raw)).toBe(true)
+    expect(parseStructuredAiResponse(raw)?.bubbles).toEqual([{ type: 'text', content: '好呀' }])
+  })
+
+  it('does not mistake ordinary text containing the word messages for a protocol payload', () => {
+    expect(looksLikeStructuredAiResponse('我刚看完 messages 里的内容')).toBe(false)
+    expect(parseStructuredAiResponse('我刚看完 messages 里的内容')).toBeNull()
   })
 })
 

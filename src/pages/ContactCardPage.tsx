@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate, useParams } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
@@ -9,19 +9,20 @@ import { UiIcon } from '../components/UiIcon'
 import { Avatar } from '../components/Avatar'
 import { AvatarPicker } from '../components/AvatarPicker'
 import { ActionSheet } from '../components/ActionSheet'
+import { SchedulePlanner } from '../components/SchedulePlanner'
 import { displayName } from '../lib/contact'
 import { activeUpcomingPlans, activeUpcomingPlansText, resetMemory } from '../lib/memory'
 import { cascadeDeleteContactSocialData } from '../lib/moments'
 import { removeContactFromAllGroups } from '../lib/groupChat'
-import { pruneExpiredOverrides, describeCurrentSchedule, describeUpcomingScheduleText, isPhoneAvailable, specialTaskRange } from '../lib/schedule'
+import { describeCurrentSchedule, describeUpcomingScheduleText, isPhoneAvailable, scheduleOccurrencesForDate } from '../lib/schedule'
 import { normalizeMood } from '../lib/mood'
-import { WEEKDAYS, describeCurrentTime } from '../lib/time'
+import { describeCurrentTime } from '../lib/time'
 import { RELATIONSHIP_OPTIONS, formatSpeechSamplesForScene, buildRawChatPromptParts, buildJsonConversionPrompt } from '../lib/prompt'
 import { useModuleEnabled, isModuleEnabled } from '../features'
 import { personalityIntimacyStage, warmthLabel, relationshipLine } from '../lib/relationship'
 import { buildUserProfileText } from '../lib/chatEngine'
 import { useSettingsStore } from '../store/useSettingsStore'
-import type { ContactMemoryScope, ContactRelationLabel } from '../types'
+import type { Contact, ContactMemoryScope, ContactRelationLabel, ScheduleBlock, ScheduleOverride } from '../types'
 import { CONTACT_RELATION_LABELS, PERSONALITY_TRAIT_OPTIONS } from '../types'
 import { activeIntentPrompt, activeIntents, clearIntentQueue } from '../lib/intent'
 import { removePairedContactRelation, setPairedContactRelation, uniqueRelationPairs } from '../lib/contactRelations'
@@ -30,9 +31,99 @@ import { buildOccupationPrompt, parseOccupation, employmentPatch, OCCUPATION_OPT
 import { formatCurrency } from '../lib/wallet'
 import { setWalletBalance } from '../lib/finance'
 import { switchContactWorldview } from '../lib/scopedSaves'
-import { createDefaultPromptModules, PROMPT_MODULE_DEFINITIONS, unknownPromptPlaceholders } from '../lib/promptModules'
-import type { PromptModuleId } from '../types'
-import { ArrowDownToLine, ArrowUpFromLine, ClipboardList, Phone, PhoneOff } from 'lucide-react'
+import { promptModulesForContact } from '../lib/promptPresets'
+import { contactSpeechVoice, isSpeechProviderReady, speechProviderName, speechVoiceOptions } from '../lib/speechProviders'
+import { synthesizeSpeech } from '../lib/speechSynthesis'
+import { ArrowDownToLine, ArrowUpFromLine, ChevronLeft, ChevronRight, ClipboardList, Phone, PhoneOff } from 'lucide-react'
+
+const CALENDAR_HOUR_HEIGHT = 22
+
+function startOfMonday(date: Date) {
+  const value = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  value.setDate(value.getDate() - ((value.getDay() + 6) % 7))
+  return value
+}
+
+function sameLocalDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
+function calendarTaskTone(task: { activity: string; location: string }, special: boolean) {
+  if (special) return 'special'
+  const text = `${task.activity} ${task.location}`
+  if (/睡觉|休息|午休|补觉/.test(text)) return 'rest'
+  if (/上班|工作|会议|开会|汇报|课程|上课|公司|办公室|学校|教室/.test(text)) return 'work'
+  return 'personal'
+}
+
+function adaptiveCalendarTitleSize(activity: string, durationMs: number) {
+  const chars = Math.max(activity.trim().length, 1)
+  const area = 34 * Math.max(durationMs / 3_600_000 * CALENDAR_HOUR_HEIGHT - 8, 12)
+  return Math.max(8, Math.min(16, Math.floor(Math.sqrt(area / (chars * 1.25)))))
+}
+
+type ScheduleEditTarget = { kind: 'default'; task: ScheduleBlock } | { kind: 'special'; task: ScheduleOverride }
+
+function ScheduleWeekTimeline({ contact, onEdit, onOptimize, optimizing, optimizeError }: { contact: Contact; onEdit: (target: ScheduleEditTarget) => void; onOptimize: () => void; optimizing: boolean; optimizeError: string }) {
+  void onEdit; void onOptimize; void optimizing; void optimizeError
+  const [weekStart, setWeekStart] = useState(() => startOfMonday(new Date()))
+  const [now, setNow] = useState(() => new Date())
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const days = useMemo(() => Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(weekStart)
+    date.setDate(weekStart.getDate() + index)
+    return date
+  }), [weekStart])
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const monthTitle = `${weekStart.getMonth() + 1}月 · 第${Math.ceil((weekStart.getDate() + ((new Date(weekStart.getFullYear(), weekStart.getMonth(), 1).getDay() + 6) % 7)) / 7)}周`
+  const weekdayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+
+  return <section className="mt-3 bg-white px-4 py-4">
+    <div className="mb-2 flex items-center justify-between">
+      <h3 className="text-xs font-medium text-gray-400">日程表</h3>
+      <div className="flex items-center gap-1 text-xs text-gray-600">
+        <button type="button" aria-label="上一周" onClick={() => setWeekStart((value) => new Date(value.getFullYear(), value.getMonth(), value.getDate() - 7))} className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200"><ChevronLeft size={16} /></button>
+        <span className="min-w-20 text-center font-medium">{monthTitle}</span>
+        <button type="button" aria-label="下一周" onClick={() => setWeekStart((value) => new Date(value.getFullYear(), value.getMonth(), value.getDate() + 7))} className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200"><ChevronRight size={16} /></button>
+      </div>
+    </div>
+    <div ref={scrollRef} className="schedule-week-scroll" aria-label="本周日程时间轴">
+      <div className="schedule-week-header">
+        <span />
+        {days.map((day, index) => <span key={day.getTime()} className={sameLocalDay(day, today) ? 'schedule-week-today' : ''}>{weekdayLabels[index]}<b>{day.getDate()}</b></span>)}
+      </div>
+      <div className="schedule-week-body">
+        <div className="schedule-week-hours">{Array.from({ length: 25 }, (_, hour) => <span key={hour} style={{ top: hour * CALENDAR_HOUR_HEIGHT }}>{hour === 24 ? '23:59' : `${String(hour).padStart(2, '0')}:00`}</span>)}</div>
+        {days.map((day) => {
+          const occurrences = scheduleOccurrencesForDate(contact, day)
+          const isToday = sameLocalDay(day, today)
+          return <div key={day.getTime()} className="schedule-week-day">
+            {occurrences.map((occurrence) => {
+              const duration = occurrence.endsAt - occurrence.startsAt
+              const active = now.getTime() >= occurrence.startsAt && now.getTime() < occurrence.endsAt
+              const task = occurrence.task
+              const tone = active ? 'current' : calendarTaskTone(task, occurrence.kind === 'special')
+              return <div key={occurrence.id} data-ui-scope="special" className={`schedule-week-event schedule-week-event--${tone}`} style={{ top: (new Date(occurrence.startsAt).getHours() * 60 + new Date(occurrence.startsAt).getMinutes()) / 60 * CALENDAR_HOUR_HEIGHT + 1, height: Math.max(duration / 3_600_000 * CALENDAR_HOUR_HEIGHT - 2, 9) }} aria-label={`${task.activity}，${task.phoneAccess === 'available' ? '可以接电话' : '不方便接电话'}`}>
+                {duration >= 40 * 60_000 && <span className="schedule-week-event-title" style={{ fontSize: adaptiveCalendarTitleSize(task.activity, duration) }}>{task.activity}</span>}
+                {duration >= 20 * 60_000 && <span className="schedule-week-event-phone">{task.phoneAccess === 'available' ? <Phone size={11} /> : <PhoneOff size={11} />}</span>}
+              </div>
+            })}
+            {isToday && <span className="schedule-week-now" style={{ top: (now.getHours() * 60 + now.getMinutes()) / 60 * CALENDAR_HOUR_HEIGHT }}><i /></span>}
+          </div>
+        })}
+      </div>
+    </div>
+    <div className="schedule-week-legend" data-ui-scope="special">
+      <span><i className="schedule-week-swatch schedule-week-swatch--work" />绿色：工作/学习</span><span><i className="schedule-week-swatch schedule-week-swatch--personal" />紫色：个人安排</span><span><i className="schedule-week-swatch schedule-week-swatch--rest" />蓝灰：休息</span><span><i className="schedule-week-swatch schedule-week-swatch--special" />金色：特殊安排</span><span><i className="schedule-week-swatch schedule-week-swatch--current" />红色：当前进行中</span>
+    </div>
+  </section>
+}
 
 function LatestAiTurnJson({ contactId }: { contactId: string }) {
   const latestTurn = useLiveQuery(async () => {
@@ -67,6 +158,7 @@ const MEMORY_SCOPE_LABELS: Record<ContactMemoryScope, string> = {
 }
 
 export function ContactCardPage() {
+  void ScheduleWeekTimeline
   const { contactId } = useParams()
   const navigate = useNavigate()
   const settings = useSettingsStore()
@@ -84,12 +176,10 @@ export function ContactCardPage() {
   const moodEnabled = true
   const careerEnabled = useModuleEnabled('career')
   const lifeSimulationEnabled = useModuleEnabled('lifeSimulation')
-  const promptModuleEditorEnabled = useModuleEnabled('promptModuleEditor')
   const [assigningCareer, setAssigningCareer] = useState(false)
-  const [editingPromptModule, setEditingPromptModule] = useState<PromptModuleId | null>(null)
-  const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({})
-  const [promptValidationError, setPromptValidationError] = useState('')
   const [editingRelations, setEditingRelations] = useState(false)
+  const [testingSpeechVoice, setTestingSpeechVoice] = useState(false)
+  const [speechVoiceStatus, setSpeechVoiceStatus] = useState('')
   const [relationDrafts, setRelationDrafts] = useState<Array<{ targetContactId: string; label: string }>>([])
 
   const contact = useLiveQuery(() => (contactId ? db.contacts.get(contactId) : undefined), [contactId])
@@ -194,6 +284,56 @@ export function ContactCardPage() {
     void navigate(`/chat/${conv.id}`)
   }
 
+  const activeSpeechProvider = settings.speechProvider
+  const activeSpeechVoice = contactSpeechVoice(contact, activeSpeechProvider)
+  const activeSpeechOptions = speechVoiceOptions(settings)
+
+  async function saveSpeechVoice(voiceId: string) {
+    if (!contact || activeSpeechProvider === 'none') return
+    const previous = contact.speechVoices?.[activeSpeechProvider]
+    await db.contacts.update(contact.id, {
+      speechVoices: {
+        ...contact.speechVoices,
+        [activeSpeechProvider]: {
+          voiceId,
+          styleInstruction: previous?.styleInstruction,
+          source: 'user',
+          assignedAt: Date.now(),
+        },
+      },
+    })
+    setSpeechVoiceStatus('已保存，这位联系人之后会使用该音色')
+  }
+
+  async function saveSpeechStyle(styleInstruction: string) {
+    if (!contact || activeSpeechProvider === 'none' || !activeSpeechVoice) return
+    await db.contacts.update(contact.id, {
+      speechVoices: {
+        ...contact.speechVoices,
+        [activeSpeechProvider]: { ...activeSpeechVoice, styleInstruction: styleInstruction.trim(), source: 'user', assignedAt: Date.now() },
+      },
+    })
+    setSpeechVoiceStatus('声音演绎方式已保存')
+  }
+
+  async function testSpeechVoice() {
+    if (!contact || !activeSpeechVoice) return
+    setTestingSpeechVoice(true)
+    setSpeechVoiceStatus('正在生成试听…')
+    try {
+      const result = await synthesizeSpeech(`你好，我是${displayName(contact)}。`, settings, activeSpeechVoice)
+      const url = URL.createObjectURL(result.blob)
+      const audio = new Audio(url)
+      audio.addEventListener('ended', () => URL.revokeObjectURL(url), { once: true })
+      await audio.play()
+      setSpeechVoiceStatus('试听生成成功')
+    } catch (error) {
+      setSpeechVoiceStatus(error instanceof Error ? error.message : String(error))
+    } finally {
+      setTestingSpeechVoice(false)
+    }
+  }
+
   async function handleDelete() {
     if (conversation) {
       await db.messages.where('conversationId').equals(conversation.id).delete()
@@ -235,8 +375,6 @@ export function ContactCardPage() {
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, 5)
   const hasMemory = contact.memoryFacts || contact.memoryStyle || activePlans.length > 0 || structuredMemories.length > 0 || relationLinks.length > 0
-  const schedule = contact.schedule ?? []
-  const activeOverrides = pruneExpiredOverrides(contact.scheduleOverrides ?? [], new Date())
 
   // Admin-mode-only: shows exactly what would be sent as the system prompt
   // right now, for debugging persona/relationship issues. Mirrors
@@ -255,9 +393,7 @@ export function ContactCardPage() {
         personaConstraints: contact.personaConstraints,
         personaProfile: contact.personaProfile,
         stylePrompt: settings.globalSystemPrompt,
-        promptModules: settings.promptModules,
-        selfIterationGlobalText: isModuleEnabled('selfIteration') ? settings.selfIterationGlobalPrompt : undefined,
-        selfIterationContactText: isModuleEnabled('selfIteration') ? contact.selfIterationPrompt : undefined,
+        promptModules: promptModulesForContact(contact, settings),
         personalityTrait: personalityEnabled ? contact.personalityTrait : undefined,
         personalityWarmth: relEnabled ? (contact.warmth ?? 0) : undefined,
         worldviewText: isModuleEnabled('worldview') ? '【运行时按当前对话检索世界书条目；此预览不固定命中结果】' : undefined,
@@ -282,7 +418,7 @@ export function ContactCardPage() {
       })
     : null
   const conversionPrompt = adminEnabled
-    ? buildJsonConversionPrompt('【AI的原始回复文字会放在这里】')
+    ? buildJsonConversionPrompt('【AI的原始回复文字会放在这里】', contact.jsonProtocolOverride)
     : ''
 
   return (
@@ -311,6 +447,31 @@ export function ContactCardPage() {
       </section>
 
       {!immersiveMode && <section className="mt-3 bg-white px-4 py-4"><h3 className="mb-2 text-xs font-medium text-gray-400">所属世界</h3><select value={contact.worldviewId || settings.defaultWorldviewId || ''} onChange={(event) => void changeWorldview(event.target.value)} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800">{worldviews.map((world) => <option key={world.id} value={world.id}>{world.name}</option>)}</select><p className="mt-2 text-[11px] leading-relaxed text-gray-400">修改后会移出不同世界的群聊；群里只剩一人时自动解散。</p></section>}
+
+      <section className="mt-3 bg-white px-4 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div><h3 className="text-xs font-medium text-gray-400">联系人语音</h3><p className="mt-1 text-[11px] leading-relaxed text-gray-400">音色只属于这位联系人，不会套用到其他人。</p></div>
+          <span className="shrink-0 text-xs text-gray-500">{speechProviderName(activeSpeechProvider)}</span>
+        </div>
+        {activeSpeechProvider === 'none' || !isSpeechProviderReady(settings) ? (
+          <button type="button" onClick={() => navigate('/settings/speech-generation')} className="mt-3 w-full rounded-lg border border-dashed border-gray-300 px-3 py-3 text-sm text-gray-600">先配置语音生成服务</button>
+        ) : (
+          <div className="mt-3 space-y-3">
+            {!activeSpeechVoice && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">暂时没有对号入座。请选择一个音色，否则聊天里生成语音时会提醒回来设置。</p>}
+            <label className="block text-xs text-gray-500">音色
+              <select value={activeSpeechVoice?.voiceId ?? ''} onChange={(event) => void saveSpeechVoice(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-800">
+                <option value="" disabled>请选择适合这位联系人的音色</option>
+                {activeSpeechOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+              </select>
+            </label>
+            {activeSpeechProvider === 'mimo' && activeSpeechVoice && <label className="block text-xs text-gray-500">声音演绎方式
+              <textarea defaultValue={activeSpeechVoice.styleInstruction ?? ''} onBlur={(event) => void saveSpeechStyle(event.target.value)} placeholder="例如：低沉克制、语速稍慢，熟悉后更温柔" rows={2} className="mt-1 w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 outline-none" />
+            </label>}
+            {activeSpeechVoice && <button type="button" disabled={testingSpeechVoice} onClick={() => void testSpeechVoice()} className="w-full rounded-lg bg-gray-900 py-2.5 text-sm text-white disabled:opacity-50">{testingSpeechVoice ? '生成试听中…' : '试听这位联系人的声音'}</button>}
+            {speechVoiceStatus && <p className="text-xs leading-5 text-gray-500">{speechVoiceStatus}</p>}
+          </div>
+        )}
+      </section>
 
       {lifeSimulationEnabled && (
         <section className="mt-3 bg-white px-4 py-4">
@@ -479,66 +640,7 @@ export function ContactCardPage() {
         )}
       </section>
 
-      <section className="mt-3 bg-white px-4 py-4">
-        <h3 className="mb-2 text-xs font-medium text-gray-400">默认任务</h3>
-        {schedule.length === 0 ? (
-          <p className="text-sm text-gray-400">暂无默认任务</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-[11px]">
-              <thead>
-                <tr>
-                  <th className="py-1 pr-1 text-left text-gray-400 font-normal"></th>
-                  {WEEKDAYS.map((label) => (
-                    <th key={label} className="px-0.5 py-1 text-center font-medium text-gray-500">{label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  { range: '上午', start: 6, end: 12 },
-                  { range: '下午', start: 12, end: 18 },
-                  { range: '晚上', start: 18, end: 24 },
-                ].map(({ range, start, end }) => (
-                  <tr key={range}>
-                    <td className="py-0.5 pr-1 text-gray-400">{range}</td>
-                    {[0, 1, 2, 3, 4, 5, 6].map((day) => {
-                      const blocks = schedule
-                        .filter((b) => b.dayOfWeek === day && b.startHour < end && b.endHour > start)
-                        .sort((a, b) => a.startHour - b.startHour)
-                      if (blocks.length === 0) return <td key={day} className="px-0.5 py-0.5 text-center text-gray-300">—</td>
-                      const b = blocks[0]
-                      return (
-                        <td key={day} className="px-0.5 py-0.5 text-center">
-                          <span className={b.phoneAccess === 'unavailable' ? 'text-red-400' : 'text-green-500'}>
-                            {b.phoneAccess === 'unavailable' ? <PhoneOff size={13} className="mx-auto" /> : <Phone size={13} className="mx-auto" />}
-                          </span>
-                          <div className="text-[10px] text-gray-600 leading-tight">{b.activity}</div>
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {activeOverrides.length > 0 && (
-          <div className="mt-3 border-t border-gray-100 pt-3">
-            <h4 className="mb-2 text-xs font-medium text-gray-400">特殊任务</h4>
-            <div className="space-y-2">{activeOverrides.sort((a, b) => specialTaskRange(a).startsAt - specialTaskRange(b).startsAt).map((o) => {
-              const range = specialTaskRange(o)
-              const status = contactNow >= range.endsAt ? '已完成' : contactNow >= range.startsAt ? '进行中' : '待执行'
-              const cancelledNames = (o.cancelledDefaultTaskIds ?? []).map((id) => schedule.find((task) => task.id === id)?.activity).filter(Boolean)
-              return <div key={o.id} className="rounded-lg bg-gray-50 px-3 py-2">
-                <div className="flex items-center justify-between gap-2"><p className="text-sm font-medium text-gray-800">{o.summary}</p><span className={`shrink-0 text-[10px] ${status === '进行中' ? 'text-green-600' : 'text-gray-400'}`}>{status}</span></div>
-                <p className="mt-1 text-xs text-gray-500">{new Date(range.startsAt).toLocaleDateString()} {new Date(range.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}-{new Date(range.endsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {o.location}</p>
-                {cancelledNames.length > 0 && <p className="mt-1 text-[11px] text-amber-600">已整项取消默认任务：{cancelledNames.join('、')}</p>}
-              </div>
-            })}</div>
-          </div>
-        )}
-      </section>
+      <SchedulePlanner contact={contact} settings={settings} memories={structuredMemories} />
 
       {adminEnabled && (
         <section className="mt-3 bg-white px-4 py-4">
@@ -595,39 +697,9 @@ export function ContactCardPage() {
         <LatestAiTurnJson contactId={contactId!} />
       )}
 
-      {promptModuleEditorEnabled && <section className="mt-3 bg-white px-4 py-4">
-        <div className="mb-3">
-          <h3 className="text-sm font-medium text-gray-900">全局提示词模块</h3>
-          <p className="mt-1 text-[11px] leading-relaxed text-gray-400">这里编辑的是代码原本使用的完整提示词模板，保存后对所有相关模型调用生效。固定JSON输出协议不开放编辑。</p>
-        </div>
-        <div className="space-y-2.5">
-          {PROMPT_MODULE_DEFINITIONS.map((definition) => {
-            const config = settings.promptModules?.[definition.id] ?? createDefaultPromptModules()[definition.id]
-            return (
-              <div key={definition.id} className={`overflow-hidden rounded-xl border ${config.enabled ? 'border-gray-200 bg-white' : 'border-gray-950 bg-black text-white'}`}>
-                <div className="flex items-start gap-2.5 px-3 py-3">
-                  <UiIcon name={definition.icon} size={19} className="mt-0.5 shrink-0" />
-                  <button className="min-w-0 flex-1 text-left" onClick={() => { setEditingPromptModule(definition.id); setPromptDrafts({ ...config.templates }); setPromptValidationError('') }}>
-                    <p className={`text-sm font-medium ${config.enabled ? 'text-gray-900' : 'text-white'}`}>{definition.name}</p>
-                    <p className={`mt-0.5 text-[10px] ${config.enabled ? 'text-gray-400' : 'text-gray-400'}`}>{definition.description}</p>
-                    <p className={`mt-2 line-clamp-3 whitespace-pre-wrap text-[11px] leading-relaxed ${config.enabled ? 'text-gray-600' : 'text-gray-500 line-through'}`}>{definition.templates.length} 份原始模板 · {config.templates[definition.templates[0]?.id] || '（空提示词）'}</p>
-                  </button>
-                  <button
-                    onClick={() => settings.setSettings({ promptModules: { ...settings.promptModules, [definition.id]: { ...config, enabled: !config.enabled } } })}
-                    className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] ${config.enabled ? 'bg-gray-100 text-gray-600' : 'bg-gray-800 text-white'}`}
-                  >
-                    {config.enabled ? '启用中' : '已屏蔽'}
-                  </button>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </section>}
-
       {adminEnabled && (
         <section className="mt-3 bg-white px-4 py-4">
-          <h3 className="mb-2 text-xs font-medium text-gray-400">提示词预览（管理员模式）</h3>
+          <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-xs font-medium text-gray-400">提示词预览（管理员模式）</h3><p className="mt-1 text-[10px] text-gray-400">来源：{contact.promptPresetSourceName || '升级前提示词'}{contact.promptSnapshotUpdatedAt ? ` · ${new Date(contact.promptSnapshotUpdatedAt).toLocaleString()}` : ''}</p></div><button type="button" onClick={() => navigate(`/contact/${contactId}/admin`)} className="shrink-0 rounded-lg bg-gray-900 px-3 py-2 text-xs text-white">编辑全部资料</button></div>
 
           <div className="space-y-4">
             {/* Step 1: main model */}
@@ -719,39 +791,6 @@ export function ContactCardPage() {
         </div>
       )}
 
-      {promptModuleEditorEnabled && editingPromptModule && (() => {
-        const definition = PROMPT_MODULE_DEFINITIONS.find((item) => item.id === editingPromptModule)!
-        const current = settings.promptModules?.[editingPromptModule] ?? createDefaultPromptModules()[editingPromptModule]
-        return <div className="absolute inset-0 z-50 flex items-end bg-black/40" onClick={() => setEditingPromptModule(null)}>
-          <div className="max-h-[88%] w-full overflow-y-auto rounded-t-2xl bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]" onClick={(event) => event.stopPropagation()}>
-            <h3 className="flex items-center gap-2 text-base font-medium text-gray-900"><UiIcon name={definition.icon} size={19} />{definition.name}</h3>
-            <p className="mt-1 text-xs text-gray-400">这是该模块实际使用的原始模板；双花括号是运行时动态数据。</p>
-            <div className="mt-3 space-y-4">
-              {definition.templates.map((item) => (
-                <div key={item.id}>
-                  <div className="mb-1.5 flex items-center justify-between gap-2"><p className="text-xs font-medium text-gray-700">{item.name}</p><button onClick={() => setPromptDrafts((drafts) => ({ ...drafts, [item.id]: item.defaultTemplate }))} className="text-[10px] text-gray-400 underline">恢复此项</button></div>
-                  {item.placeholders.length > 0 && <p className="mb-1.5 break-words text-[10px] text-gray-400">可用占位符：{item.placeholders.map((key) => `{{${key}}}`).join('、')}</p>}
-                  <textarea value={promptDrafts[item.id] ?? ''} onChange={(event) => { setPromptDrafts((drafts) => ({ ...drafts, [item.id]: event.target.value })); setPromptValidationError('') }} rows={Math.min(14, Math.max(6, (promptDrafts[item.id]?.split('\n').length ?? 1) + 2))} className="w-full resize-y rounded-xl border border-gray-200 p-3 font-mono text-xs leading-relaxed outline-none focus:border-gray-500" />
-                </div>
-              ))}
-            </div>
-            {promptValidationError && <p className="mt-2 text-xs text-red-500">{promptValidationError}</p>}
-            <div className="mt-3 flex gap-2">
-              <button onClick={() => setPromptDrafts(Object.fromEntries(definition.templates.map((item) => [item.id, item.defaultTemplate])))} className="rounded-xl bg-gray-100 px-3 py-2.5 text-sm text-gray-600">全部恢复</button>
-              <button onClick={() => setEditingPromptModule(null)} className="flex-1 rounded-xl bg-gray-100 py-2.5 text-sm text-gray-700">取消</button>
-              <button onClick={() => {
-                for (const item of definition.templates) {
-                  const unknown = unknownPromptPlaceholders(definition.id, item.id, promptDrafts[item.id] ?? '')
-                  if (unknown.length > 0) { setPromptValidationError(`${item.name}含未知占位符：${unknown.map((key) => `{{${key}}}`).join('、')}`); return }
-                }
-                settings.setSettings({ promptModules: { ...settings.promptModules, [editingPromptModule]: { ...current, templates: { ...current.templates, ...promptDrafts } } }, ...(editingPromptModule === 'chat' && typeof promptDrafts.style === 'string' ? { globalSystemPrompt: promptDrafts.style } : {}) })
-                setEditingPromptModule(null)
-              }} className="flex-1 rounded-xl bg-gray-900 py-2.5 text-sm text-white">保存</button>
-            </div>
-          </div>
-        </div>
-      })()}
-
       {pickingRelationshipType && (
         <ActionSheet
           onClose={() => setPickingRelationshipType(false)}
@@ -795,7 +834,7 @@ export function ContactCardPage() {
             })
           }
           onClose={() => setPickingAvatar(false)}
-          pexelsApiKey={settings.pexelsApiKey}
+          settings={settings}
         />
       )}
 

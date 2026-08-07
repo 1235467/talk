@@ -15,9 +15,12 @@ const base = {
 }
 
 describe('structured chat completion result', () => {
-  it('classifies HTTP success with an empty body separately and retries once', async () => {
+  it('classifies HTTP success with an empty body separately and retries up to five times', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: '', reasoning_content: 'thinking' } }], usage: { completion_tokens_details: { reasoning_tokens: 20 } } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: '' } }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: '' } }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: '' } }] }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: '' } }] }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -25,7 +28,7 @@ describe('structured chat completion result', () => {
 
     expect(result.status).toBe('empty')
     expect(result.retried).toBe(true)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(5)
   })
 
   it('does not retry when a caller requires exactly one request', async () => {

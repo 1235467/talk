@@ -38,7 +38,7 @@ function terrainDetail(context: CanvasRenderingContext2D, terrain: TerrainType, 
   context.restore()
 }
 
-export function LocationMapCanvas({ map, locations, activeLocationId, contacts = [], selectedLocationId, draftPoint, editing = false, placementMode = false, onBuildingClick, onMapClick, onConfirmDraft }: {
+export function LocationMapCanvas({ map, locations, activeLocationId, contacts = [], selectedLocationId, draftPoint, editing = true, placementMode = false, onBuildingClick, onMapClick, onConfirmDraft }: {
   map: WorldMapRecord
   locations: LocationNode[]
   activeLocationId?: string

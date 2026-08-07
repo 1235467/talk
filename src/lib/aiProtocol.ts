@@ -33,6 +33,26 @@ export function parseAiResponse(raw: string): ParsedAiTurn {
   return { bubbles: fallbackBubbles, knowledgeQueries: [], mood: undefined }
 }
 
+/**
+ * Reads only a complete structured chat reply. Unlike parseAiResponse(), this
+ * never falls back to treating arbitrary lines as user-visible text. It is
+ * used for providers that sometimes ignore the raw-text draft instruction and
+ * return the final messages JSON directly.
+ */
+export function parseStructuredAiResponse(raw: string): ParsedAiTurn | null {
+  const trimmedRaw = raw.trim()
+  return trimmedRaw ? tryParseJson(trimmedRaw) : null
+}
+
+/** True when a reply looks like an attempted final chat protocol payload. */
+export function looksLikeStructuredAiResponse(raw: string): boolean {
+  if (parseStructuredAiResponse(raw)) return true
+  // Keep malformed payloads behind the custom-provider safety gate too. The
+  // leading prose is intentional: some compatible services prepend a short
+  // explanation before the JSON object.
+  return /\{[\s\S]{0,240}["']messages["']\s*:/.test(raw)
+}
+
 export function parseKnowledgeQueriesField(raw: unknown): string[] {
   if (!Array.isArray(raw)) return []
   const result: string[] = []
@@ -107,8 +127,8 @@ export function parseRawPrivateDraft(raw: string, fallbackMood?: string): Parsed
     if (image) {
       bubbles.push({
         type: 'image',
-        query: image[1].trim().slice(0, 100),
-        caption: image[2].trim().slice(0, 100) || undefined,
+        query: image[1].trim().slice(0, 2_000),
+        caption: image[2].trim().slice(0, 200) || undefined,
       })
       continue
     }
@@ -166,7 +186,7 @@ function tryParseJson(trimmedRaw: string): ParsedAiTurn | null {
     } else if (m.type === 'link' && typeof m.app === 'string' && typeof m.label === 'string') {
       bubbles.push({ type: 'link', app: m.app, label: m.label, data: m.data })
     } else if (m.type === 'image' && typeof (m as unknown as Record<string,unknown>).query === 'string') {
-      const im=m as unknown as Record<string,unknown>; bubbles.push({type:'image',query:String(im.query).trim().slice(0,100),caption:typeof im.caption==='string'?im.caption.slice(0,100):undefined})
+      const im=m as unknown as Record<string,unknown>; bubbles.push({type:'image',query:String(im.query).trim().slice(0,2_000),caption:typeof im.caption==='string'?im.caption.slice(0,200):undefined})
     } else if (m.type === 'scheduleChange') {
       const scheduleChange = parseScheduleChangeBubble(m as unknown as Record<string, unknown>)
       if (scheduleChange) bubbles.push(scheduleChange)
@@ -191,9 +211,9 @@ function parseScheduleChangeBubble(m: Record<string, unknown>): AiBubble | null 
   const startHour = typeof m.startHour === 'number' ? m.startHour : Number(m.startHour)
   const endHour = typeof m.endHour === 'number' ? m.endHour : Number(m.endHour)
   const phoneAccess = m.phoneAccess
-  const location = typeof m.location === 'string' ? m.location.trim() : ''
-  const activity = typeof m.activity === 'string' ? m.activity.trim() : ''
-  const summary = typeof m.summary === 'string' ? m.summary.trim() : ''
+  const location = typeof m.location === 'string' ? m.location.trim().slice(0, 20) : ''
+  const activity = typeof m.activity === 'string' ? m.activity.trim().slice(0, 16) : ''
+  const summary = typeof m.summary === 'string' ? m.summary.trim().slice(0, 40) : ''
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null
   if (!Number.isInteger(startHour) || !Number.isInteger(endHour)) return null

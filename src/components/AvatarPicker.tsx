@@ -3,33 +3,42 @@ import { Image } from 'lucide-react'
 import { AVATAR_EMOJIS } from '../lib/avatarEmojis'
 import { ImageCropper } from './ImageCropper'
 import { Avatar } from './Avatar'
-import { searchPexelsPhoto } from '../lib/photoSearch'
+import { searchAnimeAvatar, searchPexelsPhoto } from '../lib/photoSearch'
+import { generateRemoteImage } from '../lib/remoteMedia'
+import { isImageProviderReady } from '../lib/mediaProviders'
+import type { AppSettings } from '../types'
 
 interface AvatarPickerProps {
   onSelect: (avatar: string, photographer?: { name?: string; url?: string }) => void
   onClose: () => void
   /** Only contact avatars have a "persona photo" concept worth re-searching later — omit for group/user avatars, which hides the search option entirely. */
-  pexelsApiKey?: string
+  settings?: Pick<AppSettings, 'pexelsApiKey' | 'animeNsfwEnabled' | 'avatarImageSource' | 'imageProvider' | 'imageProviders'>
 }
 
-export function AvatarPicker({ onSelect, onClose, pexelsApiKey }: AvatarPickerProps) {
+export function AvatarPicker({ onSelect, onClose, settings }: AvatarPickerProps) {
   const [pendingImage, setPendingImage] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const [searchingPhoto, setSearchingPhoto] = useState(false)
   const [photoKeyword, setPhotoKeyword] = useState('')
   const [photoError, setPhotoError] = useState('')
 
+  const source = settings?.avatarImageSource
+
   async function handlePhotoSearch() {
-    if (!photoKeyword.trim() || !pexelsApiKey) return
+    if (!photoKeyword.trim() || !settings || !source) return
     setSearchingPhoto(true)
     setPhotoError('')
     try {
-      const photo = await searchPexelsPhoto(pexelsApiKey, photoKeyword.trim(), 'square')
+      const photo = source === 'anime'
+        ? await searchAnimeAvatar(photoKeyword, settings.animeNsfwEnabled)
+        : source === 'generated'
+          ? await generateRemoteImage(settings, `anime-style square avatar, East Asian aesthetic, ${photoKeyword}`)
+          : await searchPexelsPhoto(settings.pexelsApiKey, photoKeyword.trim(), 'square')
       if (!photo) {
         setPhotoError('没搜到合适的图片 换个描述试试')
         return
       }
-      onSelect(photo.url, { name: photo.photographer, url: photo.photographerUrl })
+      onSelect(photo.url, { name: 'photographer' in photo ? photo.photographer : undefined, url: 'photographerUrl' in photo ? photo.photographerUrl : undefined })
       onClose()
     } catch (error) {
       setPhotoError(error instanceof Error ? error.message : String(error))
@@ -83,14 +92,15 @@ export function AvatarPicker({ onSelect, onClose, pexelsApiKey }: AvatarPickerPr
         </button>
         <input ref={fileInput} type="file" accept="image/*" onChange={handleFile} className="hidden" />
 
-        {pexelsApiKey && (
+        {settings && source && (source !== 'generated' || isImageProviderReady(settings)) && (
           <div className="mb-3 rounded-xl bg-gray-50 p-3">
-            <p className="mb-2 text-sm text-gray-800">搜一张符合人设的真实照片</p>
+            <p className="mb-1 text-xs text-gray-500">当前来源：{source === 'pexels' ? 'Pexels 实拍图' : source === 'anime' ? 'Waifu.im 动漫图库（按标签搜索）' : '生图系统生成'}</p>
+            <p className="mb-2 text-sm text-gray-800">按当前来源获取一张符合人设的头像</p>
             <div className="flex gap-2">
               <input
                 value={photoKeyword}
                 onChange={(e) => setPhotoKeyword(e.target.value)}
-                placeholder="描述一下想要的样子 比如温柔女生肖像"
+                placeholder={source === 'anime' ? '输入图库标签，例如 maid、waifu' : '描述一下想要的样子，例如温柔女生肖像'}
                 className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm"
               />
               <button

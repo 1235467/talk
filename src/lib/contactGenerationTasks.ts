@@ -13,17 +13,20 @@ import type {
 } from '../types'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { buildPersonaGenerationPrompt, diagnosePersonaGeneration, type PersonaGenerationResult } from './prompt'
+import { speechVoiceGenerationContext } from './speechProviders'
 import { chatCompletionStream, chatCompletionText } from './deepseek'
 import { completedTopLevelJsonFields } from './incrementalJson'
 import { selectedWorldbookEntriesText, retrieveWorldbookContext } from './worldbook'
 import { extractWorldbookPersonaCanon, type WorldbookPersonaCanon } from './worldbookPersonaCanon'
 import { pickAvatarCategory } from './avatarCategory'
 import { randomAnimeAvatar, searchPexelsPhoto } from './photoSearch'
+import { generateRemoteImage } from './remoteMedia'
 import { initialWarmthForBase } from './relationship'
 import { randomAvatarColor } from './colors'
 import { employmentPatch } from './career'
 import { displayName } from './contact'
 import { syncContactLocationsAt } from './locations'
+import { activePromptPreset, clonePromptModules } from './promptPresets'
 
 const ACTIVE_STATUSES: ContactGenerationStatus[] = [
   'preparing', 'retrieving_context', 'extracting_canon', 'generating', 'validating', 'fetching_avatar', 'committing',
@@ -58,6 +61,7 @@ export async function createContactGenerationTask(options: {
   await initializeContactGenerationTasks()
   const settings = useSettingsStore.getState()
   const now = Date.now()
+  const promptPreset = activePromptPreset(settings)
   const task: ContactGenerationTask = {
     id: uuid(),
     experienceMode: options.experienceMode ?? settings.experienceMode,
@@ -69,6 +73,9 @@ export async function createContactGenerationTask(options: {
     baseUrl: settings.baseUrl,
     model: settings.model,
     utilityModel: settings.utilityModel,
+    promptModulesSnapshot: clonePromptModules(promptPreset.modules),
+    promptPresetSourceId: promptPreset.id,
+    promptPresetSourceName: promptPreset.name,
     personaDraft: options.personaDraft ? structuredClone(options.personaDraft) : undefined,
     attempt: 0,
     createdAt: now,
@@ -291,6 +298,7 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
     ? `【已结构化提取的世界书正史——输出必须逐项覆盖】\n${JSON.stringify(canon)}`
     : ''
   const avatarCategory = pickAvatarCategory(input.personalityTags)
+  const voiceContext = speechVoiceGenerationContext(settings)
   const prompt = buildPersonaGenerationPrompt({
     personalityTags: input.personalityTags,
     ageRange: input.ageRange,
@@ -302,7 +310,7 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
     draftMode: task.method === 'precision',
     extra: personaExtra,
     occupation: input.occupation,
-  }, avatarCategory, settings.promptModules, [worldbookText, canonText].filter(Boolean).join('\n\n'))
+  }, avatarCategory, task.promptModulesSnapshot ?? settings.promptModules, [worldbookText, canonText].filter(Boolean).join('\n\n'), voiceContext)
   if (!prompt.trim()) throw codedError('PROMPT_DISABLED', '女娲创建提示词模块已屏蔽', false)
 
   await setStage(task, 'generating', { rawOutput: '', partialFields: {}, validationRepairAttempted: false })
@@ -346,7 +354,7 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
       model: settings.utilityModel || settings.model,
       provider: settings.aiProvider,
       messages: [
-        { role: 'system', content: '你是人物资料 JSON 修复器。保留候选内容的已有事实，修复截断、引号、逗号、字段类型和缺失的必要字段。只能输出一个合法 JSON 对象。至少必须包含 name、persona、gender、ageRange、relationship、occupation、realName、nickname、birthday、mbti、speechSamples、personaProfile、pastExperiences、monthlySalary、schedule、avatarKeyword。不要解释。' },
+        { role: 'system', content: `你是人物资料 JSON 修复器。保留候选内容的已有事实，修复截断、引号、逗号、字段类型和缺失的必要字段。只能输出一个合法 JSON 对象。至少必须包含 name、persona、gender、ageRange、relationship、occupation、realName、nickname、birthday、mbti、speechSamples、personaProfile、pastExperiences、monthlySalary、schedule、avatarKeyword${voiceContext ? '、speechVoiceId、speechStyleInstruction；speechVoiceId只能使用：' + voiceContext.options.map((option) => option.id).join('、') : ''}。不要解释。` },
         { role: 'user', content: `待修复候选：\n${raw.slice(0, 16000)}` },
       ],
       jsonMode: true,
@@ -400,6 +408,10 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
   }
   if (input.personaSetting && !parsed.persona.includes(input.personaSetting)) parsed = { ...parsed, persona: `${input.personaSetting}\n\n${parsed.persona}` }
   if (task.method === 'precision') parsed.initialWarmth ??= initialWarmthForBase(relationship || parsed.relationship || '朋友', input.personalityTrait || parsed.personalityTrait)
+  const generatedVoiceId = parsed.speechVoiceId
+  if (voiceContext && !voiceContext.options.some((option) => option.id === generatedVoiceId)) {
+    parsed = { ...parsed, speechVoiceId: undefined, speechStyleInstruction: undefined }
+  }
   task.personaDraft = parsed
   await db.contactGenerationTasks.update(task.id, { personaDraft: parsed, updatedAt: Date.now() })
 }
@@ -413,10 +425,13 @@ async function prepareAvatar(task: ContactGenerationTask, settings: AppSettings)
   if (!task.input.avatarManuallySet && task.personaDraft) {
     try {
       const category = pickAvatarCategory(task.input.personalityTags)
-      const photo = category === 'anime'
-        ? await randomAnimeAvatar()
-        : await searchPexelsPhoto(settings.pexelsApiKey, task.personaDraft.avatarKeyword || category, 'square')
-      if (photo) { finalAvatar = photo.url; avatarPhotographer = photo.photographer; avatarPhotographerUrl = photo.photographerUrl }
+      const avatarQuery = task.personaDraft.avatarKeyword || category
+      const photo = settings.avatarImageSource === 'anime'
+        ? await randomAnimeAvatar(settings.animeNsfwEnabled)
+        : settings.avatarImageSource === 'generated'
+          ? await generateRemoteImage(settings, `anime-style square avatar, East Asian aesthetic, ${avatarQuery}`)
+          : await searchPexelsPhoto(settings.pexelsApiKey, avatarQuery, 'square')
+      if (photo) { finalAvatar = photo.url; avatarPhotographer = 'photographer' in photo ? photo.photographer : undefined; avatarPhotographerUrl = 'photographerUrl' in photo ? photo.photographerUrl : undefined }
     } catch {}
   }
   task.finalAvatar = finalAvatar
@@ -444,6 +459,10 @@ async function commitTask(task: ContactGenerationTask) {
   const boundWorldbookEntryIds = Array.from(new Set([...input.selectedWorldbookEntryIds, ...(input.importedWorldbook?.entries.map((entry) => entry.id) ?? [])]))
   const contacts = await db.contacts.toArray()
   const byName = new Map(contacts.flatMap((contact) => [contact.name, contact.realName, contact.nickname, displayName(contact)].filter((name): name is string => !!name).map((name) => [name.trim().toLocaleLowerCase(), contact.id] as const)))
+  const voiceContext = speechVoiceGenerationContext(useSettingsStore.getState())
+  const generatedSpeechVoices = voiceContext && parsed.speechVoiceId && voiceContext.options.some((option) => option.id === parsed.speechVoiceId)
+    ? { [voiceContext.provider]: { voiceId: parsed.speechVoiceId, styleInstruction: parsed.speechStyleInstruction, source: 'ai' as const, assignedAt: now } }
+    : undefined
 
   try {
   await db.transaction('rw', [db.contacts, db.conversations, db.messages, db.contactRelations, db.contactMemories, db.contactExperiences, db.personaCreationRecords, db.contactGenerationTasks], async () => {
@@ -465,6 +484,7 @@ async function commitTask(task: ContactGenerationTask) {
       customPersonalityTraits: task.method === 'precision' ? input.customPersonalityTraits : undefined,
       personaProfile: parsed.personaProfile,
       speechSamples: parsed.speechSamples,
+      speechVoices: generatedSpeechVoices,
       createdAt: now,
       memoryFacts: '', memoryStyle: '', memoryUpdatedAt: 0, memoryMessageCursor: 0,
       ...(input.relationshipEnabled ? { warmth } : {}),
@@ -477,6 +497,10 @@ async function commitTask(task: ContactGenerationTask) {
       worldviewId: input.worldviewId,
       worldbookEntryIds: boundWorldbookEntryIds,
       experienceCursorAt: now,
+      promptModulesSnapshot: clonePromptModules(task.promptModulesSnapshot ?? useSettingsStore.getState().promptModules),
+      promptPresetSourceId: task.promptPresetSourceId,
+      promptPresetSourceName: task.promptPresetSourceName,
+      promptSnapshotUpdatedAt: now,
       ...(input.careerEnabled && (input.occupation || parsed.occupation) ? employmentPatch(input.occupation || parsed.occupation || '', parsed.monthlySalary ?? 6000) : {}),
     }
     await db.contacts.add(contact)

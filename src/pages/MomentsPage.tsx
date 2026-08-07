@@ -8,7 +8,7 @@ import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { displayName } from '../lib/contact'
-import { deleteMomentCompletely, generateMomentDiscussion, parseCommentSticker, postUserMoment, refreshMoments } from '../lib/moments'
+import { deleteMomentCompletely, generateMomentDiscussion, parseCommentSticker, postUserMoment, refreshMoments, regenerateMoment, regenerateMomentComment } from '../lib/moments'
 import { recordSocialEvent } from '../lib/socialEvents'
 import { resizeImageDataUrl } from '../lib/image'
 import { formatListTime } from '../lib/time'
@@ -35,8 +35,27 @@ export function MomentsPage() {
   const [posting, setPosting] = useState(false)
   const [commentingId, setCommentingId] = useState<string | null>(null)
   const [commentDraft, setCommentDraft] = useState('')
+  const [regenerateTarget, setRegenerateTarget] = useState<{ kind: 'moment' | 'comment'; id: string; label: string } | null>(null)
+  const [regenerateRequirement, setRegenerateRequirement] = useState('')
+  const [regenerating, setRegenerating] = useState(false)
   const [replyTarget, setReplyTarget] = useState<{ commentId: string; authorLabel: string } | null>(null)
   const coverInput = useRef<HTMLInputElement>(null)
+  const longPressTimer = useRef<number | null>(null)
+
+  function openRegeneration(target: { kind: 'moment' | 'comment'; id: string; label: string }) {
+    setRegenerateRequirement('')
+    setRegenerateTarget(target)
+  }
+
+  function beginLongPress(target: { kind: 'moment' | 'comment'; id: string; label: string }) {
+    if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current)
+    longPressTimer.current = window.setTimeout(() => openRegeneration(target), 550)
+  }
+
+  function cancelLongPress() {
+    if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current)
+    longPressTimer.current = null
+  }
 
   useEffect(() => {
     if (filterContactId) return
@@ -187,6 +206,26 @@ export function MomentsPage() {
     setCommentingId((current) => current === momentId ? null : current)
   }
 
+  async function submitRegeneration() {
+    if (!regenerateTarget || regenerating) return
+    const isMoment = regenerateTarget.kind === 'moment'
+    const warning = isMoment
+      ? '重新生成动态会清空这条动态下的点赞和评论（包括你的评论），以免旧互动和新内容不一致。确定继续吗？'
+      : '重新生成跟评会清空这条跟评下的后续回复，以免上下文不一致。确定继续吗？'
+    if (!window.confirm(warning)) return
+    setRegenerating(true)
+    try {
+      if (isMoment) await regenerateMoment(regenerateTarget.id, regenerateRequirement, settings)
+      else await regenerateMomentComment(regenerateTarget.id, regenerateRequirement, settings)
+      setRegenerateTarget(null)
+      setRegenerateRequirement('')
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '重新生成失败，请稍后再试')
+    } finally {
+      setRegenerating(false)
+    }
+  }
+
   return (
     <div data-page-kind="moments" className="relative flex h-[var(--app-height)] flex-col overflow-hidden bg-[#ededed]">
       <TopBar
@@ -297,7 +336,17 @@ export function MomentsPage() {
                   </button>
                   <div className="min-w-0 flex-1">
                     <p className="ui-font-display text-[14px] font-medium text-[#576b95]">{posterName}</p>
-                    <p className="ui-font-reading mt-1 whitespace-pre-wrap text-[14.5px] leading-relaxed text-gray-900">
+                    <p
+                      onContextMenu={(event) => {
+                        if (isUserPost) return
+                        event.preventDefault()
+                        openRegeneration({ kind: 'moment', id: m.id, label: `${posterName}的动态` })
+                      }}
+                      onTouchStart={() => !isUserPost && beginLongPress({ kind: 'moment', id: m.id, label: `${posterName}的动态` })}
+                      onTouchEnd={cancelLongPress}
+                      onTouchMove={cancelLongPress}
+                      className="ui-font-reading mt-1 whitespace-pre-wrap text-[14.5px] leading-relaxed text-gray-900"
+                    >
                       {m.content}
                     </p>
                     {m.imageUrl && (
@@ -369,7 +418,17 @@ export function MomentsPage() {
                               const replyTo = c.replyToCommentId ? commentsById.get(c.replyToCommentId) : undefined
                               const authorLabel = commentAuthorName(c.authorContactId)
                               return (
-                                <p key={c.id}>
+                                <p
+                                  key={c.id}
+                                  onContextMenu={(event) => {
+                                    if (c.authorContactId === 'user') return
+                                    event.preventDefault()
+                                    openRegeneration({ kind: 'comment', id: c.id, label: `${authorLabel}的跟评` })
+                                  }}
+                                  onTouchStart={() => c.authorContactId !== 'user' && beginLongPress({ kind: 'comment', id: c.id, label: `${authorLabel}的跟评` })}
+                                  onTouchEnd={cancelLongPress}
+                                  onTouchMove={cancelLongPress}
+                                >
                                   <span className="text-[#576b95]">{authorLabel}</span>
                                   {replyTo && (
                                     <>
@@ -410,6 +469,16 @@ export function MomentsPage() {
           })
         )}
       </div>
+      {regenerateTarget && (
+        <div className="absolute inset-0 z-30 flex items-end bg-black/30 p-3" onClick={() => !regenerating && setRegenerateTarget(null)}>
+          <div className="w-full rounded-2xl bg-white p-4 shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <h2 className="text-base font-medium text-gray-900">重新生成{regenerateTarget.label}</h2>
+            <p className="mt-1 text-xs leading-relaxed text-gray-500">可以告诉 AI 希望内容怎样展开；会优先遵守你的要求并保持人物人设。</p>
+            <textarea value={regenerateRequirement} onChange={(event) => setRegenerateRequirement(event.target.value)} placeholder="例如：不要写工作，更像 TA 平时的兴趣；语气自然一点，不要 OOC" className="mt-3 h-24 w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-gray-400" />
+            <div className="mt-3 flex justify-end gap-2"><button type="button" disabled={regenerating} onClick={() => setRegenerateTarget(null)} className="rounded-lg px-3 py-2 text-sm text-gray-500">取消</button><button type="button" disabled={regenerating} onClick={() => void submitRegeneration()} className="rounded-lg bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50">{regenerating ? '生成中…' : '重新生成'}</button></div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   )

@@ -2,6 +2,7 @@ import type { AppSettings, JobListing, ScheduleBlock } from '../types'
 import { localDateKey } from './finance'
 import { createDefaultPromptModules, getPromptTemplate } from './promptModules'
 import { parseJsonLoose } from './aiProtocol'
+import { validateScheduleBlocks } from './schedule'
 
 export const OCCUPATION_OPTIONS = ['程序员','教师','医生','律师','设计师','记者','摄影师','厨师','销售','研究员','店员','自由职业者']
 export function employmentPatch(occupation: string, monthlySalary: number) {
@@ -28,5 +29,5 @@ export function buildOccupationPrompt(occupation: string, persona: string, setti
 export function parseOccupation(raw: string): { monthlySalary: number; schedule?: ScheduleBlock[] } | null {
   const p = parseJsonLoose<{ monthlySalary?: unknown; schedule?: unknown }>(raw)
   if (!p || !Number.isFinite(p.monthlySalary)) return null
-  return { monthlySalary: Math.max(1000, Math.min(200000, Math.round(p.monthlySalary as number))), schedule: Array.isArray(p.schedule) ? p.schedule : undefined }
+  return { monthlySalary: Math.max(1000, Math.min(200000, Math.round(p.monthlySalary as number))), schedule: Array.isArray(p.schedule) ? validateScheduleBlocks(p.schedule) : undefined }
 }

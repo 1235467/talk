@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '../db/db'
 import { deleteMomentCompletely } from './moments'
+import { useSettingsStore } from '../store/useSettingsStore'
 
 beforeEach(async () => {
   await db.open()
   await Promise.all([db.moments.clear(), db.momentComments.clear(), db.momentLikes.clear(), db.socialEvents.clear()])
+  useSettingsStore.getState().setSettings({ albumSavedImages: [], hiddenAlbumUrls: [] })
 })
 
 describe('moment deletion', () => {
@@ -19,5 +21,17 @@ describe('moment deletion', () => {
     expect(await db.momentComments.where('momentId').equals('moment-a').count()).toBe(0)
     expect(await db.momentLikes.where('momentId').equals('moment-a').count()).toBe(0)
     expect(await db.socialEvents.filter((event) => event.momentId === 'moment-a').count()).toBe(0)
+  })
+
+  it('keeps a deleted Moment image as a standalone album image', async () => {
+    await db.moments.add({ id: 'moment-image', contactId: 'user', content: '带照片的动态', imageUrl: 'https://images.pexels.com/photos/1.jpg', createdAt: 3 })
+
+    expect(await deleteMomentCompletely('moment-image')).toBe(true)
+    expect(useSettingsStore.getState().albumSavedImages).toEqual([{
+      url: 'https://images.pexels.com/photos/1.jpg',
+      createdAt: 3,
+      source: 'Pexels 实拍图',
+      caption: '带照片的动态',
+    }])
   })
 })

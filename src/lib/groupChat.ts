@@ -114,7 +114,6 @@ function buildGroupPrompt(opts: {
   recentEventsText?: string
   worldviewText?: string
   knowledgeDigestText?: string
-  selfIterationGlobalText?: string
   speakerMemoriesMap?: Map<string, string>
   aiRelationshipText?: string
   locationContextText?: string
@@ -129,7 +128,6 @@ function buildGroupPrompt(opts: {
   const relationshipPromptOn = featureActive(promptSettings, 'relationship')
   const memoryPromptOn = promptModuleEnabled(promptSettings, 'memory')
   const personalityPromptOn = featureActive(promptSettings, 'personalityTraits')
-  const selfIterationPromptOn = featureActive(promptSettings, 'selfIteration')
   const rosterText = opts.allMembers.map((m) => `- ${m.name}`).join('\n')
   const speakerNames = opts.speakers.map((s) => s.name).join('、')
   const speakerBlocks = opts.speakers
@@ -147,7 +145,7 @@ function buildGroupPrompt(opts: {
 - 你是${c.name}，${scene ? `正在现实地点“${opts.groupName}”参与线下现场对话` : `现在在微信群“${opts.groupName}”里`}。
 ${relationshipPromptOn ? `- 你和用户的关系: ${base}${c.relationshipDynamic ? `（${c.relationshipDynamic}）` : ''}。\n` : ''}
 - 当前状态: ${scheduleText || '没有特别安排'}。
-${memoryPromptOn ? `- 对用户的了解: ${c.memoryFacts || '暂无具体聊天记忆'}。\n- 相处习惯: ${c.memoryStyle || '暂无'}。\n${sharedHistoryText}${plansText ? `- 和用户的约定: ${plansText}。\n` : ''}${recentMemoText ? `- 最近记忆碎片:\n${recentMemoText}\n` : ''}` : ''}${selfIterationPromptOn && c.selfIterationPrompt ? `- 关系协商记录:\n${c.selfIterationPrompt}\n` : ''}
+${memoryPromptOn ? `- 对用户的了解: ${c.memoryFacts || '暂无具体聊天记忆'}。\n- 相处习惯: ${c.memoryStyle || '暂无'}。\n${sharedHistoryText}${plansText ? `- 和用户的约定: ${plansText}。\n` : ''}${recentMemoText ? `- 最近记忆碎片:\n${recentMemoText}\n` : ''}` : ''}
 感觉:
 - 人设必须严格遵守: ${c.systemPrompt || '自由发挥成一个普通朋友'}。${featureActive(promptSettings, 'career') && c.occupation ? `职业：${c.occupation}，月薪${c.monthlySalary ?? 0}。` : ''}${c.personaConstraints ? `\n- 用户补充说明（不可违背）: ${c.personaConstraints}` : ''}${c.personaProfile ? `\n- 人设硬约束:\n${formatPersonaProfile(c.personaProfile)}` : ''}
 ${personalityPromptOn ? `${c.mbti ? `- MBTI: ${c.mbti}。` : ''}${personalityTraitLine(c.personalityTrait, c.warmth ?? 0)}${customPersonalityTraitsLine(c.customPersonalityTraits, c.warmth ?? 0)}` : ''}
@@ -167,7 +165,6 @@ ${samplesText ? `- 说话样例:\n${samplesText}` : ''}`
   const worldview = opts.worldviewText ? `\n${getPromptTemplate(promptSettings, 'worldview', 'groupRuntime', { worldbookEntries: opts.worldviewText }) ?? ''}` : ''
   const stylePrompt = getPromptTemplate(promptSettings, 'chat', 'style') ?? ''
   const knowledge = featureActive(promptSettings, 'knowledgeBase') && opts.knowledgeDigestText ? `\n【可参考资讯】\n${opts.knowledgeDigestText}` : ''
-  const selfIteration = selfIterationPromptOn && opts.selfIterationGlobalText ? `\n【用户边界与偏好 - 全局】\n${opts.selfIterationGlobalText}` : ''
   const groupMemory = memoryPromptOn && opts.groupMemoryText?.trim() ? `\n【群聊记忆】\n${opts.groupMemoryText.trim()}` : ''
   const groupVibe = opts.groupVibeText?.trim() ? `\n【群聊氛围】\n${opts.groupVibeText.trim()}` : ''
   const locationContext = opts.locationContextText?.trim() ? `\n【地点场景】\n${opts.locationContextText.trim()}` : ''
@@ -181,7 +178,7 @@ ${samplesText ? `- 说话样例:\n${samplesText}` : ''}`
     worldbookPrompt: worldview,
     currentTime: opts.currentTimeText,
     userProfile: opts.userProfileText,
-    additionalContext: [locationContext, groupMemory, groupVibe, knowledge, targetedContext, recentEvents, aiRelationships, selfIteration].filter(Boolean).join('\n'),
+    additionalContext: [locationContext, groupMemory, groupVibe, knowledge, targetedContext, recentEvents, aiRelationships].filter(Boolean).join('\n'),
     speakerProfiles: speakerBlocks,
     stickerCapabilities: opts.remoteStickerSearchEnabled ? `支持远程搜索；本地可用项：${stickersText}` : stickersText,
     imageCapabilities: opts.imageGenerationEnabled ? '支持按完整英文提示词生图' : opts.imageSearchEnabled ? '支持按英文关键词搜索真实图片' : '未启用',
@@ -384,8 +381,8 @@ export function parseGroupRawDraft(
       bubbles.push({
         ...common,
         type: 'image',
-        query: image[1].trim().slice(0, 100),
-        caption: image[2].trim().slice(0, 100) || undefined,
+        query: image[1].trim().slice(0, 2_000),
+        caption: image[2].trim().slice(0, 200) || undefined,
       })
       continue
     }
@@ -463,7 +460,7 @@ function tryParseGroupJson(trimmedRaw: string, speakerCount: number): ParsedGrou
     } else if (m.type === 'sticker' && typeof m.name === 'string' && m.name.trim()) {
       bubbles.push({ speakerIndex, speakerName, type: 'sticker', name: m.name.trim(), thought, mood })
     } else if (m.type === 'image' && typeof (m as unknown as {query?:unknown}).query === 'string') {
-      const im=m as unknown as {query:string;caption?:unknown}; bubbles.push({speakerIndex,speakerName,type:'image',query:im.query.trim().slice(0,100),caption:typeof im.caption==='string'?im.caption.slice(0,100):undefined,thought,mood})
+      const im=m as unknown as {query:string;caption?:unknown}; bubbles.push({speakerIndex,speakerName,type:'image',query:im.query.trim().slice(0,2_000),caption:typeof im.caption==='string'?im.caption.slice(0,200):undefined,thought,mood})
     }
   }
   return {

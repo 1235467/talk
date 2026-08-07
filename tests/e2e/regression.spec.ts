@@ -152,7 +152,7 @@ test('settings page exports a complete Talk backup json', async ({ page }) => {
 
   const backup = JSON.parse(await import('node:fs/promises').then((fs) => fs.readFile(path!, 'utf8')))
   expect(backup.format).toBe('talk-backup')
-  expect(backup.schemaVersion).toBe(6)
+  expect(backup.schemaVersion).toBe(7)
   expect(backup.settings.userNickname).toBe('Backup User')
   expect(backup.tables.contacts).toHaveLength(1)
   expect(backup.tables.conversations).toHaveLength(1)
@@ -433,28 +433,47 @@ test('chat page can generate a selected-message screenshot preview', async ({ pa
   await expect(page.getByRole('button', { name: '分享' })).toBeVisible()
 })
 
-test('contact card edits and blocks a global prompt module', async ({ page }) => {
+test('global prompt archives can be saved and explicitly copied to a contact', async ({ page }) => {
+  await page.goto('/#/')
+  await seedSearchAndGroupFixture(page)
+  await page.goto('/#/settings/global-prompts')
+
+  await expect(page.getByText('默认提示词', { exact: true })).toBeVisible()
+  const relationshipEditor = page.getByRole('button', { name: '聊天关系约束 编辑' })
+  await relationshipEditor.click()
+  await page.getByRole('textbox').fill('CONTACT_ARCHIVE_E2E\n{{relationshipContext}}')
+  page.once('dialog', (dialog) => dialog.accept('E2E 存档'))
+  await page.getByRole('button', { name: '保存当前提示词' }).click()
+
+  const archive = page.locator('div.rounded-xl').filter({ hasText: 'E2E 存档' }).first()
+  await expect(archive).toBeVisible()
+  await archive.getByRole('button', { name: '应用到联系人' }).click()
+  await page.getByText('Alice Search', { exact: true }).click()
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: '确认覆盖' }).click()
+
   await page.goto('/#/contact/contact-a')
+  await expect(page.getByText(/来源：E2E 存档/)).toBeVisible()
+  const snapshot = await page.evaluate(async () => (await import('/src/db/db.ts')).db.contacts.get('contact-a'))
+  expect(snapshot?.promptModulesSnapshot?.relationship.templates.chat).toContain('CONTACT_ARCHIVE_E2E')
+})
+
+test('administrator can persist contact identity, runtime state and JSON protocol overrides', async ({ page }) => {
+  await page.goto('/#/contact/contact-a/admin')
   await seedSearchAndGroupFixture(page)
   await page.reload()
 
-  await expect(page.getByText('全局提示词模块', { exact: true })).toHaveCount(0)
-  await page.goto('/#/modules')
-  await page.getByRole('switch', { name: '开启全局提示词模块' }).click()
-  await page.goto('/#/contact/contact-a')
-  await expect(page.getByText('全局提示词模块', { exact: true })).toBeVisible()
+  await page.getByLabel('显示名称').fill('Alice Revised')
+  await page.getByLabel('好感度 -100~100').fill('66')
+  const protocol = page.getByLabel('主模型原始文字转换协议')
+  await protocol.fill(`${await protocol.inputValue()}\nCONTACT_JSON_PROTOCOL_E2E`)
+  await page.getByRole('button', { name: '保存全部修改' }).click()
+  await expect(page.getByText('已保存，下一轮聊天会使用新资料。')).toBeVisible()
 
-  const relationshipCard = page.locator('div.rounded-xl').filter({ hasText: '好感度' }).first()
-  await expect(relationshipCard).toBeVisible()
-  await relationshipCard.getByRole('button').first().click()
-  const editor = page.locator('textarea').first()
-  await editor.fill('GLOBAL_RELATIONSHIP_E2E\n{{relationshipContext}}')
-  await page.getByRole('button', { name: '保存', exact: true }).click()
-  await expect(relationshipCard).toContainText('GLOBAL_RELATIONSHIP_E2E')
-
-  await relationshipCard.getByRole('button', { name: '启用中' }).click()
-  await expect(relationshipCard).toHaveClass(/bg-black/)
-  await expect(relationshipCard.getByRole('button', { name: '已屏蔽' })).toBeVisible()
+  const updated = await page.evaluate(async () => (await import('/src/db/db.ts')).db.contacts.get('contact-a'))
+  expect(updated?.name).toBe('Alice Revised')
+  expect(updated?.warmth).toBe(66)
+  expect(updated?.jsonProtocolOverride).toContain('CONTACT_JSON_PROTOCOL_E2E')
 })
 
 test('chat page reads recent messages in pages and loads older history', async ({ page }) => {

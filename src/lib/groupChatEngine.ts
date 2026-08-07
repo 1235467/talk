@@ -20,7 +20,7 @@ import { isModuleEnabled } from '../features'
 import { describeCurrentTime } from './time'
 import { displayName } from './contact'
 import { previewForMessage } from './messagePreview'
-import { buildUserProfileText, nextMessageTimestamp, useChatEngineStore } from './chatEngine'
+import { buildUserProfileText, nextMessageTimestamp, REPLY_TIMEOUT_MESSAGE, useChatEngineStore } from './chatEngine'
 import { reviewTurnLogic } from './turnLogicReviewer'
 import { buildDirectGroupOutputInstruction, parseDirectOutputReview } from './directOutput'
 import { trackRemoteStickerSend } from './remoteMedia'
@@ -62,6 +62,7 @@ async function loadSpeakerMemories(speakers: Contact[]): Promise<Map<string, str
  * updated per speaker, via maybeUpdateGroupMemory — see memory.ts.
  */
 const turns = createTurnController()
+const REPLY_TIMEOUT_MS = 30_000
 
 async function bestEffortUtilityCompletion(opts: ChatCompletionOptions): Promise<string> {
   try {
@@ -269,7 +270,7 @@ export async function sendGroupMessage(
 
   const streamId = uuid()
   turns.begin(conversationId, streamId)
-  useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: '群成员' })
+  useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: '群成员', timedOut: false })
 
   const messageCreatedAt = await nextMessageTimestamp(conversationId)
   const msg: Message = {
@@ -325,7 +326,7 @@ export async function triggerGroupAiTurn(
   }
   const streamId = uuid()
   turns.begin(conversationId, streamId)
-  useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: '群成员' })
+  useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: '群成员', timedOut: false })
   scheduleGroupAiTurn(conversationId, group, members, settings, stickers, streamId)
 }
 
@@ -345,7 +346,7 @@ export async function regenerateGroupAiTurn(
 
   const streamId = uuid()
   turns.begin(conversationId, streamId)
-  useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: '群成员' })
+  useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: '群成员', timedOut: false })
 
   const turnMessages = await db.messages
     .where('conversationId')
@@ -371,8 +372,16 @@ async function runGroupAiTurn(
   const engine = useChatEngineStore.getState()
   const directOutput = isModuleEnabled('directOutput')
   const turnStartedAt = performance.now()
-  engine.patch(conversationId, { aiTyping: true, error: '', typingLabel: '群成员' })
+  engine.patch(conversationId, { aiTyping: true, error: '', typingLabel: '群成员', timedOut: false })
   console.log(`[group] 开始生成回复 群=${group.name} conversationId=${conversationId}`)
+  let replyRevealed = false
+  const timeout = setTimeout(() => {
+    if (!turns.isCurrent(conversationId, streamId) || replyRevealed) return
+    console.warn(`[group] 回复超时，群=${group.name} conversationId=${conversationId}`)
+    turns.begin(conversationId, uuid())
+    engine.patch(conversationId, { aiTyping: false, typingLabel: undefined, error: REPLY_TIMEOUT_MESSAGE, timedOut: true })
+  }, REPLY_TIMEOUT_MS)
+  turns.addTimer(conversationId, timeout)
   try {
     let locationParticipants: LocationParticipants | undefined
     if (group.kind === 'location' && group.locationId) {
@@ -440,7 +449,6 @@ async function runGroupAiTurn(
       recentEventsText: recentEventsText || undefined,
       worldviewText: worldbookText || undefined,
       knowledgeDigestText: undefined,
-      selfIterationGlobalText: featureActive(settings, 'selfIteration') ? settings.selfIterationGlobalPrompt : undefined,
       speakerMemoriesMap,
       aiRelationshipText,
       locationContextText: location
@@ -490,7 +498,6 @@ async function runGroupAiTurn(
       temperature: regenerationInstruction ? 0.55 : 0.9,
       maxTokens: directOutput ? 1400 : 1000,
       jsonMode: directOutput,
-      singleRequest: directOutput,
       trace: { turnId: streamId, stage: 'first_chat', conversationId },
     })
 
@@ -653,6 +660,7 @@ async function runGroupAiTurn(
     }
     console.log(`[group] 收到回复(${finalRaw.length}字) 解析出${bubbles.length}条气泡 群=${group.name}`)
     if (bubbles.length === 0) {
+      clearTimeout(timeout)
       console.warn(`[group] 本轮没有人回复 群=${group.name} 原始内容: ${rawText.slice(0, 200)}`)
       engine.patch(conversationId, { error: '群里这次没有人回复 可以再发一条试试', aiTyping: false, typingLabel: undefined })
       return
@@ -681,8 +689,13 @@ async function runGroupAiTurn(
     for (const plan of createdPlans) await db.messages.add(planCardMessage(plan))
     void updateGroupMemoryAndVibe({ group, aiTurnId, settings, turnSummary, groupVibe, directOutput })
     console.info(`[group-perf] 模型与自检完成=${Math.round(performance.now() - turnStartedAt)}ms 群=${group.name}`)
-    revealGroupBubbles(conversationId, group, members, speakers, bubbles, streamId, settings, stickers, aiTurnId, turnSummary, turnStartedAt, directOutput)
+    revealGroupBubbles(conversationId, group, members, speakers, bubbles, streamId, settings, stickers, aiTurnId, turnSummary, turnStartedAt, directOutput, () => {
+      if (replyRevealed) return
+      replyRevealed = true
+      clearTimeout(timeout)
+    })
   } catch (err) {
+    clearTimeout(timeout)
     if (!turns.isCurrent(conversationId, streamId)) return
     if (err instanceof DOMException && err.name === 'AbortError') return
     const message = err instanceof Error ? err.message : String(err)
@@ -704,6 +717,7 @@ function revealGroupBubbles(
   turnSummary: string,
   turnStartedAt = performance.now(),
   directOutput = false,
+  onFirstBubble?: () => void,
 ): void {
   revealSequentially({
     conversationId,
@@ -745,6 +759,7 @@ function revealGroupBubbles(
         createdAt: messageCreatedAt,
       }
       await db.messages.add(msg)
+      if (i === 0) onFirstBubble?.()
       if (remoteSticker) void trackRemoteStickerSend(remoteSticker)
       if (i === 0) {
         console.info(`[group-perf] 首条气泡显示=${Math.round(performance.now() - turnStartedAt)}ms 群=${group.name}`)

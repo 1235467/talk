@@ -4,6 +4,7 @@ import { recordSocialEvent } from './socialEvents'
 import { chatCompletionText as chatCompletion } from './deepseek'
 import type { AppSettings, Group, GroupPlan, GroupPlanStatus, Message } from '../types'
 import { getPromptTemplate, promptModuleEnabled } from './promptModules'
+import { canPublishNovelMoment } from './moments'
 
 export async function createGroupPlan(opts: {
   group: Group
@@ -66,6 +67,7 @@ async function generatePlanAftermath(plan: GroupPlan, group: Group, settings: Ap
       const contactId = typeof moment.contactId === 'string' ? moment.contactId : ''
       const content = typeof moment.content === 'string' ? moment.content.trim().slice(0, 220) : ''
       if (!plan.participantContactIds.includes(contactId) || !content) continue
+      if (!await canPublishNovelMoment(contactId, content)) continue
       const momentId = uuid()
       await db.moments.add({ id: momentId, contactId, content, createdAt: Date.now() })
       await recordSocialEvent({ type: 'moment_posted', actorId: contactId, relatedContactIds: plan.participantContactIds, groupId: group.id, conversationId: plan.sourceConversationId, momentId, summary: `${contacts.find((contact) => contact.id === contactId)?.name || '成员'}分享了“${plan.title}”后的动态`, importance: 2 })

@@ -1,16 +1,15 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { TopBar } from '../components/TopBar'
-import { Palette } from 'lucide-react'
+import { FileSliders, Palette } from 'lucide-react'
 import { ActionSheet } from '../components/ActionSheet'
 import { ImageCropper } from '../components/ImageCropper'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { listModels, testConnection } from '../lib/deepseek'
-import { DEFAULT_STYLE_PROMPT } from '../lib/prompt'
 import { tavilySearch } from '../lib/webSearch'
 import { apiKeyFingerprint, testPexelsConnection } from '../lib/photoSearch'
 import { friendlyConnectionError } from '../lib/connectionError'
-import { imageProviderName, isImageProviderReady } from '../lib/mediaProviders'
+import { isImageProviderReady } from '../lib/mediaProviders'
 import { db } from '../db/db'
 import { assertTalkBackup, backupFileName, createBackup, restoreBackup } from '../lib/backup'
 import type { AppSettings } from '../types'
@@ -31,8 +30,6 @@ export function SettingsPage() {
     baseUrl,
     model,
     utilityModel,
-    globalSystemPrompt,
-    promptModules,
     tavilyApiKey,
     pexelsApiKey,
     imageProvider,
@@ -122,7 +119,6 @@ export function SettingsPage() {
   const [baseUrlDraft, setBaseUrlDraft] = useState(baseUrl)
   const [modelDraft, setModelDraft] = useState(model)
   const [utilityModelDraft, setUtilityModelDraft] = useState(utilityModel)
-  const [promptDraft, setPromptDraft] = useState(globalSystemPrompt)
   const [tavilyKeyDraft, setTavilyKeyDraft] = useState(tavilyApiKey)
   const [pexelsKeyDraft, setPexelsKeyDraft] = useState(pexelsApiKey)
   const [visibleApiKeys, setVisibleApiKeys] = useState({ ai: false, tavily: false, pexels: false })
@@ -226,14 +222,6 @@ export function SettingsPage() {
     } finally {
       if (requestId === pexelsRequestRef.current) setPexelsTesting(false)
     }
-  }
-
-  function restoreDefaultPrompt() {
-    setPromptDraft(DEFAULT_STYLE_PROMPT)
-    setSettings({
-      globalSystemPrompt: DEFAULT_STYLE_PROMPT,
-      promptModules: { ...promptModules, chat: { ...promptModules.chat, templates: { ...promptModules.chat.templates, style: DEFAULT_STYLE_PROMPT } } },
-    })
   }
 
   return (
@@ -426,14 +414,20 @@ export function SettingsPage() {
         <label className="mb-1 block text-xs text-gray-500">Base URL</label>
         <input
           value={baseUrlDraft}
+          readOnly={providerDraft !== 'custom'}
+          aria-readonly={providerDraft !== 'custom'}
           onChange={(e) => {
+            if (providerDraft !== 'custom') return
             setBaseUrlDraft(e.target.value)
             setTestResult(null)
           }}
           onBlur={persistConnection}
-          className="mb-3 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          className={`mb-3 w-full rounded-lg border px-3 py-2 text-sm ${
+            providerDraft === 'custom'
+              ? 'border-gray-200 bg-white text-gray-800'
+              : 'cursor-not-allowed border-gray-100 bg-gray-100 text-gray-400'
+          }`}
         />
-
         <label className="mb-1 block text-xs text-gray-500">模型</label>
         <div className="mb-1 flex gap-2">
           {models.length > 0 ? (
@@ -504,7 +498,7 @@ export function SettingsPage() {
         )}
       </section>
 
-      <section className="mt-3 bg-white px-4 py-3">
+      <section className="hidden" aria-hidden="true">
         <h2 className="mb-2 text-xs font-medium text-gray-400">联网搜索（Tavily，用于资料库联网补全）</h2>
         <label className="mb-1 block text-xs text-gray-500">Tavily API Key</label>
         <div className="relative mb-2">
@@ -547,7 +541,7 @@ export function SettingsPage() {
         </p>
       </section>
 
-      <section className="mt-3 bg-white px-4 py-3">
+      <section className="hidden" aria-hidden="true">
         <h2 className="mb-2 text-xs font-medium text-gray-400">图片（Pexels，头像自动配图+朋友圈配图）</h2>
         <label className="mb-1 block text-xs text-gray-500">Pexels API Key</label>
         <div className="relative mb-2">
@@ -600,42 +594,28 @@ export function SettingsPage() {
         </p>
       </section>
 
-      <section className="mt-3 bg-white">
-        <button type="button" onClick={() => navigate('/settings/image-generation')} className="flex w-full items-center gap-3 px-4 py-4 text-left">
+      <section className="hidden" aria-hidden="true">
+        <button type="button" onClick={() => navigate('/settings/other-interfaces')} className="flex w-full items-center gap-3 px-4 py-4 text-left">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-[var(--ui-special-ink)]"><Palette size={20} /></div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm text-gray-900">AI 图片生成</p>
+            <p className="text-sm text-gray-900">其他接口</p>
             <p className={`mt-0.5 text-xs ${isImageProviderReady({ imageProvider, imageProviders }) ? 'text-green-600' : 'text-gray-400'}`}>
-              {imageProviderName(imageProvider)} · {isImageProviderReady({ imageProvider, imageProviders }) ? 'AI 联系人可以调用' : '选择 Atlas、NAI、ComfyUI 等服务'}
+              图像、语音、Pexels、Tavily 与动漫图库
             </p>
           </div>
           <span className="text-lg text-gray-300">›</span>
         </button>
       </section>
 
-      <section className="mt-3 flex-1 bg-white px-4 py-3">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-xs font-medium text-gray-400">说话风格提示词（对所有AI生效）</h2>
-          <button
-            onClick={restoreDefaultPrompt}
-            className="text-xs text-gray-400 underline"
-          >
-            恢复默认
-          </button>
-        </div>
-        <textarea
-          value={promptDraft}
-          onChange={(e) => setPromptDraft(e.target.value)}
-          onBlur={() => setSettings({
-            globalSystemPrompt: promptDraft,
-            promptModules: { ...promptModules, chat: { ...promptModules.chat, templates: { ...promptModules.chat.templates, style: promptDraft } } },
-          })}
-          rows={14}
-          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-xs leading-relaxed text-gray-700"
-        />
-        <p className="mt-2 text-[11px] text-gray-400">
-          这里只控制所有AI共通的说话语气和习惯 每个AI各自的人物设定在联系人名片里单独编辑 消息输出格式、表情包与小程序调用规则由系统固定处理 不在这里展示
-        </p>
+      <section className="mt-3 bg-white">
+        <button type="button" onClick={() => navigate('/settings/global-prompts')} className="flex w-full items-center gap-3 px-4 py-4 text-left">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-[var(--ui-special-ink)]"><FileSliders size={20} /></div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm text-gray-900">全局提示词模块</p>
+            <p className="mt-0.5 text-xs text-gray-400">管理固定提示词存档、新联系人默认值和联系人覆盖</p>
+          </div>
+          <span className="text-lg text-gray-300">›</span>
+        </button>
       </section>
 
 

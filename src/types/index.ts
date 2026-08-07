@@ -1,7 +1,7 @@
 /** Single-dimension warmth model, -100 (hostile) to +100 (bonded) — see lib/relationship.ts. */
 export interface Contact {
   id: string
-  name: string // the persona's own name, chosen by the AI at creation time — not user-renameable
+  name: string // the persona's own name; administrators may correct it after creation
   remark?: string // user's own nickname for this contact, like a real contacts app; overrides name for display
   /** Public identity facts. `name` remains the generated display nickname for compatibility. */
   realName?: string
@@ -10,7 +10,7 @@ export interface Contact {
   birthday?: string // YYYY-MM-DD
   avatar: string // emoji or data URL
   avatarColor: string // fallback background color
-  systemPrompt: string // persona description generated at creation time — never shown to the user, never edited after creation
+  systemPrompt: string // persona description generated at creation time; administrator-editable
   /** User-authored requirements, preserved verbatim as a higher-priority persona source. */
   personaConstraints?: string
   /** The concrete shared past that anchors how this character treats the user from the first turn. */
@@ -18,6 +18,8 @@ export interface Contact {
   /** Structured anchors generated alongside the narrative persona. */
   personaProfile?: PersonaProfile
   speechSamples?: string[] // short scene-labeled examples generated at creation time, used sparingly to stabilize voice
+  /** Per-provider TTS voice assignment. API credentials remain global; voices belong to contacts. */
+  speechVoices?: Partial<Record<Exclude<SpeechProviderId, 'none'>, ContactSpeechVoice>>
   bio?: string
   createdAt: number
   // ---- adaptive memory ----
@@ -45,16 +47,13 @@ export interface Contact {
   // ---- autonomous behavior (see lib/proactiveChat.ts) ----
   lastProactiveMessageAt?: number // last time this contact proactively opened a chat, used for the per-contact cooldown
   // ---- schedule (see lib/schedule.ts) ----
-  schedule?: ScheduleBlock[] // fixed weekly pattern, generated alongside the persona at creation time — optional since contacts created before this feature won't have one
+  schedule?: ScheduleBlock[] // fixed weekly pattern, generated at creation and administrator-editable
   scheduleOverrides?: ScheduleOverride[] // one-off special tasks negotiated in chat; each overlapping default task is cancelled as a whole for that occurrence
   // ---- MBTI (assigned by the persona-generation AI, not user-picked) ----
   mbti?: string // e.g. "INFP" — a stable personality anchor injected into every chat prompt
   // ---- auto-generated photo avatar (see lib/avatarCategory.ts + lib/photoSearch.ts) ----
-  avatarPhotographer?: string // Pexels photographer credit, unset for anime avatars (waifu.pics) or manually-picked emoji/uploads
+  avatarPhotographer?: string // Pexels photographer credit, unset for anime avatars or manually-picked emoji/uploads
   avatarPhotographerUrl?: string
-  /** Contact-specific output of the self-iteration learner: next-user-turn expectation, relationship rules, and surprise history. */
-  selfIterationPrompt?: string
-  selfIterationUpdatedAt?: number
   creatorProfile?: ContactCreatorProfile
   customPersonalityTraits?: CustomPersonalityTrait[]
   proactiveTopicHistory?: ProactiveTopicRecord[]
@@ -65,7 +64,7 @@ export interface Contact {
   /** Optional home/current map anchor used by the 地点 module. */
   currentLocationId?: string
   locationUpdatedAt?: number
-  locationSource?: 'schedule' | 'specialTask' | 'manual' | 'fallback'
+  locationSource?: 'schedule' | 'specialTask' | 'manual' | 'fallback' | 'unknown'
   /** Derived runtime task state, refreshed with location synchronization. */
   currentTaskId?: string
   currentTaskKind?: 'default' | 'special'
@@ -77,9 +76,16 @@ export interface Contact {
   worldviewId?: string
   /** End of the latest time range already covered by offline experience completion. */
   experienceCursorAt?: number
+  /** Fixed prompt templates copied from the selected global archive. Never live-linked. */
+  promptModulesSnapshot?: PromptModuleSettings
+  promptPresetSourceId?: string
+  promptPresetSourceName?: string
+  promptSnapshotUpdatedAt?: number
+  /** Admin-only per-contact override for the step-two JSON conversion protocol. */
+  jsonProtocolOverride?: string
 }
 
-/** A recurring weekly time block — generated once at contact creation alongside the persona, not user-editable directly. */
+/** A recurring weekly time block — generated at contact creation and editable in administrator tools. */
 export interface PersonaProfile {
   facts: string[]
   boundaries: string[]
@@ -120,6 +126,44 @@ export interface ScheduleOverride {
   /** Default task occurrences cancelled in full because this task overlaps them. */
   cancelledDefaultTaskIds?: string[]
   createdAt: number
+}
+
+/** A reversible system change. New kinds (outfit, inventory, etc.) add their
+ * own explicitly typed effects instead of storing an unsafe arbitrary patch. */
+export type InternalTaskEffect =
+  | { type: 'schedule_override_created'; override: ScheduleOverride }
+  | { type: 'special_tasks_replaced'; overrides: ScheduleOverride[] }
+  | { type: 'contact_runtime_changed'; before: ContactRuntimeSnapshot; after: ContactRuntimeSnapshot }
+
+export interface ContactRuntimeSnapshot {
+  currentLocationId?: string
+  locationSource?: Contact['locationSource']
+  currentTaskId?: string
+  currentTaskKind?: Contact['currentTaskKind']
+  currentActivity?: string
+}
+
+export interface InternalTask {
+  id: string
+  kind: 'schedule_arrangement'
+  status: 'active' | 'reverted'
+  contactId: string
+  conversationId: string
+  createdAt: number
+  revertedAt?: number
+  effects: InternalTaskEffect[]
+  presentation: {
+    title: string
+    date: string
+    startTime: string
+    endTime: string
+    activity: string
+    locationId: string
+    locationName: string
+    previousLocationName?: string
+    changedSections: Array<'schedule' | 'location'>
+    cancelledDefaultActivities: string[]
+  }
 }
 
 /** A plan/appointment this contact made with the user, extracted from casual conversation — see memory.ts. Persists across turns until its date passes, unlike pendingEvents which fire once. */
@@ -355,6 +399,8 @@ export interface WorldMapRecord {
 export interface LocationModuleState {
   id: 'active'
   currentLocationId?: string
+  /** Built-in locations removed by the user must not be recreated during initialization. */
+  deletedLocationIds?: string[]
   updatedAt: number
 }
 
@@ -386,7 +432,7 @@ export interface GroupPlan {
 }
 
 export type MessageRole = 'user' | 'assistant'
-export type MessageType = 'text' | 'sticker' | 'image' | 'link' | 'gift' | 'scheduleChange' | 'groupPlan' | 'transfer' | 'redPacket' | 'loanRequest' | 'loanResult' | 'repayment'
+export type MessageType = 'text' | 'sticker' | 'image' | 'link' | 'gift' | 'scheduleChange' | 'internalTask' | 'groupPlan' | 'transfer' | 'redPacket' | 'loanRequest' | 'loanResult' | 'repayment'
 export type GroupSpeakerLimit = 2 | 3 | 4 | 5 | 'all'
 export type GroupEnergyLevel = 'cold' | 'normal' | 'lively'
 
@@ -415,6 +461,12 @@ export interface ScheduleChangePayload {
   endsAt?: number
 }
 
+export interface InternalTaskMessagePayload {
+  taskId: string
+  status: 'active' | 'reverted'
+  presentation: InternalTask['presentation']
+}
+
 export interface Message {
   id: string
   conversationId: string
@@ -429,6 +481,7 @@ export interface Message {
   sticker?: { url: string; provider?: StickerProviderId }
   image?: { url: string; caption?: string; photographer?: string; photographerUrl?: string; query?: string; provider?: ImageProviderId | 'pexels' }
   scheduleChange?: ScheduleChangePayload
+  internalTask?: InternalTaskMessagePayload
   groupPlanId?: string
   finance?: FinanceMessagePayload
   bubbleGroupId?: string // groups bubbles emitted from one AI response
@@ -612,14 +665,36 @@ export interface ImageProvidersSettings {
   comfyui: {
     baseUrl: string
     apiKey: string
+    authMode: 'none' | 'bearer' | 'x-api-key'
     workflowMode: 'basic' | 'custom'
     workflow?: Record<string, unknown>
     workflowFileName?: string
     workflowBindings?: {
+      positivePrompt?: { nodeId: string; inputName: string }
+      negativePrompt?: { nodeId: string; inputName: string }
+      seed?: { nodeId: string; inputName: string }
+      steps?: { nodeId: string; inputName: string }
+      cfg?: { nodeId: string; inputName: string }
+      sampler?: { nodeId: string; inputName: string }
+      scheduler?: { nodeId: string; inputName: string }
+      width?: { nodeId: string; inputName: string }
+      height?: { nodeId: string; inputName: string }
+      outputNodeId?: string
+      /** Legacy node-only bindings retained for settings saved by older builds. */
       positivePromptNodeId?: string
       negativePromptNodeId?: string
       samplerNodeId?: string
       latentNodeId?: string
+    }
+    workflowOverrides: {
+      negativePrompt: boolean
+      seed: boolean
+      steps: boolean
+      cfg: boolean
+      sampler: boolean
+      scheduler: boolean
+      width: boolean
+      height: boolean
     }
     model: string
     width: number
@@ -630,6 +705,7 @@ export interface ImageProvidersSettings {
     scheduler: string
     negativePrompt: string
     promptPrefix: string
+    timeoutSeconds: number
   }
   stableDiffusion: {
     baseUrl: string
@@ -669,6 +745,57 @@ export interface InventoryItem {
   updatedAt?: number
 }
 
+export type SpeechProviderId = 'none' | 'doubao' | 'mimo'
+
+export interface ContactSpeechVoice {
+  voiceId: string
+  /** Provider-specific performance direction; currently used by MiMo. */
+  styleInstruction?: string
+  source: 'ai' | 'user'
+  assignedAt: number
+}
+
+export interface SpeechProvidersSettings {
+  doubao: {
+    baseUrl: string
+    authMode: 'apiKey' | 'accessKey'
+    apiKey: string
+    appId: string
+    accessKey: string
+    resourceId: string
+    speaker: string
+    format: 'mp3' | 'ogg_opus'
+    sampleRate: 8000 | 16000 | 24000
+    speedRatio: number
+    loudnessRatio: number
+    emotion: string
+    emotionScale: number
+  }
+  mimo: {
+    baseUrl: string
+    apiKey: string
+    model: 'mimo-v2.5-tts'
+    voice: string
+    format: 'mp3' | 'wav'
+    styleInstruction: string
+    temperature: number
+  }
+}
+
+/** Regenerable TTS output. Kept outside messages and normal backups so large audio blobs remain disposable. */
+export interface SpeechCacheRecord {
+  id: string // message id
+  messageId: string
+  signature: string
+  provider: Exclude<SpeechProviderId, 'none'>
+  mimeType: string
+  audio: Blob
+  size: number
+  durationMs?: number
+  createdAt: number
+  lastAccessedAt: number
+}
+
 /** Durable catalogue used by the shop's repurchase view. */
 export interface ShopPurchaseHistory {
   productKey: string
@@ -681,6 +808,13 @@ export interface ShopPurchaseHistory {
   lastPurchasedAt: number
 }
 
+export interface AlbumSavedImage {
+  url: string
+  createdAt: number
+  source: '动漫图库' | 'Pexels 实拍图' | '生图系统'
+  caption?: string
+}
+
 export interface AppSettings {
   experienceMode: ContactGenerationExperienceMode
   aiProvider: import('../lib/aiProviders').AiProviderId
@@ -691,6 +825,10 @@ export interface AppSettings {
   globalSystemPrompt: string
   /** Global, user-editable original prompt templates shared by all relevant model calls. */
   promptModules: PromptModuleSettings
+  /** Named fixed-prompt archives. Contacts receive independent snapshots when created/applied. */
+  promptPresets: PromptPreset[]
+  /** Archive copied into newly-created contacts by default. */
+  activePromptPresetId: string
   userNickname: string
   userAvatar: string
   userGender: string
@@ -721,11 +859,23 @@ export interface AppSettings {
   // ---- web search (see lib/webSearch.ts) ----
   tavilyApiKey: string // used only by the knowledge-base refresh job, not live during normal chat
   // ---- photo avatars/moments images (see lib/photoSearch.ts) ----
-  pexelsApiKey: string // used for landscape/pet/person-photo categories; anime category uses waifu.pics which needs no key
+  pexelsApiKey: string
+  /** Waifu.im permits adult-only images only when this explicit setting is enabled. */
+  animeNsfwEnabled: boolean
+  /** The source used when a newly generated contact needs an automatic avatar. */
+  avatarImageSource: 'pexels' | 'anime' | 'generated'
+  /** The single user-controlled source for automatically attached Moments images. */
+  momentsImageSource: 'pexels' | 'anime' | 'generated'
+  /** URLs hidden by the user from the in-app album without changing their original chat or moment. */
+  hiddenAlbumUrls?: string[]
+  /** Standalone previews explicitly saved into the album, before they are used by a chat or moment. */
+  albumSavedImages?: AlbumSavedImage[]
   stickerProvider: StickerProviderId
   stickerProviders: StickerProvidersSettings
   imageProvider: ImageProviderId
   imageProviders: ImageProvidersSettings
+  speechProvider: SpeechProviderId
+  speechProviders: SpeechProvidersSettings
   /** Legacy generic settings retained only so version-8 installs can migrate into the new custom providers. */
   stickerApiUrl?: string
   stickerApiKey?: string
@@ -756,9 +906,6 @@ export interface AppSettings {
   animationsEnabled?: boolean
   /** How long an AI mood lasts before expiring (ms). Default 30 min. */
   moodExpiryMs: number
-  /** Shared output of the self-iteration learner: expression habits plus decontextualized user boundaries/preferences. */
-  selfIterationGlobalPrompt: string
-  selfIterationUpdatedAt?: number
   /** Feature-module toggles — see src/features/. Every module id listed here is active. */
   enabledModules: string[]
 }
@@ -772,13 +919,11 @@ export type PromptModuleId =
   | 'worldview'
   | 'moments'
   | 'knowledgeBase'
-  | 'selfIteration'
   | 'storyOutline'
   | 'nuwaMode'
   | 'career'
   | 'shop'
   | 'lifeSimulation'
-  | 'aiReplyAssist'
 
 export interface PromptModuleConfig {
   enabled: boolean
@@ -786,6 +931,15 @@ export interface PromptModuleConfig {
 }
 
 export type PromptModuleSettings = Record<PromptModuleId, PromptModuleConfig>
+
+export interface PromptPreset {
+  id: string
+  name: string
+  modules: PromptModuleSettings
+  systemDefault?: boolean
+  createdAt: number
+  updatedAt: number
+}
 
 export interface AdminLogRecord { id: string; level: 'log' | 'info' | 'warn' | 'error'; message: string; createdAt: number }
 export type AdminAiTraceStage = 'first_chat' | 'first_quality' | 'second_chat' | 'other' | 'second_quality'
@@ -1269,6 +1423,9 @@ export interface ContactGenerationTask {
   baseUrl: string
   model: string
   utilityModel: string
+  promptModulesSnapshot?: PromptModuleSettings
+  promptPresetSourceId?: string
+  promptPresetSourceName?: string
   partialFields?: Record<string, unknown>
   worldbookText?: string
   canon?: unknown

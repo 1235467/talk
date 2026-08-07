@@ -474,7 +474,7 @@ issues 要用简短中文列出具体错误。` },
     setGenerating(true)
     setError('')
     try {
-      await createContactGenerationTask({
+      const taskId = await createContactGenerationTask({
         method: isNuwaMode ? 'precision' : 'discovery',
         experienceMode: settings.experienceMode,
         personaDraft: draftOverride,
@@ -508,7 +508,11 @@ issues 要用简短中文列出具体错误。` },
           locationEnabled: settings.experienceMode === 'free' && settings.enabledModules.includes('location'),
         },
       })
-      void navigate('/contacts')
+      // On desktop the sidebar exposes active jobs, but mobile has no persistent
+      // task pane. Go straight to the job page so mobile users can see progress,
+      // review a precision draft, and recover from errors without hunting for it
+      // in the contacts list.
+      void navigate(`/contact-generation/${taskId}`)
       return
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -564,7 +568,7 @@ issues 要用简短中文列出具体错误。` },
         {importedCardName && <p className="-mt-2 mb-4 break-all text-[11px] text-[var(--ui-text-3)]">已载入：{importedCardName}</p>}</>}
         {isNuwaMode && <p className="mb-2 text-xs text-[var(--ui-special-ink)]">女娲模式：先写初稿建议和你确定的设定，AI只补全仍为空的内容。</p>}
         <p className="mb-4 text-xs text-gray-400">
-          描述一下你想认识的这个人 名字会由对方自己来定 确认添加后就正式加上了 之后不能再改TA的性格设定
+          描述一下你想认识的这个人 名字会由对方自己来定；创建后可在管理员模式下修正完整设定
         </p>
 
         {isNuwaMode && <div className="mb-4 grid grid-cols-2 gap-2"><button type="button" onClick={() => void saveCurrentPersona()} className="rounded-lg bg-gray-900 py-2.5 text-sm text-white">保存当前人设</button><button type="button" onClick={() => { setPersonaPage(0); setPersonaPickerOpen(true) }} className="rounded-lg border border-gray-300 bg-white py-2.5 text-sm text-gray-800">使用已保存的人设</button></div>}
