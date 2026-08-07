@@ -18,7 +18,7 @@ import type {
   WorldbookCollection,
   WorldbookEntry,
   SimulationState, ContactLifeState, LifeEvent, ContactExperience, AiUsageRecord,
-  SocialEvent, GroupPlan, AdminLogRecord, AdminAiTrace, SaveSlot, SavedPersona, PersonaCreationRecord, ShopPurchaseHistory, ContactGenerationTask,
+  SocialEvent, GroupPlan, AdminLogRecord, AdminAiTrace, SaveSlot, ContactStoryline, ContactSaveSnapshot, GlobalSaveSnapshot, SavedPersona, PersonaCreationRecord, ShopPurchaseHistory, ContactGenerationTask,
   Sticker,
   WalletAccount, WalletTransaction, Loan, JobListing, InterviewSession,
   LocationNode, WorldMapRecord, LocationModuleState, AcousticEdge,
@@ -58,6 +58,9 @@ export class TalkDB extends Dexie {
   adminLogs!: Table<AdminLogRecord, string>
   adminAiTraces!: Table<AdminAiTrace, string>
   saveSlots!: Table<SaveSlot, string>
+  contactStorylines!: Table<ContactStoryline, string>
+  contactSaveSnapshots!: Table<ContactSaveSnapshot, string>
+  globalSaveSnapshots!: Table<GlobalSaveSnapshot, string>
   savedPersonas!: Table<SavedPersona, string>
   personaCreationRecords!: Table<PersonaCreationRecord, string>
   shopPurchaseHistory!: Table<ShopPurchaseHistory, string>
@@ -412,6 +415,13 @@ export class TalkDB extends Dexie {
         const firstMember = contacts.find((contact) => Array.isArray(group.memberContactIds) && group.memberContactIds.includes(contact.id))
         await tx.table('groups').update(group.id, { worldviewId: firstMember?.worldviewId || defaultWorldId })
       }
+    })
+    // Scoped save history: contacts own story branches and snapshots, while
+    // worldbooks/maps remain global resources with their own version history.
+    this.version(35).stores({
+      contactStorylines: 'id, contactId, worldviewId, updatedAt',
+      contactSaveSnapshots: 'id, contactId, storylineId, createdAt, [contactId+createdAt], [storylineId+createdAt]',
+      globalSaveSnapshots: 'id, resourceType, resourceId, createdAt, [resourceType+resourceId], [resourceId+createdAt]',
     })
   }
 }

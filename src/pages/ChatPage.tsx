@@ -137,6 +137,8 @@ export function ChatPage() {
   const [selectedMentionIds, setSelectedMentionIds] = useState<string[]>([])
   const [replyToId, setReplyToId] = useState<string | null>(null)
   const [menuMessageId, setMenuMessageId] = useState<string | null>(null)
+  const [regenerationMessageId, setRegenerationMessageId] = useState<string | null>(null)
+  const [regenerationInstruction, setRegenerationInstruction] = useState('')
   const [selectingMessages, setSelectingMessages] = useState(false)
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([])
   const [captureImageUrl, setCaptureImageUrl] = useState('')
@@ -175,6 +177,7 @@ export function ChatPage() {
   const messageById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages])
   const replyToMessage = replyToId ? messageById.get(replyToId) : undefined
   const menuMessage = menuMessageId ? messageById.get(menuMessageId) : undefined
+  const regenerationMessage = regenerationMessageId ? messageById.get(regenerationMessageId) : undefined
   const selectedMessages = useMemo(
     () => messages.filter((message) => selectedMessageIds.includes(message.id)),
     [messages, selectedMessageIds],
@@ -337,14 +340,14 @@ export function ChatPage() {
     setToast(kind === 'unlike' ? '已记住：这不像TA' : '已记住：以后避开这种说法')
   }
 
-  async function regenerateTurn(message: Message) {
+  async function regenerateTurn(message: Message, instruction = '') {
     if (!conversationId || !message.debugAiTurnId) return
     if (isGroupConv) {
       if (!group) return
-      await regenerateGroupAiTurn(conversationId, group, groupMembers, settings, stickers, message.debugAiTurnId)
+      await regenerateGroupAiTurn(conversationId, group, groupMembers, settings, stickers, message.debugAiTurnId, instruction)
     } else {
       if (!contact) return
-      await regenerateAiTurn(conversationId, contact, settings, stickers, message.debugAiTurnId)
+      await regenerateAiTurn(conversationId, contact, settings, stickers, message.debugAiTurnId, instruction)
     }
     setToast('已重新生成这一轮')
   }
@@ -835,7 +838,7 @@ export function ChatPage() {
             ...(feedbackContactFor(menuMessage)
               ? [
                   ...(menuMessage.debugAiTurnId
-                    ? [{ label: '重新生成这一轮', onSelect: () => void regenerateTurn(menuMessage) }]
+                    ? [{ label: '重新生成这一轮', onSelect: () => { setRegenerationInstruction(''); setRegenerationMessageId(menuMessage.id) } }]
                     : []),
                   { label: '这不像TA', onSelect: () => void sendFeedback(menuMessage, 'unlike') },
                   { label: '以后别这样说', onSelect: () => void sendFeedback(menuMessage, 'avoid') },
@@ -845,6 +848,36 @@ export function ChatPage() {
             { label: '删除这条消息', onSelect: () => void deleteMessage(menuMessage), danger: true },
           ]}
         />
+      )}
+      {regenerationMessage && (
+        <div className="absolute inset-0 z-50 flex items-end bg-black/30" onClick={() => setRegenerationMessageId(null)}>
+          <div className="w-full rounded-t-2xl bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]" onClick={(event) => event.stopPropagation()}>
+            <h2 className="text-base font-semibold text-gray-900">重新生成这一轮</h2>
+            <p className="mt-1 text-xs leading-5 text-gray-500">可选：告诉 AI 这件事应当如何发展。本次生成会严格遵循该指令，但不会把它发送到聊天记录中。</p>
+            <textarea
+              autoFocus
+              value={regenerationInstruction}
+              onChange={(event) => setRegenerationInstruction(event.target.value)}
+              placeholder="例如：这时候应该先解释原因并道歉，不要突然冷淡。"
+              rows={4}
+              className="mt-3 w-full resize-none rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-gray-500"
+            />
+            <div className="mt-3 flex gap-2">
+              <button type="button" onClick={() => setRegenerationMessageId(null)} className="flex-1 rounded-xl bg-gray-100 py-2.5 text-sm text-gray-700">取消</button>
+              <button
+                type="button"
+                onClick={() => {
+                  const instruction = regenerationInstruction.trim()
+                  setRegenerationMessageId(null)
+                  void regenerateTurn(regenerationMessage, instruction)
+                }}
+                className="flex-1 rounded-xl bg-gray-900 py-2.5 text-sm text-white"
+              >
+                重新生成
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {stickerPickerOpen && (
         <div className="absolute inset-0 z-50 flex items-end bg-black/30" onClick={() => setStickerPickerOpen(false)}>

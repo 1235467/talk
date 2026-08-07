@@ -57,7 +57,9 @@ function run(cmd, cmdArgs, options = {}) {
     cwd: options.cwd ?? root,
     env: { ...process.env, ...options.env },
     stdio: 'inherit',
-    shell: process.platform === 'win32',
+    // Batch entry points need cmd.exe, but running an absolute .exe through
+    // it breaks paths such as the JDK installed under "Program Files".
+    shell: process.platform === 'win32' && /\.(cmd|bat)$/i.test(cmd),
   })
   if (result.error) throw result.error
   if (result.status !== 0) {

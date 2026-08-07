@@ -1,11 +1,16 @@
 interface AvatarProps {
-  avatar: string
+  avatar?: string
+  /** Backward-compatible alias used by compact list rows. */
+  src?: string
+  name?: string
   color?: string
-  size?: number
+  size?: number | 'md'
   rounded?: 'full' | 'lg'
 }
 
-export function Avatar({ avatar, color = '#eef0f3', size = 48, rounded = 'lg' }: AvatarProps) {
+export function Avatar({ avatar: avatarProp, src, color = '#eef0f3', size: sizeProp = 48, rounded = 'lg' }: AvatarProps) {
+  const avatar = avatarProp ?? src ?? ''
+  const size = sizeProp === 'md' ? 44 : sizeProp
   const isImage = avatar.startsWith('data:') || avatar.startsWith('http')
   const radiusClass = rounded === 'full' ? 'rounded-full' : 'rounded-xl'
   return (

@@ -82,15 +82,16 @@ function scheduleGroupAiTurn(
   settings: AppSettings,
   stickers: Sticker[],
   streamId: string,
+  regenerationInstruction = '',
 ): void {
   const delay = realisticReplyDelayMs(isModuleEnabled('realisticReplies'))
   if (delay === 0) {
-    void runGroupAiTurn(conversationId, group, members, settings, stickers, streamId)
+    void runGroupAiTurn(conversationId, group, members, settings, stickers, streamId, regenerationInstruction)
     return
   }
   const timer = setTimeout(() => {
     if (!turns.isCurrent(conversationId, streamId)) return
-    void runGroupAiTurn(conversationId, group, members, settings, stickers, streamId)
+    void runGroupAiTurn(conversationId, group, members, settings, stickers, streamId, regenerationInstruction)
   }, delay)
   turns.addTimer(conversationId, timer)
 }
@@ -335,6 +336,7 @@ export async function regenerateGroupAiTurn(
   settings: AppSettings,
   stickers: Sticker[],
   aiTurnId: string,
+  regenerationInstruction = '',
 ): Promise<void> {
   if (!settings.apiKey) {
     useChatEngineStore.getState().patch(conversationId, { error: '还没有配置 API Key，请先去“我 / 设置”里填写' })
@@ -354,7 +356,7 @@ export async function regenerateGroupAiTurn(
   await db.aiTurns.delete(aiTurnId)
   await db.conversations.update(conversationId, { updatedAt: Date.now() })
 
-  scheduleGroupAiTurn(conversationId, group, members, settings, stickers, streamId)
+  scheduleGroupAiTurn(conversationId, group, members, settings, stickers, streamId, regenerationInstruction.trim())
 }
 
 async function runGroupAiTurn(
@@ -364,6 +366,7 @@ async function runGroupAiTurn(
   settings: AppSettings,
   stickers: Sticker[],
   streamId: string,
+  regenerationInstruction = '',
 ): Promise<void> {
   const engine = useChatEngineStore.getState()
   const directOutput = isModuleEnabled('directOutput')
@@ -460,9 +463,21 @@ async function runGroupAiTurn(
     // 1:1 chat where the single assistant persona is implicit from the system
     // prompt, a group turn's assistant block can contain several different
     // people, and role:"assistant" alone can't distinguish them across turns.
+    const regenerationPrompt = regenerationInstruction
+      ? `【重要：本次重生成必须遵守的剧情指令】\n用户不认可上一版群聊的发展。下方用户指令是本次重生成的首要内容要求：必须落实到实际回复和事件发展中，不可忽略、淡化、回避或改写成相反走向。`
+      : ''
+    const regenerationUserMessage = regenerationInstruction
+      ? `【本次重生成：最高优先级剧情要求】\n请先在心中确认后再作答：你们接下来生成的每条消息和事件发展，都必须严格符合以下要求：\n${regenerationInstruction}\n\n这是用户对上一版结果的明确修正。即使原本会作出不同选择，也必须以此要求为准；不要解释、复述或提及这条要求，只需自然地把它演出来。`
+      : ''
     const chatMessages: ChatMessage[] = coalesceConsecutiveRoles([
-      { role: 'system', content: [systemPrompt, sharedOriginalContext, directOutput ? buildDirectGroupOutputInstruction(speakers) : ''].filter(Boolean).join('\n\n') },
+      { role: 'system', content: [
+        systemPrompt,
+        sharedOriginalContext,
+        regenerationPrompt,
+        directOutput ? buildDirectGroupOutputInstruction(speakers) : '',
+      ].filter(Boolean).join('\n\n') },
       ...recentHistory.map((m): ChatMessage => formatGroupHistoryMessage(m, contactById, messageById, settings.userNickname)),
+      ...(regenerationUserMessage ? [{ role: 'user' as const, content: regenerationUserMessage }] : []),
     ])
     let rawText = await chatCompletion({
       apiKey: settings.apiKey,
@@ -472,7 +487,7 @@ async function runGroupAiTurn(
       signal: controller.signal,
       purpose: 'chat',
       thinking: 'disabled',
-      temperature: 0.9,
+      temperature: regenerationInstruction ? 0.55 : 0.9,
       maxTokens: directOutput ? 1400 : 1000,
       jsonMode: directOutput,
       singleRequest: directOutput,
@@ -570,7 +585,7 @@ async function runGroupAiTurn(
         signal: controller.signal,
         purpose: 'chat',
         thinking: 'disabled',
-        temperature: 0.75,
+        temperature: regenerationInstruction ? 0.55 : 0.75,
         maxTokens: 1000,
         trace: { turnId: streamId, stage: 'second_chat', conversationId },
       })
@@ -620,7 +635,7 @@ async function runGroupAiTurn(
     if (!directOutput && featureActive(settings, 'knowledgeBase') && knowledgeQueries.length > 0) {
       const knowledge = await resolveKnowledgeQueries(knowledgeQueries, settings)
       if (knowledge.text) {
-        rawText = await chatCompletion({ apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.model,messages:[...chatMessages,{role:'user',content:`刚才出现了你们不了解的词。搜索结果如下：\n${knowledge.text}${reviewFailure?`\n\n上一版审查问题：${reviewFailure}，重写时同时修正。`:''}\n请基于结果重新生成群聊草稿，保持原群聊格式，像刚查明白后自然接话，不要写成报告。`}],signal:controller.signal, thinking:'disabled',temperature:0.9,maxTokens:1800,trace:{turnId:streamId,stage:'second_chat',conversationId} })
+        rawText = await chatCompletion({ apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.model,messages:[...chatMessages,{role:'user',content:`刚才出现了你们不了解的词。搜索结果如下：\n${knowledge.text}${reviewFailure?`\n\n上一版审查问题：${reviewFailure}，重写时同时修正。`:''}\n请基于结果重新生成群聊草稿，保持原群聊格式，像刚查明白后自然接话，不要写成报告。${regenerationUserMessage ? `\n\n再次确认：仍必须严格执行前述“最高优先级剧情要求”。` : ''}`}],signal:controller.signal, thinking:'disabled',temperature:regenerationInstruction ? 0.55 : 0.9,maxTokens:1800,trace:{turnId:streamId,stage:'second_chat',conversationId} })
         localDraft = parseGroupRawDraft(rawText, speakers, stickers.map((sticker) => sticker.name), remoteStickerSearchEnabled)
         localDraft.groupVibe = group.vibe || '自然、轻松的日常群聊。'
         if (!localDraft.valid || localDraft.needsUtility) {

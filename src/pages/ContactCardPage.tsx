@@ -29,6 +29,7 @@ import { chatCompletionText as chatCompletion } from '../lib/deepseek'
 import { buildOccupationPrompt, parseOccupation, employmentPatch, OCCUPATION_OPTIONS } from '../lib/career'
 import { formatCurrency } from '../lib/wallet'
 import { setWalletBalance } from '../lib/finance'
+import { switchContactWorldview } from '../lib/scopedSaves'
 import { createDefaultPromptModules, PROMPT_MODULE_DEFINITIONS, unknownPromptPlaceholders } from '../lib/promptModules'
 import type { PromptModuleId } from '../types'
 import { ArrowDownToLine, ArrowUpFromLine, ClipboardList, Phone, PhoneOff } from 'lucide-react'
@@ -105,7 +106,8 @@ export function ContactCardPage() {
     const affected = (await db.groups.toArray()).filter((group) => group.memberContactIds.includes(contact.id) && (group.worldviewId || settings.defaultWorldviewId) !== nextWorldviewId)
     const nextName = worldviews.find((world) => world.id === nextWorldviewId)?.name || '新世界'
     if (affected.length && !window.confirm(`切换到“${nextName}”后，${displayName(contact)}会被移出 ${affected.length} 个不同世界的群聊；群里只剩一人时会自动解散。继续吗？`)) return
-    await db.contacts.update(contact.id, { worldviewId: nextWorldviewId })
+    if (!window.confirm(`切换到“${nextName}”会先自动保存当前剧情线，然后开启一条不继承聊天记录和角色记忆的新剧情线。确定继续吗？`)) return
+    await switchContactWorldview(contact, nextWorldviewId, nextName)
     for (const group of affected) {
       const remaining = group.memberContactIds.filter((id) => id !== contact.id)
       if (remaining.length <= 1) {

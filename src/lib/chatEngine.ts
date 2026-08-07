@@ -125,15 +125,16 @@ function scheduleAiTurn(
   proactiveContext = '',
   offlineFrom?: number,
   turnNow?: number,
+  regenerationInstruction = '',
 ): void {
   const delay = realisticReplyDelayMs(isModuleEnabled('realisticReplies'))
   if (delay === 0) {
-    void runAiTurn(conversationId, contact, settings, stickers, streamId, triggeringUserText, proactiveContext, offlineFrom, turnNow)
+    void runAiTurn(conversationId, contact, settings, stickers, streamId, triggeringUserText, proactiveContext, offlineFrom, turnNow, regenerationInstruction)
     return
   }
   const timer = setTimeout(() => {
     if (!turns.isCurrent(conversationId, streamId)) return
-    void runAiTurn(conversationId, contact, settings, stickers, streamId, triggeringUserText, proactiveContext, offlineFrom, turnNow)
+    void runAiTurn(conversationId, contact, settings, stickers, streamId, triggeringUserText, proactiveContext, offlineFrom, turnNow, regenerationInstruction)
   }, delay)
   turns.addTimer(conversationId, timer)
 }
@@ -315,6 +316,7 @@ export async function regenerateAiTurn(
   settings: AppSettings,
   stickers: Sticker[],
   aiTurnId: string,
+  regenerationInstruction = '',
 ): Promise<void> {
   if (!settings.apiKey) {
     useChatEngineStore.getState().patch(conversationId, { error: '还没有配置 API Key，请先去“我 / 设置”里填写' })
@@ -334,7 +336,7 @@ export async function regenerateAiTurn(
   await db.aiTurns.delete(aiTurnId)
   await db.conversations.update(conversationId, { updatedAt: Date.now() })
 
-  scheduleAiTurn(conversationId, contact, settings, stickers, streamId)
+  scheduleAiTurn(conversationId, contact, settings, stickers, streamId, '', '', undefined, undefined, regenerationInstruction.trim())
 }
 
 async function runAiTurn(
@@ -347,6 +349,7 @@ async function runAiTurn(
   proactiveContext = '',
   offlineFrom?: number,
   turnNow?: number,
+  regenerationInstruction = '',
 ): Promise<void> {
   const engine = useChatEngineStore.getState()
   const turnStartedAt = performance.now()
@@ -483,8 +486,14 @@ async function runAiTurn(
     const recentHistory = history.slice(-CONTEXT_WINDOW_SIZE)
     const controller = new AbortController()
     turns.setAbortController(conversationId, controller)
+    const regenerationPrompt = regenerationInstruction
+      ? `【重要：本次重生成必须遵守的剧情指令】\n用户不认可上一版回复的发展。下方用户指令是本次重生成的首要内容要求：必须落实到实际回复和事件发展中，不可忽略、淡化、回避或改写成相反走向。`
+      : ''
+    const regenerationUserMessage = regenerationInstruction
+      ? `【本次重生成：最高优先级剧情要求】\n请先在心中确认后再作答：你接下来生成的每条消息和事件发展，都必须严格符合以下要求：\n${regenerationInstruction}\n\n这是用户对上一版结果的明确修正。即使你原本会作出不同选择，也必须以此要求为准；不要解释、复述或提及这条要求，只需自然地把它演出来。`
+      : ''
     const chatMessages: ChatMessage[] = coalesceConsecutiveRoles([
-      { role: 'system', content: [contextSections, socialMemories, sharedOriginalContext, directOutput ? buildDirectOutputInstruction(actionLocations) : ''].filter(Boolean).join('\n\n') },
+      { role: 'system', content: [contextSections, socialMemories, sharedOriginalContext, regenerationPrompt, directOutput ? buildDirectOutputInstruction(actionLocations) : ''].filter(Boolean).join('\n\n') },
       ...recentHistory.map((m): ChatMessage => {
         if (m.type === 'sticker') return formatStructuredHistoryEvent(m, 'sticker')
         if (m.type === 'link') return formatStructuredHistoryEvent(m, 'link')
@@ -493,6 +502,7 @@ async function runAiTurn(
         if (['transfer','redPacket','loanRequest','loanResult','repayment'].includes(m.type)) return formatStructuredHistoryEvent(m, m.type)
         return { role: m.role, content: m.content }
       }),
+      ...(regenerationUserMessage ? [{ role: 'user' as const, content: regenerationUserMessage }] : []),
     ])
     console.info(`[chat-perf] context-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)}`)
 
@@ -506,7 +516,7 @@ async function runAiTurn(
       purpose: proactiveContext ? 'proactive' : 'chat',
       automatic: !!proactiveContext,
       thinking: 'disabled',
-      temperature: 0.9,
+      temperature: regenerationInstruction ? 0.55 : 0.9,
       maxTokens: directOutput ? 1200 : proactiveContext ? 700 : 800,
       jsonMode: directOutput,
       singleRequest: directOutput,
@@ -591,7 +601,7 @@ async function runAiTurn(
         const enrichedMessages = chatMessages.map((message, index) => index === 0
           ? { ...message, content: `${message.content}\n\n【针对陌生词汇的搜索结果】\n${knowledge.text}\n你刚才对陌生词汇自然表示了疑问。现在根据可靠搜索结果重新回答用户，语气要自然，不要写成搜索报告，也不要提审查流程。` }
           : message)
-        rawText = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, messages: enrichedMessages, signal: controller.signal, purpose: proactiveContext ? 'proactive' : 'chat', automatic: !!proactiveContext, thinking: 'disabled', temperature: 0.9, maxTokens: proactiveContext ? 700 : 800, trace: { turnId: streamId, stage: 'second_chat', conversationId } })
+        rawText = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, messages: enrichedMessages, signal: controller.signal, purpose: proactiveContext ? 'proactive' : 'chat', automatic: !!proactiveContext, thinking: 'disabled', temperature: regenerationInstruction ? 0.55 : 0.9, maxTokens: proactiveContext ? 700 : 800, trace: { turnId: streamId, stage: 'second_chat', conversationId } })
         const enrichedLocalTurn = parseRawPrivateDraft(rawText, turnMood || activeMood)
         if (rawPrivateDraftNeedsUtility(rawText, enrichedLocalTurn)) {
           conversionPrompt = buildJsonConversionPrompt(rawText)

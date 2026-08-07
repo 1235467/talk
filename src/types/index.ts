@@ -792,6 +792,46 @@ export type AdminAiTraceStage = 'first_chat' | 'first_quality' | 'second_chat' |
 export interface AdminAiTrace { id: string; purpose: AiUsagePurpose; model: string; messages: { role: string; content: string }[]; output?: string; error?: string; inputTokens: number; outputTokens: number; durationMs?: number; createdAt: number; turnId?: string; stage?: AdminAiTraceStage; conversationId?: string; diagnostics?: Record<string, unknown> }
 export interface SaveSlot { id: string; slot: number; name: string; createdAt: number; updatedAt: number; snapshot: unknown }
 
+/** A contact-owned story branch.  The active branch is the one currently used by chat. */
+export interface ContactStoryline {
+  id: string
+  contactId: string
+  worldviewId?: string
+  name: string
+  active: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+/** Everything that may safely roll back for one contact without touching other contacts. */
+export interface ContactSaveSnapshotData {
+  contact: Contact
+  conversation?: Conversation
+  messages: Message[]
+  memories: ContactMemory[]
+}
+
+export interface ContactSaveSnapshot {
+  id: string
+  contactId: string
+  storylineId: string
+  name: string
+  kind: 'manual' | 'automatic'
+  createdAt: number
+  snapshot: ContactSaveSnapshotData
+}
+
+/** Version history for globally shared worldbooks and the shared map. */
+export interface GlobalSaveSnapshot {
+  id: string
+  resourceType: 'worldbook' | 'map'
+  resourceId: string
+  name: string
+  kind: 'manual' | 'automatic'
+  createdAt: number
+  snapshot: unknown
+}
+
 export type WalletOwnerId = string
 export type WalletTransactionKind = 'migration' | 'salary' | 'purchase' | 'transfer' | 'red_packet' | 'loan' | 'repayment' | 'admin_adjustment'
 export interface WalletAccount { ownerId: WalletOwnerId; balance: number; updatedAt: number }
