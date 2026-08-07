@@ -7,18 +7,20 @@ import { TopBar } from '../components/TopBar'
 import { estimateWorldbookTokens, formatEstimatedTokens } from '../lib/worldbookTokens'
 import { useSettingsStore } from '../store/useSettingsStore'
 
+const EMPTY_LIST: never[] = []
+
 export function WorldSettingsPage() {
   const navigate = useNavigate()
   const settings = useSettingsStore()
-  const collections = useLiveQuery(() => db.worldbookCollections.orderBy('updatedAt').reverse().toArray(), []) ?? []
-  const entries = useLiveQuery(() => db.worldbookEntries.toArray(), []) ?? []
+  const collections = useLiveQuery(() => db.worldbookCollections.orderBy('updatedAt').reverse().toArray(), []) ?? EMPTY_LIST
+  const entries = useLiveQuery(() => db.worldbookEntries.toArray(), []) ?? EMPTY_LIST
   const [createOpen, setCreateOpen] = useState(false)
   const [newWorldName, setNewWorldName] = useState('新的世界')
   const [createError, setCreateError] = useState('')
 
   useEffect(() => {
     if (!settings.defaultWorldviewId && collections[0]) settings.setSettings({ defaultWorldviewId: collections.find((item) => item.enabled)?.id || collections[0].id })
-  }, [collections, settings.defaultWorldviewId, settings.setSettings])
+  }, [collections, settings])
 
   async function createWorldview() {
     const name = newWorldName.trim()

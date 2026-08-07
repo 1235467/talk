@@ -6,10 +6,11 @@ import { estimateTokens } from '../lib/aiUsage'
 import { formatEstimatedTokens } from '../lib/worldbookTokens'
 
 interface Props { open: boolean; selectedIds: string[]; onChange: (ids: string[]) => void; onClose: () => void }
+const EMPTY_ITEMS: never[] = []
 
 /** Kept under the legacy component name to avoid breaking persisted creator tasks. */
 export function WorldbookEntrySelector({ open, selectedIds, onChange, onClose }: Props) {
-  const items = useLiveQuery(() => db.libraryItems.toArray(), []) ?? []
+  const items = useLiveQuery(() => db.libraryItems.toArray(), []) ?? EMPTY_ITEMS
   const [query, setQuery] = useState('')
   const selected = useMemo(() => new Set(selectedIds), [selectedIds])
   const visible = useMemo(() => searchLibraryItems(items, query), [items, query])

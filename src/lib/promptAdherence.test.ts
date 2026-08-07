@@ -62,7 +62,7 @@ describe('relationship and persona adherence prompts', () => {
     expect(enabled).toContain('原则上必须自然插入1个表情')
     expect(enabled).toContain('大多数常规轮次会发')
     expect(enabled).toContain('严肃安慰')
-    expect(enabled).toContain('完整、自包含的英文生图提示词')
+    expect(enabled).toContain('具体英文场景描述')
     expect(enabled).toContain('用户明确要求画图/发图/看图')
     expect(enabled).toContain('任意穿插')
 

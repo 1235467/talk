@@ -11,6 +11,7 @@ import { searchLibraryItems } from '../lib/library'
 import type { WorldbookEntry } from '../types'
 
 const EMPTY_ENTRIES: WorldbookEntry[] = []
+const EMPTY_LIBRARY_ITEMS: never[] = []
 
 export function WorldbookCollectionPage() {
   const { collectionId = '' } = useParams()
@@ -18,7 +19,7 @@ export function WorldbookCollectionPage() {
   const settings = useSettingsStore()
   const collection = useLiveQuery(() => db.worldbookCollections.get(collectionId), [collectionId])
   const entries = useLiveQuery(() => db.worldbookEntries.where('collectionId').equals(collectionId).sortBy('sourceOrder'), [collectionId]) ?? EMPTY_ENTRIES
-  const libraryItems = useLiveQuery(() => db.libraryItems.toArray(), []) ?? []
+  const libraryItems = useLiveQuery(() => db.libraryItems.toArray(), []) ?? EMPTY_LIBRARY_ITEMS
   const boundContacts = useLiveQuery(() => db.contacts.where('worldviewId').equals(collectionId).count(), [collectionId]) ?? 0
   const boundGroups = useLiveQuery(() => db.groups.where('worldviewId').equals(collectionId).count(), [collectionId]) ?? 0
   const [query, setQuery] = useState('')

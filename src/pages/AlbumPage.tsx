@@ -13,6 +13,7 @@ interface AlbumImage {
   source: AlbumSource
   caption?: string
 }
+const EMPTY_LIST: never[] = []
 
 function sourceFor(url: string, explicit?: string, photographer?: string): AlbumSource {
   if (explicit === 'pexels' || photographer || /images\.pexels\.com/i.test(url)) return 'Pexels 实拍图'
@@ -28,9 +29,9 @@ export function AlbumPage() {
   const hiddenUrls = useSettingsStore((state) => state.hiddenAlbumUrls ?? [])
   const savedImages = useSettingsStore((state) => state.albumSavedImages ?? [])
   const setSettings = useSettingsStore((state) => state.setSettings)
-  const contacts = useLiveQuery(() => db.contacts.toArray(), []) ?? []
-  const moments = useLiveQuery(() => db.moments.toArray(), []) ?? []
-  const messages = useLiveQuery(() => db.messages.toArray(), []) ?? []
+  const contacts = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_LIST
+  const moments = useLiveQuery(() => db.moments.toArray(), []) ?? EMPTY_LIST
+  const messages = useLiveQuery(() => db.messages.toArray(), []) ?? EMPTY_LIST
   const [selected, setSelected] = useState<AlbumImage | null>(null)
 
   const images = useMemo(() => {

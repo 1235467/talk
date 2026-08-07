@@ -49,6 +49,7 @@ interface RelationRow {
   targetContactId: string
   label: ContactRelationLabel
 }
+const EMPTY_LIST: never[] = []
 
 export function ContactAddPage() {
   const navigate = useNavigate()
@@ -56,7 +57,7 @@ export function ContactAddPage() {
   const existingContacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? []).filter((item) => !isAiTestId(item.id))
   const savedPersonas = useLiveQuery(() => db.savedPersonas.orderBy('updatedAt').reverse().toArray(), []) ?? []
   const creationRecords = useLiveQuery(() => db.personaCreationRecords.orderBy('createdAt').reverse().toArray(), []) ?? []
-  const worldviews = useLiveQuery(() => db.worldbookCollections.orderBy('updatedAt').reverse().toArray(), []) ?? []
+  const worldviews = useLiveQuery(() => db.worldbookCollections.orderBy('updatedAt').reverse().toArray(), []) ?? EMPTY_LIST
 
   const [tags, setTags] = useState<string[]>([])
   const [customTag, setCustomTag] = useState('')

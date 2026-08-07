@@ -13,11 +13,12 @@ import { v4 as uuid } from 'uuid'
 const SOURCE_LABELS: Record<LibrarySourceType, string> = {
   'character-card': '角色卡', worldbook: '世界书', web: '联网', manual: '手写', legacy: '旧资料',
 }
+const EMPTY_ITEMS: never[] = []
 
 export function KnowledgeBasePage() {
   const settings = useSettingsStore()
   const fileRef = useRef<HTMLInputElement>(null)
-  const items = useLiveQuery(() => db.libraryItems.toArray(), []) ?? []
+  const items = useLiveQuery(() => db.libraryItems.toArray(), []) ?? EMPTY_ITEMS
   const [query, setQuery] = useState('')
   const [source, setSource] = useState<LibrarySourceType | 'all'>('all')
   const [webQuery, setWebQuery] = useState('')
