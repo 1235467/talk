@@ -47,7 +47,7 @@ describe('relationship and persona adherence prompts', () => {
     expect(prompt).toContain('speechSamples')
   })
 
-  it('teaches contacts to use remote sticker search and full image-generation prompts only when configured', () => {
+  it('keeps media tool instructions out of the main natural-text prompt', () => {
     const enabled = buildRawChatPrompt({
       name: '小满',
       persona: '自然聊天。',
@@ -57,14 +57,11 @@ describe('relationship and persona adherence prompts', () => {
       remoteStickerSearchEnabled: true,
       imageGenerationEnabled: true,
     })
-    expect(enabled).toContain('[sticker:简短具体的搜索词]')
-    expect(enabled).toContain('表情使用硬偏好')
-    expect(enabled).toContain('原则上必须自然插入1个表情')
-    expect(enabled).toContain('大多数常规轮次会发')
-    expect(enabled).toContain('严肃安慰')
-    expect(enabled).toContain('具体英文场景描述')
-    expect(enabled).toContain('用户明确要求画图/发图/看图')
-    expect(enabled).toContain('任意穿插')
+    expect(enabled).not.toContain('[sticker:')
+    expect(enabled).not.toContain('[image:')
+    expect(enabled).not.toContain('表情使用硬偏好')
+    expect(enabled).not.toContain('具体英文场景描述')
+    expect(enabled).not.toContain('工具调用')
 
     const disabled = buildRawChatPrompt({
       name: '小满',
@@ -73,8 +70,8 @@ describe('relationship and persona adherence prompts', () => {
       recentContext: '正在聊天。',
       stickerNames: [],
     })
-    expect(disabled).toContain('当前没有可用图片服务')
-    expect(disabled).not.toContain('[sticker:简短具体的搜索词]')
+    expect(disabled).not.toContain('[sticker:')
+    expect(disabled).not.toContain('[image:')
   })
 
   it('uses editable global module prompts and completely omits blocked module payloads', () => {
