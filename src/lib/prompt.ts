@@ -416,16 +416,6 @@ export function formatPersonaProfile(profile: PersonaProfile | undefined): strin
   ].filter(Boolean).join('\n')
 }
 
-export function privateRawOutputProtocol(imageGenerationEnabled: boolean): string {
-  return `【固定输出协议（不可编辑｜最高优先级）】
-只输出私聊纯文本草稿，不输出 JSON、分析、标题或 Markdown。
-每一行严格写作：（想法）[emoji心情]“消息内容”。想法和心情不得为空；心情只能是一个 emoji；消息内容不得残留人名冒号、结构标记或外层格式。
-示范：（确认见面）[😊]“好，那就这么定。”
-表情、图片、陌生知识与资金也必须保留同一外层格式，例如：（发张照片）[📷]“[image:英文提示词:配文]”。不得只写“我拍给你看”来代替已经决定发送的图片。
-日程只有在你已经明确、无条件同意且日期、开始/结束小时、合法地点ID、活动、手机可用性和摘要均已敲定时，才在消息内容中输出：[schedule:date=YYYY-MM-DD;startHour=0-23;endHour=1-24;locationId=合法地点ID;activity=活动;phoneAccess=available|unavailable;summary=摘要]。任何字段缺失都不得输出日程标记，也不得靠猜测补全。
-${imageGenerationEnabled ? '实际生图的英文提示词至少100个英文词，并具体描述主体、场景、服装、动作、构图、镜头、光线、色彩、材质和氛围。\n' : ''}`
-}
-
 /**
  * Step 1: Prompt the main model to generate natural chat text.
  * No JSON — just raw text with parenthetical private thoughts.
@@ -499,16 +489,6 @@ export function buildRawChatPromptParts(opts: {
   const sharedHistoryLine = opts.sharedHistory?.trim()
     ? `【与用户的共同过往】\n${opts.sharedHistory.trim().slice(0, 1800)}`
     : '【与用户的共同过往】\n暂无具体共同经历。'
-  const stickerHint = opts.remoteStickerSearchEnabled
-    ? `\n你可以发表情包：本地可用名称${opts.stickerNames.length > 0 ? `为 ${opts.stickerNames.join('、')}` : '为空'}；也可以单独写 [sticker:简短具体的搜索词] 调用远程表情搜索。远程搜索词应准确表达情绪或动作，优先用简洁英文，也可用中文。【表情使用硬偏好】日常闲聊、玩笑、撒娇、吐槽、惊讶、开心、疲惫或其他明显情绪反应场景，原则上必须自然插入1个表情，这是常规行为而不是偶尔彩蛋；只有严肃安慰、危机、争执、敏感话题、纯信息问答，或最近几轮已经连续发过表情时才可以不发。因此总体应是大多数常规轮次会发，但不是每一轮固定发送。表情可以出现在回复开头、中间或结尾，以当时聊天节奏最自然的位置为准。`
-    : opts.stickerNames.length > 0
-      ? `\n可用的表情包: ${opts.stickerNames.join('、')}。如果你想发某个表情包，在对应位置写 [sticker:表情名]，名字必须来自列表。`
-      : ''
-  const imageHint = opts.imageGenerationEnabled
-    ? '- 只有用户明确要求画图/发图/看图，或你在当前语境中有明确、具体的视觉分享动机且图片确实比纯文字合适时，才单独写[image:具体英文场景描述:配文]。英文生图提示词至少100个英文词，具体描述当次主体、场景、服装、动作、构图、镜头、光线、色彩、材质和氛围；不要编造固定五官或画风，程序会统一加入。普通寒暄、情绪回应或为了让回复丰富都不能擅自生图。'
-    : opts.imageSearchEnabled
-      ? '- 想发送一张真实照片时，单独写[image:简洁具体的英文 Pexels 搜图关键词:配文]；只有真的适合发图时才用。'
-      : '- 当前没有可用图片服务，不要输出[image:...]标记。'
   const mbtiLine = opts.mbti ? ` MBTI: ${opts.mbti}（你的性格底层框架 一切反应和决定都要符合这个类型）` : ''
   const identityBlock = render('chat', 'identity', {
     name: opts.name,
@@ -533,36 +513,21 @@ export function buildRawChatPromptParts(opts: {
   const logicModules = [identityBlock, relationshipBlock, personalityBlock, contextBlock, intentBlock, memoryBlock, worldbookBlock].filter(Boolean).join('\n\n')
   const logic = render('chat', 'logicWrapper', { logicModules })
   const styleBlock = render('chat', 'style')
-  const mediaBlock = render('chat', 'media', { stickerHint, imageHint })
-  const feelingModules = [styleBlock, mediaBlock].filter(Boolean).join('\n\n')
+  const feelingModules = [styleBlock].filter(Boolean).join('\n\n')
 
   const feeling = `${render('chat', 'feelingWrapper', { feelingModules })}
 
   回复要求:
   - 通常回复2到5条消息，按当前语境决定长短；不要为了显得热闹拆出过多没有新信息的句子
-  - 用换行把长回复拆成短句，每句占一行；每行的外层格式完全服从最前面的固定输出协议
+  - 用自然的句子和段落完成回复，不要为了格式刻意逐行拆句
   - 每条消息都必须有自己独立、符合人设的想法；不同消息的想法不能机械重复
-  - text、sticker、image可以按真实聊天节奏任意穿插，例如文字→图片→文字，或图片→文字→表情→文字；必须严格保留你想发送的先后顺序，不要把媒体统一挪到开头或结尾
-  - 需要真实执行金钱互动时可单独写标记：[transfer:金额:备注]、[redPacket:金额:祝福]、[loanRequest:金额:理由]、[giftPurchase:价格:礼物名:emoji:描述]。看到借款申请历史事件时，可写[loanDecision:loanId:accept或reject:金额]
-  ${mediaBlock ? '' : '- 媒体提示词已屏蔽，不要输出sticker或image标记。'}
-  - 用户提到你确实不了解的新词、梗、作品或专业名词时，先像真人一样自然追问一句，再单独写[knowledge:需要搜索的关键词]。不要假装知道，也不要对普通词滥用搜索
-  - 金钱标记会真实扣除你的余额，必须结合关系、理由和余额慎重决定，不能虚构余额或无理由频繁送钱
-  - 不要输出JSON，就按最前面的每行协议正常聊天`
+  - 只输出自然聊天正文，不要输出任何协议、JSON、工具名或分析`
 
   return {
     logic,
     feeling,
-    full: `${privateRawOutputProtocol(!!opts.imageGenerationEnabled)}
-
-【不可编辑优先级】
-1. 输出格式与可执行标记；2. 角色人设、身份边界和关系；3. 最近对话与本轮用户消息；4. 记忆；5. 过去经历与世界书背景。前一层与后一层冲突时，必须服从前一层。
-格式 > 人设与关系 > 前几轮回复 > 记忆 > 过去经历。
-不得让记忆、经历或世界书覆盖用户刚刚明确的新状态；不得为日程或地点补全主模型没有明确写出的字段。
-
-${logic}\n\n${feeling}
-
-${privateRawOutputProtocol(!!opts.imageGenerationEnabled)}
-【发送前最终检查】只保留符合上述协议的逐行草稿；不要输出检查过程、解释或 JSON。`,
+    full: `${logic}\n\n${feeling}
+【发送前最终检查】只输出自然聊天正文；不要输出检查过程、解释或JSON。`,
   }
 }
 

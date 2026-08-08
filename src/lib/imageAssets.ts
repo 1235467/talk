@@ -132,7 +132,7 @@ export function composeImagePrompt(input: {
     ? `Show exactly ${people.length} distinct ${people.length === 1 ? 'person' : 'people'}. Preserve each identity, do not blend faces, duplicate people, swap features, or add extra people.`
     : 'No people in the image unless an incidental distant figure is essential to the scene.'
   const kindRule = kind === 'selfie' ? 'casual handheld selfie composition' : kind === 'portrait' ? 'natural portrait composition' : kind === 'group' ? 'balanced group photo composition with each person clearly distinguishable' : kind === 'object' ? 'object-focused composition' : 'environment-focused composition'
-  return [style, kindRule, `Scene: ${scene}`, labels, countRule, 'Choose scene-appropriate clothing and natural poses. Correct anatomy and hands. No watermark, captions, UI, or unrelated text.'].filter(Boolean).join('\n')
+  return [style, kindRule, `Image request from the JSON query (follow this request faithfully):\n${scene}`, labels, countRule, 'Choose scene-appropriate clothing and natural poses. Correct anatomy and hands. No watermark, captions, UI, or unrelated text.'].filter(Boolean).join('\n')
 }
 
 export interface CreateMediaAssetInput {

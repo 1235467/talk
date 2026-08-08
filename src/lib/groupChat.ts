@@ -95,21 +95,6 @@ export function stripSpeakerNamePrefix(content: string, memberNames: string[]): 
   return content
 }
 
-export function groupRawOutputProtocol(imageGenerationEnabled: boolean, energyLevel: GroupEnergyLevel = 'normal'): string {
-  return `固定输出协议（不可编辑，优先级最高）：
-- 只输出群聊纯文本草稿，不输出JSON、分析、标题或Markdown。
-- 每一行严格使用：<人名>（想法）[emoji心情]“消息内容”
-- 人名只能来自本轮发言人；想法和心情不得为空；心情只能使用一个允许的emoji。
-- 示例：<林夏>（确认见面）[😊]“好，那就这么定。”
-- 图片示例：<林夏>（把照片发过去）[📷]“[image:an English image prompt:配文]”。决定发图时必须输出这个标记，不能只用“我拍给你看”代替。
-- 表情写成[sticker:名称或搜索词]；图片写成[image:英文提示词或搜索词:配文]；陌生知识查询写成[knowledge:关键词]。
-- 消息内容不得残留人名冒号、结构标记或外层格式。
-- 日程卡片只能由已明确同意的本人输出：[schedule:date=YYYY-MM-DD;startHour=0-23;endHour=1-24;locationId=合法地点ID;activity=活动;phoneAccess=available|unavailable;summary=摘要]。该行的发言人就是唯一可变更日程的人；缺少任一字段时不得输出。
-- 地点卡片只能由本人明确抵达时输出：[location:locationId=合法地点ID;summary=到达原因]。不得根据聊天语气猜测地点。
-${imageGenerationEnabled ? '- 生图标记中的英文提示词至少100个英文词；应具体描述当次主体、场景、服装、动作、构图、镜头、光线、色彩、材质和氛围。\n' : ''}
-【本轮输出配额】热闹程度=${energyLevel}。cold 为1到3行，normal 为3到7行，lively 为6到12行；此规则与格式同级，必须遵守。`
-}
-
 function buildGroupPrompt(opts: {
   stylePrompt: string
   groupName: string
@@ -200,17 +185,9 @@ ${samplesText ? `- 说话样例:\n${samplesText}` : ''}`
     stickerCapabilities: opts.remoteStickerSearchEnabled ? `支持远程搜索；本地可用项：${stickersText}` : stickersText,
     imageCapabilities: opts.imageGenerationEnabled ? '支持按完整英文提示词生图' : opts.imageSearchEnabled ? '支持按英文关键词搜索真实图片' : '未启用',
   }) ?? ''
-  const protocol = groupRawOutputProtocol(!!opts.imageGenerationEnabled, opts.energyLevel ?? 'normal')
-  const priority = `【内容事实优先级｜仅在格式合格后适用】
-人设（身份、边界、与用户和群友的关系） > 最近几轮原始对话与本轮消息 > 记忆 > 过去经历和世界书背景。前一层与后一层冲突时，必须服从前一层；不得用记忆或经历覆盖用户最新明确状态。`
-  const finalPrompt = `${protocol}
+  const finalPrompt = `${editableGroupPrompt}
 
-${priority}
-
-${editableGroupPrompt}
-
-${protocol}
-【发送前最终检查】逐行检查发言人、想法、emoji、中文引号、消息标记和行顺序；只输出符合协议的群聊纯文本草稿，不输出检查过程、解释、JSON、标题或Markdown。`
+【发送前最终检查】只输出群成员自然聊天正文；不要输出检查过程、解释或JSON。`
 
   return finalPrompt
 }

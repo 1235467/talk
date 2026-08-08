@@ -1,18 +1,14 @@
 import { create } from 'zustand'
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
-import { chatCompletion as chatCompletionResult, chatCompletionText as chatCompletion, coalesceConsecutiveRoles, type ChatCompletionOptions, type ChatMessage } from './deepseek'
+import { chatCompletionText as chatCompletion, coalesceConsecutiveRoles, type ChatMessage } from './deepseek'
 import {
   parseJsonLoose,
   parseAiResponse,
-  parseStructuredAiResponse,
-  looksLikeStructuredAiResponse,
-  parseRawPrivateDraft,
-  rawPrivateDraftNeedsUtility,
   serializePrivateTurn,
   typingDelayMs,
 } from './aiProtocol'
-import { formatSpeechSamplesForScene, buildRawChatPrompt, buildJsonConversionPrompt, customPersonalityTraitsLine, privateRawOutputProtocol } from './prompt'
+import { formatSpeechSamplesForScene, buildRawChatPrompt, customPersonalityTraitsLine } from './prompt'
 import { retrieveWorldbookTrace } from './worldbook'
 import { isModuleEnabled } from '../features'
 import { CONTEXT_WINDOW_SIZE, activeUpcomingPlansText, maybeUpdateMemory, recentMemoriesText, socialMemoriesText } from './memory'
@@ -42,7 +38,7 @@ import type { CreateSpecialTaskResult } from './agentTasks'
 import { createScheduleInternalTask } from './internalTasks'
 import { createMediaAsset, startMediaAsset } from './imageAssets'
 import { buildDirectOutputInstruction, parseDirectOutputReview } from './directOutput'
-import { auditAndRepairRawTurn } from './responseQuality'
+import { auditAndRepairRawTurn, insertToolCallsIntoRawTurn } from './responseQuality'
 import { traceTurnEvent } from './deepseek'
 import type { AiBubble, AppSettings, Contact, InternalTask, Message, MessageType, ScheduleOverride, Sticker } from '../types'
 
@@ -107,18 +103,6 @@ export function getConversationRuntimeState(conversationId: string): Conversatio
 // Mood expiry is now a user-configurable setting (see ProactiveSettingsPage → mood settings).
 // The default is 30 min, stored in AppSettings.moodExpiryMs.
 const turns = createTurnController()
-
-async function bestEffortUtilityCompletion(opts: ChatCompletionOptions): Promise<string> {
-  try {
-    const result = await chatCompletionResult(opts)
-    if (result.status === 'ok' || (result.status === 'length' && result.content.trim())) return result.content
-    console.warn(`[chat] 格式转换器不可用 status=${result.status}，保留本地可见文本`)
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') throw error
-    console.warn('[chat] 格式转换器调用失败，保留本地可见文本', error)
-  }
-  return ''
-}
 
 function getActiveMood(contact: Contact, now: number): string | undefined {
   if (!contact.mood || !contact.mood.text) return undefined
@@ -492,7 +476,6 @@ async function runAiTurn(
       memoryContext: [userMemoryText, habitText].join('\n\n'),
       situationContext: [
         situationText,
-        locationActionContext,
         experienceText,
         absenceContext,
         lifeEventText ? `【近期生活】${lifeEventText}` : '',
@@ -530,7 +513,7 @@ async function runAiTurn(
         return { role: m.role, content: m.content }
       }),
       ...(regenerationUserMessage ? [{ role: 'user' as const, content: regenerationUserMessage }] : []),
-      { role: 'system', content: `${privateRawOutputProtocol(isImageProviderReady(settings))}\n【最终生成提醒】现在只生成符合上述协议的原文草稿，不输出JSON、分析、标题或Markdown。` },
+      { role: 'system', content: '【最终生成提醒】现在只生成自然聊天正文，不输出JSON、分析、标题或Markdown。' },
     ])
     console.info(`[chat-perf] context-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)}`)
 
@@ -553,8 +536,18 @@ async function runAiTurn(
     if (!turns.isCurrent(conversationId, streamId)) return
     console.log(`[chat] 主模型回复(${rawText.length}字): ${rawText.slice(0, 100)}...`)
 
-    // ---- Step 2: mandatory logic audit and in-place repair. ----
+    // ---- Step 2: utility model inserts executable tool markers. ----
     if (!directOutput) {
+      const tooled = await insertToolCallsIntoRawTurn({
+        settings, rawDraft: rawText,
+        recentContext: formatRecentConversationForReview(recentHistory.slice(-4), contact),
+        locationContext: locationActionContext,
+        scene: 'private', imageGenerationEnabled: isImageProviderReady(settings),
+        signal: controller.signal, trace: { turnId: streamId, conversationId },
+      })
+      rawText = tooled.raw
+      if (!turns.isCurrent(conversationId, streamId)) return
+      // ---- Step 3: mandatory audit and direct JSON translation. ----
       const audited = await auditAndRepairRawTurn({
         settings, masterPrompt: chatMessages[0]?.content ?? contextSections,
         rawDraft: rawText, scene: 'private', regenerationInstruction,
@@ -562,61 +555,16 @@ async function runAiTurn(
       })
       rawText = audited.raw
       if (!turns.isCurrent(conversationId, streamId)) return
-      const auditedDraft = parseRawPrivateDraft(rawText, activeMood)
-      if (rawPrivateDraftNeedsUtility(rawText, auditedDraft)) {
-        throw new Error('审核及修改没有产出符合私聊逐行协议的原文，已阻止进入JSON格式翻译')
-      }
+      if (parseAiResponse(rawText).bubbles.length === 0) throw new Error('审核及修改没有产出有效的私聊JSON')
     }
 
-    // ---- Step 3: mechanically translate the audited raw draft to JSON. ----
-    // when the main model did not follow the explicit line protocol. ----
+    // The audit model performs the final JSON translation; there is no third translator.
     console.info(`[chat-perf] model-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)}`)
-    // Some custom OpenAI-compatible services return the final messages JSON
-    // despite the raw-text draft instruction. Only opt into this compatibility
-    // path for the custom provider: DeepSeek retains its established draft →
-    // local parser / utility converter behaviour unchanged.
-    const customProtocolAttempt = !directOutput
-      && settings.aiProvider === 'custom'
-      && looksLikeStructuredAiResponse(rawText)
-    const customStructuredTurn = customProtocolAttempt ? parseStructuredAiResponse(rawText) : null
-    const localTurn = directOutput
-      ? parseAiResponse(rawText)
-      : customStructuredTurn ?? parseRawPrivateDraft(rawText, activeMood)
-    let conversionPrompt = '本轮使用本地草稿解析，无额外模型调用。'
+    const localTurn = parseAiResponse(rawText)
+    let conversionPrompt = '审核模型已同时完成原文格式审核和JSON翻译；未调用第三个翻译模型。'
     let jsonRaw = serializePrivateTurn(localTurn)
     let parsedTurn = localTurn
-    if (!directOutput) {
-      conversionPrompt = buildJsonConversionPrompt(rawText, contact.jsonProtocolOverride)
-      jsonRaw = await bestEffortUtilityCompletion({
-        apiKey: settings.apiKey,
-        baseUrl: settings.baseUrl,
-        model: settings.utilityModel,
-        messages: [
-          { role: 'system', content: conversionPrompt },
-          { role: 'user', content: '请执行上述转换，并且只输出指定的 JSON 对象。' },
-        ],
-        jsonMode: true,
-        signal: controller.signal,
-        purpose: proactiveContext ? 'proactive' : 'chat',
-        automatic: !!proactiveContext,
-        thinking: 'disabled',
-        temperature: 0.1,
-        maxTokens: 900,
-        trace: { turnId: streamId, stage: 'json_translation', conversationId },
-      })
-      if (!turns.isCurrent(conversationId, streamId)) return
-      const converted = parseAiResponse(jsonRaw)
-      if (converted.bubbles.length > 0) parsedTurn = converted
-      else if (customProtocolAttempt) {
-        // Do not expose protocol keys such as { / messages / type as chat
-        // bubbles when both the custom endpoint and the converter fail.
-        parsedTurn = { bubbles: [], knowledgeQueries: [] }
-        jsonRaw = ''
-      } else jsonRaw = serializePrivateTurn(localTurn)
-      console.log(`[chat] 草稿格式不完整，已用多功能模型转换JSON: ${jsonRaw.slice(0, 200)}`)
-    } else if (!directOutput) {
-      console.log(`[chat] 本地解析完成，跳过多功能模型转换`)
-    } else {
+    if (directOutput) {
       conversionPrompt = '一次调用直出：主模型直接返回最终 JSON，不调用格式转换模型。'
       jsonRaw = rawText
     }
@@ -661,37 +609,16 @@ async function runAiTurn(
           ? { ...message, content: `${message.content}\n\n【针对陌生词汇的搜索结果】\n${knowledge.text}\n你刚才对陌生词汇自然表示了疑问。现在根据可靠搜索结果重新回答用户，语气要自然，不要写成搜索报告，也不要提审查流程。` }
           : message)
         rawText = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, messages: enrichedMessages, signal: controller.signal, purpose: proactiveContext ? 'proactive' : 'chat', automatic: !!proactiveContext, thinking: 'disabled', temperature: regenerationInstruction ? 0.55 : 0.9, maxTokens: proactiveContext ? 700 : 800, trace: { turnId: streamId, stage: 'second_chat', conversationId } })
-        const enrichedCustomProtocolAttempt = settings.aiProvider === 'custom'
-          && looksLikeStructuredAiResponse(rawText)
-        const enrichedStructuredTurn = enrichedCustomProtocolAttempt ? parseStructuredAiResponse(rawText) : null
-        const enrichedLocalTurn = enrichedStructuredTurn ?? parseRawPrivateDraft(rawText, turnMood || activeMood)
-        if (!enrichedStructuredTurn && rawPrivateDraftNeedsUtility(rawText, enrichedLocalTurn)) {
-          conversionPrompt = buildJsonConversionPrompt(rawText, contact.jsonProtocolOverride)
-          jsonRaw = await bestEffortUtilityCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.utilityModel, messages: [{ role: 'system', content: conversionPrompt }, { role: 'user', content: '请执行上述转换，并且只输出指定的 JSON 对象。' }], jsonMode: true, signal: controller.signal, purpose: proactiveContext ? 'proactive' : 'chat', automatic: !!proactiveContext, thinking: 'disabled', temperature: 0.1, maxTokens: 900, trace: { turnId: streamId, stage: 'other', conversationId } })
-          finalRaw = jsonRaw
-          const converted = parseAiResponse(finalRaw)
-          if (converted.bubbles.length > 0) {
-            ;({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought } = converted)
-          } else if (enrichedCustomProtocolAttempt) {
-            // Same custom-provider safety gate as the first reply: malformed
-            // protocol JSON must not become visible { / messages / type lines.
-            jsonRaw = ''
-            finalRaw = ''
-            bubbles = []
-            knowledgeQueries = []
-            turnMood = undefined
-            turnThought = undefined
-          } else {
-            jsonRaw = serializePrivateTurn(enrichedLocalTurn)
-            finalRaw = jsonRaw
-            ;({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought } = enrichedLocalTurn)
-          }
-        } else {
-          conversionPrompt = '联网补全后的回复使用本地草稿解析，无额外模型调用。'
-          jsonRaw = serializePrivateTurn(enrichedLocalTurn)
-          finalRaw = jsonRaw
-          ;({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought } = enrichedLocalTurn)
-        }
+        const enrichedTooled = await insertToolCallsIntoRawTurn({ settings, rawDraft: rawText, recentContext: formatRecentConversationForReview(recentHistory.slice(-4), contact), locationContext: locationActionContext, scene: 'private', imageGenerationEnabled: isImageProviderReady(settings), signal: controller.signal, trace: { turnId: streamId, conversationId } })
+        rawText = enrichedTooled.raw
+        const enrichedAudited = await auditAndRepairRawTurn({ settings, masterPrompt: chatMessages[0]?.content ?? contextSections, rawDraft: rawText, scene: 'private', regenerationInstruction, signal: controller.signal, trace: { turnId: streamId, conversationId } })
+        rawText = enrichedAudited.raw
+        const converted = parseAiResponse(rawText)
+        if (converted.bubbles.length === 0) throw new Error('联网补全后的审核模型没有产出有效JSON')
+        conversionPrompt = '联网补全后的审核模型已同时完成原文审核和JSON翻译。'
+        jsonRaw = rawText
+        finalRaw = jsonRaw
+        ;({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought } = converted)
       }
     }
     console.log(`[chat] 收到回复(${finalRaw.length}字) 解析出${bubbles.length}条气泡 mood=${turnMood || '无'} thought=${turnThought ? '有(' + turnThought.length + '字)' : '无'} 对方=${displayName(contact)}`)
@@ -931,7 +858,7 @@ function revealBubbles(
             const asset = await createMediaAsset({
               origin: 'chat', originId: messageId, conversationId, turnId: streamId,
               ownerContactIds: participants.includes('self') ? [contact.id] : [],
-              includeUser: participants.includes('user'), scene: bubble.scene || bubble.query,
+              includeUser: participants.includes('user'), scene: bubble.query,
               kind, settings,
             })
             imageAssetId = asset.id

@@ -1,17 +1,13 @@
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
-import { chatCompletion as chatCompletionResult, chatCompletionText as chatCompletion, coalesceConsecutiveRoles, type ChatCompletionOptions, type ChatMessage } from './deepseek'
+import { chatCompletionText as chatCompletion, coalesceConsecutiveRoles, type ChatMessage } from './deepseek'
 import {
-  buildGroupJsonConversionPrompt,
   buildGroupRawChatPrompt,
-  groupRawOutputProtocol,
   buildLocationRawChatPrompt,
   groupTypingDelayMs,
   parseGroupAiResponse,
-  parseGroupRawDraft,
   pickSociallyConnectedSpeakers,
   selectGroupImageParticipantIds,
-  serializeGroupTurn,
   stripSpeakerNamePrefix,
 } from './groupChat'
 import { parseJsonLoose } from './aiProtocol'
@@ -38,7 +34,7 @@ import { retrieveWorldbookContext } from './worldbook'
 import { featureActive, promptModuleEnabled } from './promptModules'
 import { realisticReplyDelayMs } from './replyTiming'
 import { createMediaAsset, startMediaAsset } from './imageAssets'
-import { auditAndRepairRawTurn } from './responseQuality'
+import { auditAndRepairRawTurn, insertToolCallsIntoRawTurn } from './responseQuality'
 import { traceTurnEvent } from './deepseek'
 import type { AppSettings, Contact, Group, GroupAiBubble, Message, Sticker } from '../types'
 
@@ -68,18 +64,6 @@ async function loadSpeakerMemories(speakers: Contact[]): Promise<Map<string, str
  */
 const turns = createTurnController()
 const REPLY_TIMEOUT_MS = 30_000
-
-async function bestEffortUtilityCompletion(opts: ChatCompletionOptions): Promise<string> {
-  try {
-    const result = await chatCompletionResult(opts)
-    if (result.status === 'ok' || (result.status === 'length' && result.content.trim())) return result.content
-    console.warn(`[group] 格式转换器不可用 status=${result.status}，保留本地草稿`)
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') throw error
-    console.warn('[group] 格式转换器调用失败，保留本地草稿', error)
-  }
-  return ''
-}
 
 function scheduleGroupAiTurn(
   conversationId: string,
@@ -426,7 +410,6 @@ async function runGroupAiTurn(
     const aiRelationshipText = featureActive(settings, 'relationship') ? await aiRelationshipPrompt(members) : ''
     const remoteStickerSearchEnabled = isStickerProviderReady(settings)
     const imageGenerationEnabled = isImageProviderReady(settings)
-    const mediaPromptOptions = { remoteStickerSearchEnabled, imageGenerationEnabled }
     const location = group.kind === 'location' && group.locationId ? await db.locations.get(group.locationId) : undefined
     const promptBuilder = group.kind === 'location' ? buildLocationRawChatPrompt : buildGroupRawChatPrompt
     const participantPositions = locationParticipants
@@ -491,7 +474,7 @@ async function runGroupAiTurn(
       ].filter(Boolean).join('\n\n') },
       ...recentHistory.map((m): ChatMessage => formatGroupHistoryMessage(m, contactById, messageById, settings.userNickname)),
       ...(regenerationUserMessage ? [{ role: 'user' as const, content: regenerationUserMessage }] : []),
-      { role: 'system', content: `${groupRawOutputProtocol(imageGenerationEnabled, group.energyLevel ?? 'normal')}\n【最终生成提醒】现在只生成符合上述协议的群聊原文草稿，不输出JSON、分析、标题或Markdown。` },
+      { role: 'system', content: '【最终生成提醒】现在只生成自然群聊正文，不输出JSON、分析、标题或Markdown。' },
     ])
     let rawText = await chatCompletion({
       apiKey: settings.apiKey,
@@ -510,6 +493,14 @@ async function runGroupAiTurn(
     if (!turns.isCurrent(conversationId, streamId)) return
     console.log(`[group] 主模型群聊草稿(${rawText.length}字): ${rawText.slice(0, 160)}...`)
     if (!directOutput) {
+      const tooled = await insertToolCallsIntoRawTurn({
+        settings, rawDraft: rawText,
+        recentContext: recentHistory.slice(-4).map((message) => formatGroupHistoryMessage(message, contactById, messageById, settings.userNickname).content).join('\n'),
+        scene: 'group', imageGenerationEnabled,
+        signal: controller.signal, trace: { turnId: streamId, conversationId },
+      })
+      rawText = tooled.raw
+      if (!turns.isCurrent(conversationId, streamId)) return
       const audited = await auditAndRepairRawTurn({
         settings, masterPrompt: chatMessages[0]?.content ?? systemPrompt,
         rawDraft: rawText, scene: 'group', regenerationInstruction,
@@ -517,48 +508,13 @@ async function runGroupAiTurn(
       })
       rawText = audited.raw
       if (!turns.isCurrent(conversationId, streamId)) return
-      const auditedDraft = parseGroupRawDraft(rawText, speakers, stickers.map((sticker) => sticker.name), remoteStickerSearchEnabled)
-      if (!auditedDraft.valid) {
-        throw new Error(`审核及修改没有产出符合群聊逐行协议的原文：${auditedDraft.reason || '格式不完整'}；已阻止进入JSON格式翻译`)
-      }
+      if (parseGroupAiResponse(rawText, speakers.length).bubbles.length === 0) throw new Error('审核及修改没有产出有效的群聊JSON')
     }
     let draftFeedback: string | undefined
-    let localDraft = parseGroupRawDraft(rawText, speakers, stickers.map((sticker) => sticker.name), remoteStickerSearchEnabled)
-    localDraft.groupVibe = group.vibe || '自然、轻松的日常群聊。'
-    let parsedTurn = directOutput ? { ...parseGroupAiResponse(rawText, speakers.length), valid: true, needsUtility: false } : localDraft
-    let jsonRaw = directOutput ? rawText : serializeGroupTurn(localDraft)
-    if (!directOutput) {
-      draftFeedback = !localDraft.valid
-        ? `格式已交给多功能模型修复：${localDraft.reason || '草稿格式不完整'}`
-        : '本轮可能包含共同计划，交给多功能模型提取结构化动作。'
-      jsonRaw = await bestEffortUtilityCompletion({
-        apiKey: settings.apiKey,
-        baseUrl: settings.baseUrl,
-        model: settings.utilityModel,
-        messages: [{
-          role: 'system',
-          content: buildGroupJsonConversionPrompt(rawText, speakers, stickers.map((s) => s.name), mediaPromptOptions, members),
-        }, {
-          role: 'user',
-          content: '请执行上述转换，并且只输出指定的 JSON 对象。',
-        }],
-        jsonMode: true,
-        signal: controller.signal,
-        thinking: 'disabled',
-        temperature: 0.1,
-        maxTokens: 900,
-        trace: { turnId: streamId, stage: 'json_translation', conversationId },
-      })
-      if (!turns.isCurrent(conversationId, streamId)) return
-      const converted = parseGroupAiResponse(jsonRaw, speakers.length)
-      if (converted.bubbles.length > 0) parsedTurn = { ...converted, valid: true, needsUtility: false }
-      else jsonRaw = serializeGroupTurn(localDraft)
-      console.log(`[group] ${draftFeedback}`)
-    } else if (!directOutput) {
-      console.log('[group] 本地解析完成，跳过草稿审查与多功能模型转换')
-    } else {
-      console.log('[group] 一次调用直出：主模型 JSON 已直接解析')
-    }
+    const parsedTurn = { ...parseGroupAiResponse(rawText, speakers.length), valid: true, needsUtility: false }
+    let jsonRaw = rawText
+    if (parsedTurn.bubbles.length === 0) throw new Error('主模型没有产出有效的群聊JSON')
+    console.log('[group] 审核模型已完成群聊原文审核和JSON翻译，未调用第三个翻译模型')
 
     let finalRaw = jsonRaw
     let { bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = parsedTurn
@@ -608,7 +564,7 @@ async function runGroupAiTurn(
           {
             role: 'user',
             content: `上一版群聊回复存在客观逻辑错误：${reviewFailure}
-请依据原始上下文重写完整群聊草稿。不要解释，不要输出JSON；每行仍严格使用 <人名>（想法）[心情]“消息内容”。`,
+请依据原始上下文重写完整群聊自然文本。不要解释，不要输出JSON、Markdown或标题。`,
           },
         ]),
         signal: controller.signal,
@@ -619,38 +575,14 @@ async function runGroupAiTurn(
         trace: { turnId: streamId, stage: 'second_chat', conversationId },
       })
       if (!turns.isCurrent(conversationId, streamId)) return
-      localDraft = parseGroupRawDraft(rawText, speakers, stickers.map((sticker) => sticker.name), remoteStickerSearchEnabled)
-      localDraft.groupVibe = group.vibe || '自然、轻松的日常群聊。'
-      if (!localDraft.valid || localDraft.needsUtility) {
-        jsonRaw = await bestEffortUtilityCompletion({
-          apiKey: settings.apiKey,
-          baseUrl: settings.baseUrl,
-          model: settings.utilityModel,
-          messages: [{
-            role: 'system',
-            content: buildGroupJsonConversionPrompt(rawText, speakers, stickers.map((sticker) => sticker.name), mediaPromptOptions, members),
-          }, {
-            role: 'user',
-            content: '请执行上述转换，并且只输出指定的 JSON 对象。',
-          }],
-          jsonMode: true,
-          signal: controller.signal,
-          thinking: 'disabled',
-          temperature: 0.1,
-          maxTokens: 900,
-          trace: { turnId: streamId, stage: 'other', conversationId },
-        })
-        const converted = parseGroupAiResponse(jsonRaw, speakers.length)
-        if (converted.bubbles.length > 0) {
-          ;({ bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = converted)
-        } else {
-          jsonRaw = serializeGroupTurn(localDraft)
-          ;({ bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = localDraft)
-        }
-      } else {
-        jsonRaw = serializeGroupTurn(localDraft)
-        ;({ bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = localDraft)
-      }
+      const convertedTooled = await insertToolCallsIntoRawTurn({ settings, rawDraft: rawText, recentContext: recentHistory.slice(-4).map((message) => formatGroupHistoryMessage(message, contactById, messageById, settings.userNickname).content).join('\n'), scene: 'group', imageGenerationEnabled, signal: controller.signal, trace: { turnId: streamId, conversationId } })
+      rawText = convertedTooled.raw
+      const audited = await auditAndRepairRawTurn({ settings, masterPrompt: chatMessages[0]?.content ?? systemPrompt, rawDraft: rawText, scene: 'group', regenerationInstruction, signal: controller.signal, trace: { turnId: streamId, conversationId } })
+      rawText = audited.raw
+      const converted = parseGroupAiResponse(rawText, speakers.length)
+      if (converted.bubbles.length === 0) throw new Error('主模型重写后的审核模型没有产出有效JSON')
+      jsonRaw = rawText
+      ;({ bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = converted)
       finalRaw = jsonRaw
       logicReview = (() => undefined as { status: 'pass' | 'reject' | 'unavailable'; reason: string } | undefined)()
       if (logicReview?.status === 'unavailable') {
@@ -665,19 +597,15 @@ async function runGroupAiTurn(
       const knowledge = await resolveKnowledgeQueries(knowledgeQueries, settings)
       if (knowledge.text) {
         rawText = await chatCompletion({ apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.model,messages:[...chatMessages,{role:'user',content:`刚才出现了你们不了解的词。搜索结果如下：\n${knowledge.text}${reviewFailure?`\n\n上一版审查问题：${reviewFailure}，重写时同时修正。`:''}\n请基于结果重新生成群聊草稿，保持原群聊格式，像刚查明白后自然接话，不要写成报告。${regenerationUserMessage ? `\n\n再次确认：仍必须严格执行前述“最高优先级剧情要求”。` : ''}`}],signal:controller.signal, thinking:'disabled',temperature:regenerationInstruction ? 0.55 : 0.9,maxTokens:1800,trace:{turnId:streamId,stage:'second_chat',conversationId} })
-        localDraft = parseGroupRawDraft(rawText, speakers, stickers.map((sticker) => sticker.name), remoteStickerSearchEnabled)
-        localDraft.groupVibe = group.vibe || '自然、轻松的日常群聊。'
-        if (!localDraft.valid || localDraft.needsUtility) {
-          jsonRaw = await bestEffortUtilityCompletion({apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.utilityModel,messages:[{role:'system',content:buildGroupJsonConversionPrompt(rawText,speakers,stickers.map(s=>s.name),mediaPromptOptions,members)},{role:'user',content:'请执行上述转换，并且只输出指定的 JSON 对象。'}],jsonMode:true,signal:controller.signal,thinking:'disabled',temperature:0.1,maxTokens:1400,trace:{turnId:streamId,stage:'other',conversationId}})
-          finalRaw=jsonRaw
-          const converted=parseGroupAiResponse(finalRaw,speakers.length)
-          if(converted.bubbles.length>0){;({bubbles,knowledgeQueries,turnSummary,groupVibe,planCandidates}=converted)}
-          else{jsonRaw=serializeGroupTurn(localDraft);finalRaw=jsonRaw;({bubbles,knowledgeQueries,turnSummary,groupVibe,planCandidates}=localDraft)}
-        } else {
-          jsonRaw = serializeGroupTurn(localDraft)
-          finalRaw = jsonRaw
-          ;({bubbles,knowledgeQueries,turnSummary,groupVibe,planCandidates}=localDraft)
-        }
+        const enrichedTooled = await insertToolCallsIntoRawTurn({ settings, rawDraft: rawText, recentContext: recentHistory.slice(-4).map((message) => formatGroupHistoryMessage(message, contactById, messageById, settings.userNickname).content).join('\n'), scene: 'group', imageGenerationEnabled, signal: controller.signal, trace: { turnId: streamId, conversationId } })
+        rawText = enrichedTooled.raw
+        const enrichedAudited = await auditAndRepairRawTurn({ settings, masterPrompt: chatMessages[0]?.content ?? systemPrompt, rawDraft: rawText, scene: 'group', regenerationInstruction, signal: controller.signal, trace: { turnId: streamId, conversationId } })
+        rawText = enrichedAudited.raw
+        const enrichedConverted = parseGroupAiResponse(rawText, speakers.length)
+        if (enrichedConverted.bubbles.length === 0) throw new Error('知识补全后的审核模型没有产出有效群聊JSON')
+        jsonRaw = rawText
+        finalRaw = jsonRaw
+        ;({ bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = enrichedConverted)
       }
     }
     console.log(`[group] 收到回复(${finalRaw.length}字) 解析出${bubbles.length}条气泡 群=${group.name}`)
@@ -796,7 +724,7 @@ function revealGroupBubbles(
               .filter((id): id is string => !!id)
             if (participantIds.length === 0 && kind !== 'scene' && kind !== 'object') participantIds = speaker ? [speaker.id] : []
             participantIds = selectGroupImageParticipantIds(participantIds, speaker?.id)
-            const asset = await createMediaAsset({ origin: 'chat', originId: messageId, conversationId, turnId: streamId, ownerContactIds: participantIds, includeUser: bubble.includeUser, scene: bubble.scene || bubble.query, kind, settings })
+            const asset = await createMediaAsset({ origin: 'chat', originId: messageId, conversationId, turnId: streamId, ownerContactIds: participantIds, includeUser: bubble.includeUser, scene: bubble.query, kind, settings })
             imageAssetId = asset.id
             imagePayload = { assetId: asset.id, caption: bubble.caption, query: bubble.query, provider: asset.provider }
           } catch (error) { console.warn('[media] 创建群聊图片任务失败', error); imageFailed = true }
