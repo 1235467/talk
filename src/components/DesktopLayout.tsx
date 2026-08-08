@@ -119,10 +119,10 @@ function DesktopSidebar({ section }: { section: DesktopSection }) {
       </div>
       {showCreateMenu && (section === 'messages' || section === 'contacts') && (
         <div className="desktop-create-menu" role="menu" aria-label="新建菜单">
-          <button type="button" role="menuitem" onClick={() => { setShowCreateMenu(false); navigate('/contact/new') }}>
+          <button type="button" role="menuitem" onClick={() => { setShowCreateMenu(false); void navigate('/contact/new') }}>
             添加联系人
           </button>
-          <button type="button" role="menuitem" onClick={() => { setShowCreateMenu(false); navigate('/group/new') }}>
+          <button type="button" role="menuitem" onClick={() => { setShowCreateMenu(false); void navigate('/group/new') }}>
             创建群聊
           </button>
         </div>
