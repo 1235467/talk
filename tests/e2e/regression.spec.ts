@@ -152,10 +152,11 @@ test('settings page exports a complete Talk backup json', async ({ page }) => {
 
   const backup = JSON.parse(await import('node:fs/promises').then((fs) => fs.readFile(path!, 'utf8')))
   expect(backup.format).toBe('talk-backup')
-  expect(backup.schemaVersion).toBe(7)
+  expect(backup.schemaVersion).toBe(8)
   expect(backup.settings.userNickname).toBe('Backup User')
   expect(backup.tables.contacts).toHaveLength(1)
   expect(backup.tables.conversations).toHaveLength(1)
+  expect(backup.tables.mediaAssets).toEqual([])
   expect(backup.tables.messages).toHaveLength(1)
   expect(Object.keys(backup.tables)).toEqual(
     expect.arrayContaining(['stickers', 'moments', 'knowledgeEntries', 'libraryItems', 'savedWorldviews', 'worldbookEntries', 'contactMemories', 'shopPurchaseHistory', 'contactGenerationTasks']),

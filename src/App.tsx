@@ -17,6 +17,7 @@ import { ensureLegacyWorldviewMigrated } from './lib/worldbook'
 import { syncContactLocationsAt } from './lib/locations'
 import { initializeContactGenerationTasks } from './lib/contactGenerationTasks'
 import { ensureContactPromptSnapshots } from './lib/promptPresets'
+import { resumeMediaAssets } from './lib/imageAssets'
 // Tab pages are the landing screen — keep them eager. Everything else is
 // route-level code-split (lazy) so the initial bundle stays small; matches
 // how features/* already lazy-load their pages.
@@ -144,6 +145,7 @@ function useLocationResumeSync() {
 
 function App() {
   useAutonomousBehaviorTimer()
+  useEffect(() => { void resumeMediaAssets() }, [])
   useAndroidBackButton()
   useLocationResumeSync()
   const themeMode = useSettingsStore((s) => s.themeMode ?? 'light')

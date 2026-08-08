@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
-import { createBackup, restoreBackup, type TalkBackup } from './backup'
+import { createBackup, mergeSettingsPreservingSecrets, restoreBackup, type TalkBackup } from './backup'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { resetAllChatTurns } from './chatEngine'
 import { resetAllGroupChatTurns } from './groupChatEngine'
@@ -21,7 +21,7 @@ export async function loadSaveSlot(slot: number) {
   resetAllGroupChatTurns()
   const snapshot = save.snapshot as TalkBackup
   await restoreBackup(snapshot)
-  useSettingsStore.setState(snapshot.settings)
+  useSettingsStore.setState(mergeSettingsPreservingSecrets(snapshot.settings, useSettingsStore.getState()))
 }
 
 export async function deleteSaveSlot(slot: number) {

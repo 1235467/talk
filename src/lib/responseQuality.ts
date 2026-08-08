@@ -30,6 +30,57 @@ function parseQualityResult(raw: string): QualityResult | null {
   }
 }
 
+/**
+ * The mandatory middle stage for normal chat turns.  The reviewer receives
+ * the exact master prompt and draft, but may only return a replacement in the
+ * same raw protocol – it never gets authority to invent a different format.
+ */
+export async function auditAndRepairRawTurn(opts: {
+  settings: AppSettings
+  masterPrompt: string
+  rawDraft: string
+  scene: 'private' | 'group'
+  regenerationInstruction?: string
+  signal?: AbortSignal
+  trace: { turnId: string; conversationId: string }
+}): Promise<{ raw: string; repaired: boolean; reason: string }> {
+  const protocol = opts.scene === 'group'
+    ? `每行只能写：<本轮发言人姓名>（非空想法）[一个emoji]“消息内容”。
+示例：<林夏>（确认见面）[😊]“好，那就这么定。”
+图片示例：<林夏>（把照片发过去）[📷]“[image:English prompt:配文]”。`
+    : `每行只能写：（非空想法）[一个emoji]“消息内容”。
+示例：（确认见面）[😊]“好，那就这么定。”
+图片示例：（把照片发过去）[📷]“[image:English prompt:配文]”。`
+  // Put the draft in the highest-authority message and before the long master
+  // prompt. The reviewer must inspect what was actually written, rather than
+  // merely remembering the requested format after a large context window.
+  const prompt = `【待审核原文｜必须逐行核对，优先阅读】
+${opts.rawDraft}
+
+You are the mandatory logic auditor and repairer for a roleplay reply. Output JSON only: {"valid":true|false,"reason":"short","fixedRaw":""}.
+The raw draft above is the object being judged. A line that does not exactly match the protocol below is invalid; do not mark it valid because its prose is natural.
+Immutable output protocol:
+${protocol}
+Executable markers such as [sticker:...], [image:...:...], [knowledge:...], and [schedule:...] must remain inside the Chinese quotation marks as the message content.
+Priority is immutable: (1) output protocol and executable-marker syntax; (2) persona, identity, boundaries, and relationships; (3) the recent raw conversation and latest user instruction; (4) memory; (5) past experiences and worldbook background. A lower layer may never override a higher layer.
+Only audit and repair the raw output protocol and the mechanical marker syntax. Do not judge whether the roleplay logic, image decision, schedule decision, location decision, persona choice, or story direction is correct; those decisions belong to the main model and the main prompt. Do not add missing actions or markers based on your own reasoning.
+Do a complete scan for format errors, not just the first error. A single draft may contain multiple independent format errors, and all of them must be repaired in the same pass.
+Preserve all valid content, marker order, and card placement whenever possible.
+If valid, set valid=true and fixedRaw="". If invalid, set valid=false and rewrite the COMPLETE draft in fixedRaw. fixedRaw must use exactly the protocol above. Preserve valid marker order and card placement; do not output JSON, headings, explanations, or a different format inside fixedRaw.`
+  const result = await chatCompletion({
+    apiKey: opts.settings.apiKey, baseUrl: opts.settings.baseUrl,
+    model: opts.settings.utilityModel || opts.settings.model, jsonMode: true,
+    thinking: 'disabled', temperature: 0, maxTokens: 1800, purpose: 'quality', signal: opts.signal,
+    trace: { turnId: opts.trace.turnId, stage: 'review_and_repair', conversationId: opts.trace.conversationId },
+    messages: [{ role: 'system', content: prompt }, { role: 'user', content: `【完整主模型提示词｜用于核对事实，不能覆盖待审核原文】\n${opts.masterPrompt}` }],
+  })
+  const parsed = parseQualityResult(result)
+  if (!parsed) throw new Error('审核及修改模型没有返回有效结果')
+  if (parsed.valid) return { raw: opts.rawDraft, repaired: false, reason: parsed.reason }
+  if (!parsed.fixedRaw) throw new Error(`审核及修改模型未提供修复稿：${parsed.reason || '未知原因'}`)
+  return { raw: parsed.fixedRaw, repaired: true, reason: parsed.reason }
+}
+
 function privateBubblesText(bubbles: AiBubble[]): string {
   return bubbles
     .map((b) => {
@@ -50,7 +101,7 @@ function groupBubblesText(bubbles: GroupAiBubble[], speakers: Contact[]): string
       const name = speaker ? displayName(speaker) : `speaker${b.speakerIndex}`
       const meta = [b.thought ? `thought=${b.thought}` : '', b.mood ? `mood=${b.mood}` : ''].filter(Boolean).join(', ')
       const suffix = meta ? ` (${meta})` : ''
-      return b.type === 'text' ? `${name}: ${b.content}${suffix}` : b.type === 'sticker' ? `${name}: [sticker:${b.name}]${suffix}` : `${name}: [image:${b.query}]${suffix}`
+      return b.type === 'text' ? `${name}: ${b.content}${suffix}` : b.type === 'sticker' ? `${name}: [sticker:${b.name}]${suffix}` : b.type === 'scheduleChange' ? `${name}: [schedule:${b.summary}]${suffix}` : `${name}: [image:${b.query}]${suffix}`
     })
     .join('\n')
 }

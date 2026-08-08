@@ -48,6 +48,9 @@ export interface ImageGenerationProgress {
 export interface ImageGenerationOptions {
   signal?: AbortSignal
   onProgress?: (progress: ImageGenerationProgress) => void
+  predictionId?: string
+  onPredictionId?: (predictionId: string) => void | Promise<void>
+  seed?: number
 }
 
 type ResponseKind = 'json' | 'text' | 'bytes' | 'auto'
@@ -206,6 +209,17 @@ function imageUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const text = value.trim()
   if (text.startsWith('data:image/')) return text
+  // Some image APIs return the encoded bytes without the data-URL prefix.
+  // Recognize common image signatures so Atlas' base64 output can be shown
+  // directly without making a second request to its media host.
+  const inlineMime = text.startsWith('iVBORw0KGgo')
+    ? 'image/png'
+    : text.startsWith('/9j/')
+      ? 'image/jpeg'
+      : text.startsWith('UklGR')
+        ? 'image/webp'
+        : ''
+  if (inlineMime) return `data:${inlineMime};base64,${text}`
   try {
     const parsed = new URL(text)
     return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.toString() : null
@@ -418,43 +432,92 @@ function atlasPredictionId(payload: unknown): string {
   return values.find((value): value is string => typeof value === 'string' && !!value.trim())?.trim() ?? ''
 }
 
+function atlasImageFromOutputs(payload: unknown, query: string): GeneratedImageResult | null {
+  const outputs = getPath(payload, 'data.outputs') ?? getPath(payload, 'outputs')
+  if (!Array.isArray(outputs)) return null
+  for (const output of outputs) {
+    const url = imageUrl(output)
+    if (url) return { url, query, provider: 'atlas' }
+  }
+  return null
+}
+
+function waitForAtlasPoll(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(new DOMException('请求已取消', 'AbortError'))
+  return new Promise((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout>
+    const finish = (complete: () => void) => {
+      signal?.removeEventListener('abort', abort)
+      complete()
+    }
+    const abort = () => {
+      clearTimeout(timer)
+      finish(() => reject(new DOMException('请求已取消', 'AbortError')))
+    }
+    timer = setTimeout(() => finish(resolve), delayMs)
+    signal?.addEventListener('abort', abort, { once: true })
+  })
+}
+
 async function generateAtlas(
   settings: Pick<AppSettings, 'imageProviders'>,
   query: string,
+  options: ImageGenerationOptions = {},
 ): Promise<GeneratedImageResult | null> {
   const config = settings.imageProviders.atlas
   const baseUrl = trimBaseUrl(config.baseUrl)
   const preset = atlasImageModelPreset(config.model)
-  const response = await mediaRequest(`${baseUrl}/model/generateImage`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${config.apiKey.trim()}`, 'Content-Type': 'application/json' },
-    data: {
-      model: config.model,
-      prompt: joinedPrompt(config.promptPrefix, query),
-      ...(preset?.includeSize === false ? {} : { size: config.size }),
-      enable_base64_output: false,
-    },
-  })
-  ensureOk(response, 'Atlas')
-  const immediate = generatedImageFromPayload(getPath(response.data, 'data.outputs') ?? response.data, 'atlas', query)
-  if (immediate) return immediate
-  const predictionId = atlasPredictionId(response.data)
-  if (!predictionId) throw new Error('Atlas 已接收请求，但没有返回任务 ID')
+  let predictionId = options.predictionId?.trim() ?? ''
+  if (!predictionId) {
+    options.onProgress?.({ stage: 'submitting', message: '正在提交 Atlas 生图任务…' })
+    const response = await mediaRequest(`${baseUrl}/model/generateImage`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${config.apiKey.trim()}`, 'Content-Type': 'application/json' },
+      data: {
+        model: config.model,
+        prompt: joinedPrompt(config.promptPrefix, query),
+        ...(preset?.includeSize === false ? {} : { size: config.size }),
+        ...(config.model === 'z-image/turbo'
+          ? { prompt_extend: false, seed: options.seed ?? -1, enable_sync_mode: false }
+          : {}),
+        enable_base64_output: true,
+      },
+      signal: options.signal,
+    })
+    ensureOk(response, 'Atlas')
+    // Atlas responses also contain task URLs (for example result/cancel links).
+    // Only data.outputs contains generated media; recursively scanning the full
+    // response can mistake a protected task endpoint for an image URL.
+    const immediate = atlasImageFromOutputs(response.data, query)
+    if (immediate) return immediate
+    predictionId = atlasPredictionId(response.data)
+    if (!predictionId) throw new Error('Atlas 已接收请求，但没有返回任务 ID')
+    await options.onPredictionId?.(predictionId)
+  }
 
   for (let attempt = 0; attempt < 90; attempt += 1) {
     const poll = await mediaRequest(`${baseUrl}/model/prediction/${encodeURIComponent(predictionId)}`, {
       headers: { Authorization: `Bearer ${config.apiKey.trim()}` },
+      signal: options.signal,
     })
     ensureOk(poll, 'Atlas 任务查询')
     const rawStatus = getPath(poll.data, 'data.status') ?? getPath(poll.data, 'status')
     const status = typeof rawStatus === 'string' ? rawStatus.toLowerCase() : ''
-    const result = generatedImageFromPayload(getPath(poll.data, 'data.outputs') ?? getPath(poll.data, 'outputs'), 'atlas', query)
-    if (result) return result
+    if (status === 'completed' || status === 'succeeded') {
+      const result = atlasImageFromOutputs(poll.data, query)
+      if (result) return result
+      throw new Error('Atlas 标记任务完成，但没有返回有效的图片内容')
+    }
     if (['failed', 'error', 'cancelled', 'canceled'].includes(status)) {
       const error = getPath(poll.data, 'data.error') ?? getPath(poll.data, 'error')
       throw new Error(`Atlas 生图失败${typeof error === 'string' ? `：${error.slice(0, 180)}` : ''}`)
     }
-    await new Promise((resolve) => setTimeout(resolve, 2_000))
+    options.onProgress?.({
+      stage: status === 'created' || status === 'queued' ? 'queued' : 'running',
+      message: status === 'created' || status === 'queued' ? 'Atlas 正在排队生成图片…' : 'Atlas 正在生成图片…',
+      promptId: predictionId,
+    })
+    await waitForAtlasPoll(3_000, options.signal)
   }
   throw new Error('Atlas 生图等待超时，请稍后重试')
 }
@@ -748,7 +811,7 @@ export async function generateRemoteImage(
   options: ImageGenerationOptions = {},
 ): Promise<GeneratedImageResult | null> {
   if (!isImageProviderReady(settings)) return null
-  if (settings.imageProvider === 'atlas') return generateAtlas(settings, query)
+  if (settings.imageProvider === 'atlas') return generateAtlas(settings, query, options)
   if (settings.imageProvider === 'novelai') return generateNovelAi(settings, query)
   if (settings.imageProvider === 'comfyui') return generateComfyUi(settings, query, options)
   if (settings.imageProvider === 'stable-diffusion') return generateStableDiffusion(settings, query)

@@ -142,8 +142,9 @@ export function ImageProviderSettingsPage() {
   const [atlasCustomMode, setAtlasCustomMode] = useState(
     () => !atlasImageModelPreset(useSettingsStore.getState().imageProviders.atlas.model),
   )
-  const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null)
+  const [status, setStatus] = useState<{ ok: boolean; text: string; pending?: boolean } | null>(null)
   const [preview, setPreview] = useState<GeneratedImageResult | null>(null)
+  const [, setPendingPreviewUrls] = useState<Set<string>>(new Set())
   const [testPrompt, setTestPrompt] = useState('a cute orange cat waving, expressive, clean composition')
   const workflowInputRef = useRef<HTMLInputElement | null>(null)
   const generateAbortRef = useRef<AbortController | null>(null)
@@ -280,17 +281,19 @@ export function ImageProviderSettingsPage() {
     setGenerating(true)
     setStatus(null)
     setPreview(null)
+    setPendingPreviewUrls(new Set())
     const controller = new AbortController()
     generateAbortRef.current = controller
     try {
       const result = await generateRemoteImage(candidate, testPrompt.trim() || 'a cute orange cat waving', {
         signal: controller.signal,
-        onProgress: (progress) => setStatus({ ok: true, text: progress.message }),
+        onProgress: (progress) => setStatus({ ok: true, pending: true, text: progress.message }),
       })
       if (!result) throw new Error('接口已响应，但没有解析到图片')
       setPreview(result)
+      setPendingPreviewUrls(new Set(result.urls?.length ? result.urls : [result.url]))
       setSettings({ imageProvider: provider })
-      setStatus({ ok: true, text: `真实调用成功，并已启用 ${info.name}。` })
+      setStatus({ ok: true, pending: true, text: '图片文件已收到，正在验证是否能正常显示…' })
     } catch (error) {
       setStatus({ ok: false, text: error instanceof DOMException && error.name === 'AbortError' ? '已停止等待；ComfyUI 队列中的任务可能仍会继续执行。' : friendlyConnectionError(error, info.name) })
     } finally {
@@ -316,6 +319,22 @@ export function ImageProviderSettingsPage() {
     updateProvider('comfyui', {
       workflowBindings: { ...(providers.comfyui.workflowBindings ?? {}), [key]: value },
     })
+  }
+
+  function confirmPreviewLoaded(url: string) {
+    setPendingPreviewUrls((current) => {
+      if (!current.has(url)) return current
+      const next = new Set(current)
+      next.delete(url)
+      if (next.size === 0) setStatus({ ok: true, text: `真实调用成功，图片已验证可显示，并已启用 ${info.name}。` })
+      return next
+    })
+  }
+
+  function reportPreviewLoadFailure() {
+    setPreview(null)
+    setPendingPreviewUrls(new Set())
+    setStatus({ ok: false, text: '图片任务已完成，但浏览器无法显示返回的图片文件。' })
   }
 
   function updateComfyOverride(key: keyof ImageProvidersSettings['comfyui']['workflowOverrides'], value: boolean) {
@@ -403,6 +422,16 @@ export function ImageProviderSettingsPage() {
                 </label>
               )}
               {atlasPreset?.includeSize === false && <p className="text-[11px] text-gray-400">该模型当前使用 Atlas 的默认输出尺寸。</p>}
+              <label className="block">
+                <span className={labelClass}>统一人物风格</span>
+                <select value={providers.atlas.visualStyle} onChange={(event) => updateProvider('atlas', { visualStyle: event.target.value as ImageProvidersSettings['atlas']['visualStyle'] })} className={inputClass}>
+                  <option value="asian-realistic">亚洲真人 · 自然手机照片</option>
+                  <option value="european-realistic">欧洲真人 · 自然手机照片</option>
+                  <option value="anime">二次元 · 现代动画插画</option>
+                  <option value="custom">自定义风格</option>
+                </select>
+              </label>
+              {providers.atlas.visualStyle === 'custom' && <label className="block"><span className={labelClass}>自定义统一风格（必填）</span><textarea required value={providers.atlas.customVisualStyle} onChange={(event) => updateProvider('atlas', { customVisualStyle: event.target.value })} rows={3} placeholder="例如：cinematic watercolor illustration, soft paper texture" className={inputClass} />{!providers.atlas.customVisualStyle.trim() && <span className="mt-1 block text-[11px] text-red-500">填写风格提示词后才能启用 Atlas 生图。</span>}</label>}
               <label className="block">
                 <span className={labelClass}>固定提示词前缀（可选）</span>
                 <textarea value={providers.atlas.promptPrefix} onChange={(event) => updateProvider('atlas', { promptPrefix: event.target.value })} rows={2} placeholder="例如：anime illustration, expressive" className={inputClass} />
@@ -707,7 +736,7 @@ export function ImageProviderSettingsPage() {
             </button>
           )}
           <p className="mt-2 text-[11px] leading-relaxed text-amber-600">“生成测试图”会真实调用接口，云端服务可能消耗额度。</p>
-          {status && <p className={`mt-3 text-xs ${status.ok ? 'text-green-600' : 'text-red-500'}`}>{status.ok ? '✓ ' : '✕ '}{status.text}</p>}
+          {status && <p className={`mt-3 text-xs ${status.pending ? 'text-amber-600' : status.ok ? 'text-green-600' : 'text-red-500'}`}>{status.pending ? '… ' : status.ok ? '✓ ' : '✕ '}{status.text}</p>}
         </section>
 
         {preview && (
@@ -715,7 +744,7 @@ export function ImageProviderSettingsPage() {
             <h2 className="mb-3 text-xs font-medium text-gray-400">实际调用结果</h2>
             <div className={(preview.urls?.length ?? 1) > 1 ? 'grid grid-cols-2 gap-2' : ''}>
               {(preview.urls?.length ? preview.urls : [preview.url]).map((url, index) => (
-                <img key={`${index}:${url.slice(-24)}`} src={url} alt={`生图测试结果 ${index + 1}`} className="max-h-96 w-full rounded-xl bg-gray-50 object-contain" />
+                <img key={`${index}:${url.slice(-24)}`} src={url} alt={`生图测试结果 ${index + 1}`} onLoad={() => confirmPreviewLoaded(url)} onError={reportPreviewLoadFailure} className="max-h-96 w-full rounded-xl bg-gray-50 object-contain" />
               ))}
             </div>
             {(preview.urls?.length ?? 1) > 1 && <p className="mt-2 text-[11px] text-gray-400">工作流返回了 {preview.urls!.length} 张图片；聊天发送时暂取第一张。</p>}

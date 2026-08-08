@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Download, Trash2, X } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { TopBar } from '../components/TopBar'
@@ -32,9 +32,10 @@ export function AlbumPage() {
   const contacts = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_LIST
   const moments = useLiveQuery(() => db.moments.toArray(), []) ?? EMPTY_LIST
   const messages = useLiveQuery(() => db.messages.toArray(), []) ?? EMPTY_LIST
+  const mediaAssets = useLiveQuery(() => db.mediaAssets.where('status').equals('completed').toArray(), []) ?? EMPTY_LIST
   const [selected, setSelected] = useState<AlbumImage | null>(null)
 
-  const images = useMemo(() => {
+  const images = (() => {
     const byUrl = new Map<string, AlbumImage>()
     const add = (image: AlbumImage) => {
       if (hiddenUrls.includes(image.url)) return
@@ -51,8 +52,12 @@ export function AlbumPage() {
     for (const message of messages) {
       if (validImageUrl(message.image?.url)) add({ url: message.image.url, createdAt: message.createdAt, source: sourceFor(message.image.url, message.image.provider, message.image.photographer), caption: message.image.caption ?? message.image.query })
     }
+    for (const asset of mediaAssets) {
+      const url = asset.dataUrl || asset.remoteUrl
+      if (validImageUrl(url)) add({ url, createdAt: asset.completedAt ?? asset.createdAt, source: '生图系统', caption: asset.scene })
+    }
     return [...byUrl.values()].sort((a, b) => b.createdAt - a.createdAt)
-  }, [contacts, hiddenUrls, messages, moments, savedImages])
+  })()
 
   function removeImage(url: string) {
     if (!window.confirm('从相册中删除这张图片？原聊天和朋友圈不会受影响。')) return

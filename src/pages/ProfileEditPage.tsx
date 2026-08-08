@@ -4,6 +4,7 @@ import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
 import { AvatarPicker } from '../components/AvatarPicker'
 import { useSettingsStore } from '../store/useSettingsStore'
+import { regenerateUserVisualIdentity } from '../lib/imageAssets'
 
 const GENDER_OPTIONS = ['男', '女', '不透露']
 
@@ -16,6 +17,8 @@ export function ProfileEditPage() {
   const [gender, setGender] = useState(settings.userGender)
   const [birthday, setBirthday] = useState(settings.userBirthday)
   const [bio, setBio] = useState(settings.userBio)
+  const [visualIdentity, setVisualIdentity] = useState(settings.userVisualIdentity ?? '')
+  const [visualBusy, setVisualBusy] = useState(false)
   const [pickingAvatar, setPickingAvatar] = useState(false)
   const desktop = Boolean(window.talkDesktop)
 
@@ -26,6 +29,7 @@ export function ProfileEditPage() {
       userGender: gender,
       userBirthday: birthday,
       userBio: bio.trim(),
+      userVisualIdentity: visualIdentity.trim(),
     })
     void navigate(-1)
   }
@@ -51,6 +55,7 @@ export function ProfileEditPage() {
               <label><span>性别</span><div className="desktop-profile-options">{GENDER_OPTIONS.map((value) => <button type="button" key={value} onClick={() => setGender(gender === value ? '' : value)} className={gender === value ? 'active' : ''}>{value}</button>)}</div></label>
               <label><span>生日</span><input type="date" value={birthday} onChange={(event) => setBirthday(event.target.value)} /></label>
               <label><span>个人简介</span><textarea value={bio} onChange={(event) => setBio(event.target.value)} rows={4} placeholder="职业、爱好、性格之类的，会作为聊天背景信息" /></label>
+              <label><span>标准长相</span><textarea value={visualIdentity} onChange={(event) => setVisualIdentity(event.target.value)} rows={4} placeholder="稳定外貌，不写衣服、动作、背景或画风"/><button type="button" disabled={visualBusy || !settings.apiKey} onClick={async()=>{if(visualIdentity&& !window.confirm('重新生成会覆盖当前标准长相，确定继续？'))return;setVisualBusy(true);try{setVisualIdentity(await regenerateUserVisualIdentity({...settings,userVisualIdentity:visualIdentity}))}finally{setVisualBusy(false)}}}>{visualBusy?'生成中…':'AI重新生成外貌描述'}</button></label>
               <label><span>数据说明</span><small>头像和资料只写入当前设备，不会上传到 Talk 服务器。</small></label>
             </div>
             <div className="desktop-profile-actions"><button type="button" onClick={() => navigate(-1)}>取消</button><button type="button" className="primary" onClick={handleSave}>保存更改</button></div>
@@ -113,6 +118,9 @@ export function ProfileEditPage() {
           rows={4}
           className="mb-3 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
         />
+        <label className="mb-1 block text-xs text-gray-400">标准长相</label>
+        <textarea value={visualIdentity} onChange={(event) => setVisualIdentity(event.target.value)} rows={4} placeholder="稳定外貌，不写衣服、动作、背景或画风" className="mb-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+        <button type="button" disabled={visualBusy || !settings.apiKey} onClick={async()=>{if(visualIdentity&& !window.confirm('重新生成会覆盖当前标准长相，确定继续？'))return;setVisualBusy(true);try{setVisualIdentity(await regenerateUserVisualIdentity({...settings,userVisualIdentity:visualIdentity}))}finally{setVisualBusy(false)}}} className="mb-3 w-full rounded-lg bg-gray-100 py-2 text-xs text-gray-600 disabled:opacity-40">{visualBusy?'生成中…':'AI重新生成外貌描述'}</button>
         <p className="mb-2 text-[11px] text-gray-400">
           这些信息会作为背景资料提供给你聊天的对象 帮助TA更好地理解你、给出更贴切的回复
         </p>

@@ -21,7 +21,7 @@ import type {
   SocialEvent, GroupPlan, AdminLogRecord, AdminAiTrace, SaveSlot, ContactStoryline, ContactSaveSnapshot, GlobalSaveSnapshot, SavedPersona, PersonaCreationRecord, ShopPurchaseHistory, ContactGenerationTask,
   Sticker, SpeechCacheRecord,
   WalletAccount, WalletTransaction, Loan, JobListing, InterviewSession,
-  LocationNode, WorldMapRecord, LocationModuleState, AcousticEdge, InternalTask,
+  LocationNode, WorldMapRecord, LocationModuleState, AcousticEdge, InternalTask, MediaAsset,
 } from '../types'
 
 export class TalkDB extends Dexie {
@@ -71,6 +71,7 @@ export class TalkDB extends Dexie {
   acousticEdges!: Table<AcousticEdge, string>
   speechCache!: Table<SpeechCacheRecord, string>
   internalTasks!: Table<InternalTask, string>
+  mediaAssets!: Table<MediaAsset, string>
 
   constructor() {
     super('talk-db')
@@ -430,6 +431,9 @@ export class TalkDB extends Dexie {
     })
     this.version(37).stores({
       internalTasks: 'id, contactId, conversationId, status, createdAt',
+    })
+    this.version(38).stores({
+      mediaAssets: 'id, origin, originId, conversationId, provider, status, createdAt, updatedAt, *ownerContactIds',
     })
   }
 }

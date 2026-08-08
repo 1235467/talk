@@ -57,6 +57,8 @@ export const useSettingsStore = create<SettingsState>()(
       userGender: '',
       userBirthday: '',
       userBio: '',
+      userVisualIdentity: '',
+      userVisualSeed: undefined,
       walletBalance: INITIAL_WALLET_BALANCE,
       userOccupation: '',
       userMonthlySalary: 0,
@@ -108,7 +110,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'talk-settings',
-      version: 21,
+      version: 22,
       migrate: (persisted, version) => {
         const next = persisted as Partial<SettingsState>
         if (next.experienceMode !== 'immersive' && next.experienceMode !== 'free') next.experienceMode = 'free'
@@ -133,6 +135,8 @@ export const useSettingsStore = create<SettingsState>()(
         if (typeof next.autoCompressLibraryImports !== 'boolean') next.autoCompressLibraryImports = true
         if (typeof next.libraryCompressionThresholdTokens !== 'number') next.libraryCompressionThresholdTokens = 2000
         if (typeof next.automaticAiDailyCap !== 'number') next.automaticAiDailyCap = 0
+        if (typeof next.userVisualIdentity !== 'string') next.userVisualIdentity = ''
+        if (typeof next.userVisualSeed !== 'number') next.userVisualSeed = undefined
         if (typeof next.animeNsfwEnabled !== 'boolean') next.animeNsfwEnabled = false
         if (!['pexels', 'anime', 'generated'].includes(String(next.avatarImageSource))) next.avatarImageSource = 'anime'
         if (!['pexels', 'anime', 'generated'].includes(String(next.momentsImageSource))) next.momentsImageSource = 'generated'

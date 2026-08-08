@@ -12,7 +12,7 @@ import {
   serializePrivateTurn,
   typingDelayMs,
 } from './aiProtocol'
-import { formatSpeechSamplesForScene, buildRawChatPrompt, buildJsonConversionPrompt, customPersonalityTraitsLine } from './prompt'
+import { formatSpeechSamplesForScene, buildRawChatPrompt, buildJsonConversionPrompt, customPersonalityTraitsLine, privateRawOutputProtocol } from './prompt'
 import { retrieveWorldbookTrace } from './worldbook'
 import { isModuleEnabled } from '../features'
 import { CONTEXT_WINDOW_SIZE, activeUpcomingPlansText, maybeUpdateMemory, recentMemoriesText, socialMemoriesText } from './memory'
@@ -40,7 +40,10 @@ import { ensureLocationsInitialized, reassignUnknownContactLocation, syncContact
 import { evaluateDirectSpecialTask, runActionCommittee, type ActionCommitteeDebug } from './actionCommittee'
 import type { CreateSpecialTaskResult } from './agentTasks'
 import { createScheduleInternalTask } from './internalTasks'
+import { createMediaAsset, startMediaAsset } from './imageAssets'
 import { buildDirectOutputInstruction, parseDirectOutputReview } from './directOutput'
+import { auditAndRepairRawTurn } from './responseQuality'
+import { traceTurnEvent } from './deepseek'
 import type { AiBubble, AppSettings, Contact, InternalTask, Message, MessageType, ScheduleOverride, Sticker } from '../types'
 
 /**
@@ -527,6 +530,7 @@ async function runAiTurn(
         return { role: m.role, content: m.content }
       }),
       ...(regenerationUserMessage ? [{ role: 'user' as const, content: regenerationUserMessage }] : []),
+      { role: 'system', content: `${privateRawOutputProtocol(isImageProviderReady(settings))}\n【最终生成提醒】现在只生成符合上述协议的原文草稿，不输出JSON、分析、标题或Markdown。` },
     ])
     console.info(`[chat-perf] context-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)}`)
 
@@ -543,13 +547,28 @@ async function runAiTurn(
       temperature: regenerationInstruction ? 0.55 : 0.9,
       maxTokens: directOutput ? 1200 : proactiveContext ? 700 : 800,
       jsonMode: directOutput,
-      trace: { turnId: streamId, stage: 'first_chat', conversationId },
+      trace: { turnId: streamId, stage: 'original_generation', conversationId },
     })
 
     if (!turns.isCurrent(conversationId, streamId)) return
     console.log(`[chat] 主模型回复(${rawText.length}字): ${rawText.slice(0, 100)}...`)
 
-    // ---- Step 2: parse ordinary drafts locally; use the utility model only
+    // ---- Step 2: mandatory logic audit and in-place repair. ----
+    if (!directOutput) {
+      const audited = await auditAndRepairRawTurn({
+        settings, masterPrompt: chatMessages[0]?.content ?? contextSections,
+        rawDraft: rawText, scene: 'private', regenerationInstruction,
+        signal: controller.signal, trace: { turnId: streamId, conversationId },
+      })
+      rawText = audited.raw
+      if (!turns.isCurrent(conversationId, streamId)) return
+      const auditedDraft = parseRawPrivateDraft(rawText, activeMood)
+      if (rawPrivateDraftNeedsUtility(rawText, auditedDraft)) {
+        throw new Error('审核及修改没有产出符合私聊逐行协议的原文，已阻止进入JSON格式翻译')
+      }
+    }
+
+    // ---- Step 3: mechanically translate the audited raw draft to JSON. ----
     // when the main model did not follow the explicit line protocol. ----
     console.info(`[chat-perf] model-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)}`)
     // Some custom OpenAI-compatible services return the final messages JSON
@@ -566,7 +585,7 @@ async function runAiTurn(
     let conversionPrompt = '本轮使用本地草稿解析，无额外模型调用。'
     let jsonRaw = serializePrivateTurn(localTurn)
     let parsedTurn = localTurn
-    if (!directOutput && !customStructuredTurn && rawPrivateDraftNeedsUtility(rawText, localTurn)) {
+    if (!directOutput) {
       conversionPrompt = buildJsonConversionPrompt(rawText, contact.jsonProtocolOverride)
       jsonRaw = await bestEffortUtilityCompletion({
         apiKey: settings.apiKey,
@@ -583,7 +602,7 @@ async function runAiTurn(
         thinking: 'disabled',
         temperature: 0.1,
         maxTokens: 900,
-        trace: { turnId: streamId, stage: 'other', conversationId },
+        trace: { turnId: streamId, stage: 'json_translation', conversationId },
       })
       if (!turns.isCurrent(conversationId, streamId)) return
       const converted = parseAiResponse(jsonRaw)
@@ -633,6 +652,7 @@ async function runAiTurn(
       signal: controller.signal,
       trace: { turnId: streamId, stage, conversationId },
     })
+    void runLogicReview
     knowledgeQueries = Array.from(new Set([...initiallyRequestedKnowledge, ...knowledgeQueries])).slice(0, 2)
     if (!directOutput && featureActive(contactPromptSettings, 'knowledgeBase') && knowledgeQueries.length > 0) {
       const knowledge = await resolveKnowledgeQueries(knowledgeQueries, settings)
@@ -682,14 +702,10 @@ async function runAiTurn(
       return
     }
     const directReview = directOutput ? parseDirectOutputReview(rawText) : null
-    // Three independent checks deliberately run even in direct-output mode.
-    // They cover different failure modes and restore the full multi-review
-    // path instead of trusting a single model-provided self-review field.
-    const logicReviews = await Promise.all([
-      runLogicReview('first_quality', '事实、时间因果与地点真实性'),
-      runLogicReview('second_quality', '人设边界、关系定位与承诺是否成立'),
-      runLogicReview('other', '日程、特殊任务与用户请求是否被误解'),
-    ])
+    // The mandatory audit stage above owns all semantic and format review.
+    // Keep this empty compatibility result so the legacy fallback branches
+    // below cannot issue extra hidden review calls.
+    const logicReviews: Array<{ status: 'pass' | 'reject' | 'unavailable'; reason: string }> = []
     if (!turns.isCurrent(conversationId, streamId)) return
     const rejectedReview = logicReviews.find((review) => review.status === 'reject')
     const unavailableReviews = logicReviews.filter((review) => review.status === 'unavailable')
@@ -722,7 +738,9 @@ async function runAiTurn(
     }
     let actionCommittee: (ActionCommitteeDebug & { toolResult?: CreateSpecialTaskResult }) | undefined
     let internalTask: InternalTask | undefined
-    if (!qualityCheckDebug.detectedInvalid && _triggeringUserText.trim() && isModuleEnabled('location') && actionLocations.length > 0) {
+    // Normal turns only execute explicit [schedule:...] markers parsed above.
+    // The legacy committee remains limited to the experimental direct-output mode.
+    if (directOutput && !qualityCheckDebug.detectedInvalid && _triggeringUserText.trim() && isModuleEnabled('location') && actionLocations.length > 0) {
       const visibleDraft = bubbles.map((bubble) => {
         if (bubble.type === 'text') return bubble.content
         if (bubble.type === 'scheduleChange') return bubble.summary
@@ -848,13 +866,18 @@ function revealBubbles(
         // (same staleness bug fixed in proactiveChat.ts's pendingEvents write).
         const fresh = await db.contacts.get(contact.id)
         const pruned = pruneExpiredOverrides(fresh?.scheduleOverrides ?? [], new Date(turnNow))
+        const location = bubble.locationId ? await db.locations.get(bubble.locationId) : undefined
+        // Markers carry IDs, never free-form locations.  An invalid ID is a
+        // rejected execution, not an invitation for a later model to guess.
+        if (bubble.locationId && !location) return
         const override: ScheduleOverride = {
           id: uuid(),
           date: bubble.date,
           startHour: bubble.startHour,
           endHour: bubble.endHour,
           phoneAccess: bubble.phoneAccess,
-          location: bubble.location,
+          location: location?.name ?? bubble.location,
+          locationId: location?.id,
           activity: bubble.activity,
           summary: bubble.summary,
           priority: 'special',
@@ -862,9 +885,15 @@ function revealBubbles(
         }
         // Multiple non-overlapping special tasks may coexist on the same day.
         await db.contacts.update(contact.id, { scheduleOverrides: [...pruned, override] })
+        void traceTurnEvent({ turnId: streamId, conversationId, stage: 'schedule_change', output: `新建：${override.activity}｜${override.date} ${String(override.startHour).padStart(2, '0')}:00-${String(override.endHour).padStart(2, '0')}:00｜${override.location}` })
       }
-      const { imagePayload, imageFailed, remoteSticker, stickerFailed } =
-        await resolveBubbleMedia(bubble, settings, stickers)
+      let imagePayload: Message['image']
+      let imageFailed = false
+      let imageAssetId: string | undefined
+      const media = bubble.type === 'image'
+        ? { remoteSticker: undefined, stickerFailed: false }
+        : await resolveBubbleMedia(bubble, settings, stickers)
+      const { remoteSticker, stickerFailed } = media
 
       let finance: Message['finance']
       if (bubble.type === 'transfer') {
@@ -892,8 +921,27 @@ function revealBubbles(
       else content = bubble.note || (bubble.type === 'loanDecision' ? '借款决定' : '资金互动')
 
       const messageCreatedAt = await nextMessageTimestamp(conversationId, turnNow + i + 1)
+      const messageId = uuid()
+      if (bubble.type === 'image') {
+        if (!isImageProviderReady(settings)) imageFailed = true
+        else {
+          try {
+            const kind = bubble.kind ?? 'portrait'
+            const participants = bubble.participants ?? (kind === 'scene' || kind === 'object' ? [] : ['self'])
+            const asset = await createMediaAsset({
+              origin: 'chat', originId: messageId, conversationId, turnId: streamId,
+              ownerContactIds: participants.includes('self') ? [contact.id] : [],
+              includeUser: participants.includes('user'), scene: bubble.scene || bubble.query,
+              kind, settings,
+            })
+            imageAssetId = asset.id
+            imagePayload = { assetId: asset.id, caption: bubble.caption, query: bubble.query, provider: asset.provider }
+          } catch (error) { console.warn('[media] 创建图片任务失败', error); imageFailed = true }
+        }
+      }
+      if (bubble.type === 'image' && imageFailed) content = '图片没发出来…'
       const msg: Message = {
-        id: uuid(),
+        id: messageId,
         conversationId,
         role: 'assistant',
         type: bubble.type === 'loanDecision'
@@ -913,6 +961,7 @@ function revealBubbles(
                 endHour: bubble.endHour,
                 phoneAccess: bubble.phoneAccess,
                 location: bubble.location,
+                locationId: bubble.locationId,
                 activity: bubble.activity,
                 summary: bubble.summary,
               }
@@ -931,6 +980,7 @@ function revealBubbles(
         console.log(`[chat] 想法已存入消息: ${turnThought}`)
       }
       await db.messages.add(msg)
+      if (imageAssetId) startMediaAsset(imageAssetId)
       if (i === 0) onFirstBubble?.()
       if (remoteSticker) void trackRemoteStickerSend(remoteSticker)
       await db.conversations.update(conversationId, { updatedAt: messageCreatedAt })

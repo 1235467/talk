@@ -6,7 +6,7 @@ import { chatCompletionText as chatCompletion } from './deepseek'
 import { momentReactionProbability, uniqueRelationPairs } from './contactRelations'
 import { describeCurrentSchedule, isPhoneAvailable } from './schedule'
 import { randomAnimeAvatar, searchPexelsPhoto } from './photoSearch'
-import { generateRemoteImage } from './remoteMedia'
+import { createMediaAsset, startMediaAsset } from './imageAssets'
 import { isImageProviderReady } from './mediaProviders'
 import { recordSocialEvent } from './socialEvents'
 import { displayName } from './contact'
@@ -191,7 +191,7 @@ function buildMomentsPrompt(
       const scheduleLine = describeCurrentSchedule(e.poster, now)
       const statusLine = scheduleLine ? `${e.poster.name}${scheduleLine} (内容可以但不强制符合这个状态)\n` : ''
       const photoLine = e.willHavePhoto
-        ? `这条动态会配一张照片 你还需要为它写一个"imageKeyword"(简短英文搜图短语 贴合你写的这条朋友圈内容 用来找一张对应的照片)\n`
+        ? `这条动态会配一张照片。填写 imageKeyword（具体英文画面描述）、imageKind（selfie/portrait/scene/object）和 includePoster（照片是否出现发布者本人）。只有本人确实入镜时 includePoster 才为 true。\n`
         : ''
       return `人物${i + 1}: ${e.poster.name}\n人设: ${e.poster.systemPrompt}\n${personalityTraitLine(e.poster.personalityTrait, e.poster.warmth ?? 0) || '性格特质: 无'}\n说话样例: ${formatSpeechSamplesForScene(e.poster.speechSamples, 'moment', 2) || '无'}\n与用户的共同过往（只作关系底色，不公开复述）: ${e.poster.sharedHistory || '无具体记录'}\n当前心情: ${e.poster.mood?.text || '平静'}\n最近可用素材: ${contexts.get(e.poster.id) || '无'}\n${statusLine}${photoLine}这条朋友圈下会评论的人(按顺序):\n${commenterLines}`
     })
@@ -200,13 +200,15 @@ function buildMomentsPrompt(
   const worldviewSection = worldviewText ? `${worldviewText}\n\n` : ''
 
   const editable = getPromptTemplate(settings, 'moments', 'generation', { momentContext: `${worldviewSection}${stickerCommentInstruction(stickerNames)}\n${sections}` }) ?? ''
-  return `${editable}\n\n固定输出协议：只输出JSON {"moments":[{"content":"人物1动态","imageKeyword":"需要配图才填写","comments":["评论者1评论"]}]}。moments及comments必须与输入顺序和数量一致。`
+  return `${editable}\n\n固定输出协议：只输出JSON {"moments":[{"content":"人物1动态","imageKeyword":"需要配图才填写","imageKind":"selfie|portrait|scene|object","includePoster":true,"comments":["评论者1评论"]}]}。moments及comments必须与输入顺序和数量一致。`
 }
 
 interface ParsedMoment {
   content: string
   comments: string[]
   imageKeyword: string
+  imageKind: import('../types').AiImageKind
+  includePoster: boolean
 }
 
 function parseMomentsResponse(raw: string, expected: number[]): ParsedMoment[] | null {
@@ -222,7 +224,9 @@ function parseMomentsResponse(raw: string, expected: number[]): ParsedMoment[] |
       ? m.comments.filter((c: unknown): c is string => typeof c === 'string' && c.trim().length > 0)
       : []
     const imageKeyword = typeof m.imageKeyword === 'string' ? m.imageKeyword.trim() : ''
-    result.push({ content: m.content.trim(), comments, imageKeyword })
+    const imageKind = ['selfie', 'portrait', 'scene', 'object'].includes(String(m.imageKind)) ? m.imageKind as import('../types').AiImageKind : 'scene'
+    const includePoster = typeof m.includePoster === 'boolean' ? m.includePoster : imageKind === 'selfie' || imageKind === 'portrait'
+    result.push({ content: m.content.trim(), comments, imageKeyword, imageKind, includePoster })
   }
   return result
 }
@@ -419,7 +423,7 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
   let publishedCount = 0
   for (let i = 0; i < entries.length; i++) {
     const { poster, commenters, willHavePhoto } = entries[i]
-    const { content, comments, imageKeyword } = finalParsed[i]
+    const { content, comments, imageKeyword, imageKind, includePoster } = finalParsed[i]
     // Never write an exact/high-similarity duplicate even if an upstream
     // model ignored every repair instruction. Other selected posters still publish.
     if (momentNoveltyIssue(content, historyRows.get(poster.id) || [])) continue
@@ -448,13 +452,12 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
         // Leave the Moment as text only when the optional gallery is unavailable.
       }
     }
+    let imageAssetId: string | undefined
     if (willHavePhoto && imageKeyword && settings.momentsImageSource === 'generated' && isImageProviderReady(settings)) {
       try {
-        const image = await generateRemoteImage(settings, `anime-style illustration for a Chinese social-media moment: ${imageKeyword}`)
-        if (image) imageUrl = image.url
-      } catch {
-        // Leave the Moment as text only when image generation fails.
-      }
+        const asset = await createMediaAsset({ origin: 'moment', originId: momentId, ownerContactIds: includePoster ? [poster.id] : [], scene: imageKeyword, kind: imageKind, settings, size: imageKind === 'selfie' || imageKind === 'portrait' ? '1024*1536' : '1536*1024' })
+        imageAssetId = asset.id
+      } catch {}
     }
 
     await db.moments.add({
@@ -463,9 +466,11 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
       content,
       createdAt: now + i,
       imageUrl,
+      imageAssetId,
       imagePhotographer,
       imagePhotographerUrl,
     })
+    if (imageAssetId) startMediaAsset(imageAssetId)
     publishedCount++
     await recordSocialEvent({
       type: 'moment_posted',
@@ -933,12 +938,13 @@ function commentIdMarker(id: string | undefined): string {
 export async function deleteMomentCompletely(momentId: string): Promise<boolean> {
   const moment = await db.moments.get(momentId)
   if (!moment) return false
-  await db.transaction('rw', db.moments, db.momentComments, db.momentLikes, db.socialEvents, db.contacts, async () => {
+  await db.transaction('rw', [db.moments, db.momentComments, db.momentLikes, db.socialEvents, db.contacts, db.mediaAssets], async () => {
     await db.momentComments.where('momentId').equals(momentId).delete()
     await db.momentLikes.where('momentId').equals(momentId).delete()
     const eventIds = await db.socialEvents.filter((event) => event.momentId === momentId).primaryKeys()
     if (eventIds.length > 0) await db.socialEvents.bulkDelete(eventIds as string[])
     await db.moments.delete(momentId)
+    if (moment.imageAssetId) await db.mediaAssets.delete(moment.imageAssetId)
     if (moment.contactId !== 'user') {
       const remaining = await db.moments.where('contactId').equals(moment.contactId).toArray()
       const lastMomentAt = remaining.reduce((latest, item) => Math.max(latest, item.createdAt), 0)
@@ -980,6 +986,7 @@ export async function cascadeDeleteContactSocialData(contactId: string): Promise
   for (const m of ownMoments) {
     await db.momentComments.where('momentId').equals(m.id).delete()
     await db.momentLikes.where('momentId').equals(m.id).delete()
+    if (m.imageAssetId) await db.mediaAssets.delete(m.imageAssetId)
   }
   await db.moments.where('contactId').equals(contactId).delete()
 

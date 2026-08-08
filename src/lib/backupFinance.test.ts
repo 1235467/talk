@@ -19,6 +19,20 @@ beforeEach(async () => {
 })
 
 describe('wallet backup and save slots', () => {
+  it('never writes API credentials into a backup', async () => {
+    const current = useSettingsStore.getState()
+    const backup = await createBackup({
+      ...current,
+      apiKey: 'chat-secret',
+      tavilyApiKey: 'search-secret',
+      imageProviders: { ...current.imageProviders, atlas: { ...current.imageProviders.atlas, apiKey: 'atlas-secret' } },
+    })
+    const serialized = JSON.stringify(backup)
+    expect(serialized).not.toContain('chat-secret')
+    expect(serialized).not.toContain('search-secret')
+    expect(serialized).not.toContain('atlas-secret')
+  })
+
   it('round-trips wallet accounts and transactions through a backup', async () => {
     await db.walletAccounts.put({ ownerId: USER_WALLET_ID, balance: 100, updatedAt: 1 })
     await transferFunds({ from: USER_WALLET_ID, to: 'contact-a', amount: 35, kind: 'transfer', idempotencyKey: 'backup:transfer' })

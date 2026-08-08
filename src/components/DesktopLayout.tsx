@@ -102,13 +102,31 @@ function RailIcon({ section }: { section: DesktopSection }) {
 
 function DesktopSidebar({ section }: { section: DesktopSection }) {
   const [query, setQuery] = useState('')
+  const [showCreateMenu, setShowCreateMenu] = useState(false)
   const navigate = useNavigate()
   return (
     <aside className="desktop-sidebar">
       <div className="desktop-sidebar-search">
         <label><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索" /></label>
-        <button type="button" onClick={() => navigate('/contact/new')} title="添加联系人" className={section === 'messages' || section === 'contacts' ? '' : 'invisible'}>＋</button>
+        <button
+          type="button"
+          onClick={() => setShowCreateMenu((open) => !open)}
+          title="新建"
+          aria-label="新建"
+          aria-expanded={showCreateMenu}
+          className={section === 'messages' || section === 'contacts' ? '' : 'invisible'}
+        >＋</button>
       </div>
+      {showCreateMenu && (section === 'messages' || section === 'contacts') && (
+        <div className="desktop-create-menu" role="menu" aria-label="新建菜单">
+          <button type="button" role="menuitem" onClick={() => { setShowCreateMenu(false); navigate('/contact/new') }}>
+            添加联系人
+          </button>
+          <button type="button" role="menuitem" onClick={() => { setShowCreateMenu(false); navigate('/group/new') }}>
+            创建群聊
+          </button>
+        </div>
+      )}
       <div className="desktop-sidebar-caption">
         {section === 'messages' ? '最近会话' : section === 'contacts' ? '联系人' : section === 'discover' ? '发现' : '个人与设置'}
       </div>

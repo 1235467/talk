@@ -10,6 +10,10 @@ export interface Contact {
   birthday?: string // YYYY-MM-DD
   avatar: string // emoji or data URL
   avatarColor: string // fallback background color
+  /** Stable, scene-independent physical description used by image generation. */
+  visualIdentity?: string
+  /** Stable image seed. Missing legacy values are generated lazily. */
+  visualSeed?: number
   systemPrompt: string // persona description generated at creation time; administrator-editable
   /** User-authored requirements, preserved verbatim as a higher-priority persona source. */
   personaConstraints?: string
@@ -258,9 +262,45 @@ export interface Moment {
   createdAt: number
   // ---- optional attached photo (see lib/photoSearch.ts) — not every moment gets one, code decides ----
   imageUrl?: string
+  imageAssetId?: string
   imagePhotographer?: string
   imagePhotographerUrl?: string
   sourceExperienceId?: string
+}
+
+export type MediaAssetStatus = 'queued' | 'submitting' | 'polling' | 'generating' | 'completed' | 'failed'
+export type MediaAssetPhase = MediaAssetStatus
+
+/** Durable image-generation work. Credentials are deliberately never stored here. */
+export interface MediaAsset {
+  id: string
+  origin: 'chat' | 'moment'
+  originId: string
+  conversationId?: string
+  turnId?: string
+  ownerContactIds: string[]
+  includeUser?: boolean
+  provider: Exclude<ImageProviderId, 'none'>
+  status: MediaAssetStatus
+  phase: MediaAssetPhase
+  scene: string
+  kind: AiImageKind
+  prompt: string
+  /** Atlas style and advanced prefix frozen when the placeholder is created. */
+  stylePrompt?: string
+  providerPromptPrefix?: string
+  modelId?: string
+  size?: string
+  seed?: number
+  predictionId?: string
+  remoteUrl?: string
+  dataUrl?: string
+  mimeType?: string
+  error?: string
+  attempt: number
+  createdAt: number
+  updatedAt: number
+  completedAt?: number
 }
 
 export interface MomentComment {
@@ -455,6 +495,7 @@ export interface ScheduleChangePayload {
   endHour: number
   phoneAccess: 'available' | 'unavailable'
   location: string
+  locationId?: string
   activity: string
   summary: string
   startsAt?: number
@@ -479,7 +520,7 @@ export interface Message {
   gift?: GiftPayload
   /** Remote stickers are stored on the message instead of being copied into the user's local sticker library. */
   sticker?: { url: string; provider?: StickerProviderId }
-  image?: { url: string; caption?: string; photographer?: string; photographerUrl?: string; query?: string; provider?: ImageProviderId | 'pexels' }
+  image?: { assetId?: string; url?: string; caption?: string; photographer?: string; photographerUrl?: string; query?: string; provider?: ImageProviderId | 'pexels' }
   scheduleChange?: ScheduleChangePayload
   internalTask?: InternalTaskMessagePayload
   groupPlanId?: string
@@ -640,6 +681,7 @@ export interface StickerProvidersSettings {
 }
 
 export type ImageProviderId = 'none' | 'atlas' | 'novelai' | 'comfyui' | 'stable-diffusion' | 'custom'
+export type AtlasVisualStyle = 'asian-realistic' | 'european-realistic' | 'anime' | 'custom'
 
 export interface ImageProvidersSettings {
   atlas: {
@@ -648,6 +690,8 @@ export interface ImageProvidersSettings {
     model: string
     size: string
     promptPrefix: string
+    visualStyle: AtlasVisualStyle
+    customVisualStyle: string
   }
   novelai: {
     apiKey: string
@@ -834,6 +878,8 @@ export interface AppSettings {
   userGender: string
   userBirthday: string // "YYYY-MM-DD", empty if unset
   userBio: string
+  userVisualIdentity?: string
+  userVisualSeed?: number
   /** @deprecated Legacy pre-ledger balance. Runtime balance lives in walletAccounts. */
   walletBalance: number
   userOccupation: string
@@ -942,7 +988,8 @@ export interface PromptPreset {
 }
 
 export interface AdminLogRecord { id: string; level: 'log' | 'info' | 'warn' | 'error'; message: string; createdAt: number }
-export type AdminAiTraceStage = 'first_chat' | 'first_quality' | 'second_chat' | 'other' | 'second_quality'
+export type AdminAiTraceStage = 'original_generation' | 'review_and_repair' | 'json_translation' | 'image_generation' | 'sticker_lookup' | 'schedule_change' | 'location_change' | 'first_chat' | 'first_quality' | 'second_chat' | 'other' | 'second_quality'
+/** A single timeline includes model calls and deterministic follow-up work. */
 export interface AdminAiTrace { id: string; purpose: AiUsagePurpose; model: string; messages: { role: string; content: string }[]; output?: string; error?: string; inputTokens: number; outputTokens: number; durationMs?: number; createdAt: number; turnId?: string; stage?: AdminAiTraceStage; conversationId?: string; diagnostics?: Record<string, unknown> }
 export interface SaveSlot { id: string; slot: number; name: string; createdAt: number; updatedAt: number; snapshot: unknown }
 
@@ -963,6 +1010,7 @@ export interface ContactSaveSnapshotData {
   conversation?: Conversation
   messages: Message[]
   memories: ContactMemory[]
+  mediaAssets?: MediaAsset[]
 }
 
 export interface ContactSaveSnapshot {
@@ -1121,6 +1169,8 @@ export interface AiBubbleScheduleChange {
   endHour: number
   phoneAccess: 'available' | 'unavailable'
   location: string
+  /** Canonical leaf location selected by the raw schedule marker. */
+  locationId?: string
   activity: string
   summary: string
 }
@@ -1312,6 +1362,7 @@ export interface PersonaCreationRecord {
   /** The short direction/role description entered before the setting. */
   roleDescription?: string
   persona: string
+  visualIdentity?: string
   personaProfile?: PersonaProfile
   speechSamples?: string[]
   mbti?: string
@@ -1450,7 +1501,8 @@ export interface ProactiveTopicRecord {
   source: 'event' | 'open_thread' | 'memory' | 'plan' | 'schedule' | 'career' | 'casual'
   createdAt: number
 }
-export interface AiBubbleImage { type: 'image'; query: string; caption?: string }
+export type AiImageKind = 'selfie' | 'portrait' | 'group' | 'scene' | 'object'
+export interface AiBubbleImage { type: 'image'; query: string; scene?: string; kind?: AiImageKind; participants?: Array<'self' | 'user'>; caption?: string }
 export type AiBubble = AiBubbleText | AiBubbleSticker | AiBubbleImage | AiBubbleLink | AiBubbleScheduleChange | AiBubbleFinance
 
 export interface AiResponse {
@@ -1482,8 +1534,10 @@ export interface GroupAiBubbleSticker {
   thought?: string
   mood?: string
 }
-export interface GroupAiBubbleImage { speakerIndex: number; speakerName?: string; type: 'image'; query: string; caption?: string; thought?: string; mood?: string }
-export type GroupAiBubble = GroupAiBubbleText | GroupAiBubbleSticker | GroupAiBubbleImage
+export interface GroupAiBubbleImage { speakerIndex: number; speakerName?: string; type: 'image'; query: string; scene?: string; kind?: AiImageKind; participantIndexes?: number[]; includeUser?: boolean; caption?: string; thought?: string; mood?: string }
+/** A speaker can only create a schedule card for themselves. */
+export interface GroupAiBubbleScheduleChange { speakerIndex: number; speakerName?: string; type: 'scheduleChange'; date: string; startHour: number; endHour: number; phoneAccess: 'available' | 'unavailable'; location: string; locationId?: string; activity: string; summary: string; thought?: string; mood?: string }
+export type GroupAiBubble = GroupAiBubbleText | GroupAiBubbleSticker | GroupAiBubbleImage | GroupAiBubbleScheduleChange
 
 export interface GroupAiResponse {
   messages: GroupAiBubble[]

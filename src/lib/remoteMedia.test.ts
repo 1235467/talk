@@ -92,7 +92,16 @@ describe('image generation providers', () => {
         const body = JSON.parse(String(init?.body))
         expect(body.model).toBe('bytedance/seedream-v4')
         expect(body.prompt).toContain('orange cat')
-        return jsonResponse({ data: { id: 'prediction-1' } })
+        return jsonResponse({
+          data: {
+            id: 'prediction-1',
+            status: 'processing',
+            urls: {
+              result: 'https://api.atlascloud.ai/api/v1/model/prediction/prediction-1',
+              cancel: 'https://api.atlascloud.ai/api/v1/model/prediction/prediction-1/cancel',
+            },
+          },
+        })
       }
       return jsonResponse({ data: { status: 'completed', outputs: ['https://cdn.example/generated.png'] } })
     }))
@@ -108,6 +117,68 @@ describe('image generation providers', () => {
     expect(result).toEqual({ url: 'https://cdn.example/generated.png', query: 'orange cat', provider: 'atlas' })
   })
 
+  it('reports Atlas progress and stops polling when the caller cancels', async () => {
+    const controller = new AbortController()
+    const progress: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ data: { id: 'prediction-cancel', status: 'processing' } })))
+    const providers = createDefaultImageProviders()
+    providers.atlas.apiKey = 'atlas-test-key'
+
+    await expect(generateRemoteImage(
+      { imageProvider: 'atlas', imageProviders: providers },
+      'cancelled image',
+      {
+        signal: controller.signal,
+        onProgress: (update) => {
+          progress.push(update.stage)
+          if (update.stage === 'running') controller.abort()
+        },
+      },
+    )).rejects.toMatchObject({ name: 'AbortError' })
+
+    expect(progress).toEqual(['submitting', 'running'])
+  })
+
+  it('accepts an Atlas output URL without downloading it again', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ data: { outputs: ['https://cdn.example/generated.png'] } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const providers = createDefaultImageProviders()
+    providers.atlas.apiKey = 'atlas-test-key'
+
+    await expect(generateRemoteImage({ imageProvider: 'atlas', imageProviders: providers }, 'remote image'))
+      .resolves.toMatchObject({ url: 'https://cdn.example/generated.png' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('normalizes Atlas raw base64 image output into a data URL', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ data: { outputs: ['iVBORw0KGgoAAAANSUhEUg=='] } })))
+    const providers = createDefaultImageProviders()
+    providers.atlas.apiKey = 'atlas-test-key'
+
+    const result = await generateRemoteImage({ imageProvider: 'atlas', imageProviders: providers }, 'inline image')
+    expect(result?.url).toBe('data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==')
+  })
+
+  it('ignores Atlas task metadata URLs while a prediction is still processing', async () => {
+    let polls = 0
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith('/model/generateImage')) {
+        return jsonResponse({ data: { id: 'prediction-metadata', status: 'processing', urls: { result: 'https://api.atlascloud.ai/protected-result' } } })
+      }
+      polls += 1
+      if (polls === 1) {
+        return jsonResponse({ data: { status: 'processing', urls: { result: 'https://api.atlascloud.ai/protected-result' } } })
+      }
+      return jsonResponse({ data: { status: 'completed', outputs: ['data:image/png;base64,iVBORw0KGgo='] } })
+    }))
+    const providers = createDefaultImageProviders()
+    providers.atlas.apiKey = 'atlas-test-key'
+
+    const result = await generateRemoteImage({ imageProvider: 'atlas', imageProviders: providers }, 'finished image')
+    expect(result?.url).toBe('data:image/png;base64,iVBORw0KGgo=')
+    expect(polls).toBe(2)
+  }, 10_000)
+
   it('offers the curated Atlas image models including Z-Image Turbo', async () => {
     const providers = createDefaultImageProviders()
     const options = await loadImageProviderOptions({ imageProviders: providers }, 'atlas')
@@ -121,8 +192,15 @@ describe('image generation providers', () => {
   it('uses the shared Atlas size field for Z-Image Turbo', async () => {
     vi.stubGlobal('fetch', vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body))
-      expect(body).toMatchObject({ model: 'z-image/turbo', size: '1024*1536' })
-      return jsonResponse({ data: { outputs: ['https://cdn.example/z-image.png'] } })
+      expect(body).toMatchObject({
+        model: 'z-image/turbo',
+        size: '1024*1536',
+        prompt_extend: false,
+        seed: -1,
+        enable_sync_mode: false,
+        enable_base64_output: true,
+      })
+      return jsonResponse({ data: { outputs: ['data:image/png;base64,iVBORw0KGgo='] } })
     }))
     const providers = createDefaultImageProviders()
     providers.atlas.apiKey = 'atlas-test-key'
@@ -130,7 +208,7 @@ describe('image generation providers', () => {
     providers.atlas.size = '1024*1536'
 
     const result = await generateRemoteImage({ imageProvider: 'atlas', imageProviders: providers }, 'portrait')
-    expect(result?.url).toBe('https://cdn.example/z-image.png')
+    expect(result?.url).toBe('data:image/png;base64,iVBORw0KGgo=')
   })
 
   it('omits an unsupported size override for the Qwen Image preset', async () => {
@@ -223,6 +301,26 @@ describe('image generation providers', () => {
     }
     const result = await generateRemoteImage({ imageProvider: 'comfyui', imageProviders: providers }, 'custom workflow fox')
     expect(result?.provider).toBe('comfyui')
+  })
+
+  it('resumes an existing Atlas prediction without submitting or charging again', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(init?.method).not.toBe('POST')
+      expect(String(input)).toContain('/model/prediction/prediction-existing')
+      return jsonResponse({ data: { status: 'completed', outputs: ['https://cdn.example/resumed.png'] } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const providers = createDefaultImageProviders()
+    providers.atlas.apiKey = 'atlas-test-key'
+
+    const result = await generateRemoteImage(
+      { imageProvider: 'atlas', imageProviders: providers },
+      'frozen prompt',
+      { predictionId: 'prediction-existing' },
+    )
+
+    expect(result?.url).toBe('https://cdn.example/resumed.png')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('shows ComfyUI workflow validation details when prompt submission is rejected', async () => {

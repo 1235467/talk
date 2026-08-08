@@ -21,6 +21,7 @@ import { extractWorldbookPersonaCanon, type WorldbookPersonaCanon } from './worl
 import { pickAvatarCategory } from './avatarCategory'
 import { randomAnimeAvatar, searchPexelsPhoto } from './photoSearch'
 import { generateRemoteImage } from './remoteMedia'
+import { composeImagePrompt, visualIdentitySeed } from './imageAssets'
 import { initialWarmthForBase } from './relationship'
 import { randomAvatarColor } from './colors'
 import { employmentPatch } from './career'
@@ -354,7 +355,7 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
       model: settings.utilityModel || settings.model,
       provider: settings.aiProvider,
       messages: [
-        { role: 'system', content: `你是人物资料 JSON 修复器。保留候选内容的已有事实，修复截断、引号、逗号、字段类型和缺失的必要字段。只能输出一个合法 JSON 对象。至少必须包含 name、persona、gender、ageRange、relationship、occupation、realName、nickname、birthday、mbti、speechSamples、personaProfile、pastExperiences、monthlySalary、schedule、avatarKeyword${voiceContext ? '、speechVoiceId、speechStyleInstruction；speechVoiceId只能使用：' + voiceContext.options.map((option) => option.id).join('、') : ''}。不要解释。` },
+        { role: 'system', content: `你是人物资料 JSON 修复器。保留候选内容的已有事实，修复截断、引号、逗号、字段类型和缺失的必要字段。只能输出一个合法 JSON 对象。至少必须包含 name、persona、visualIdentity、gender、ageRange、relationship、occupation、realName、nickname、birthday、mbti、speechSamples、personaProfile、pastExperiences、monthlySalary、schedule、avatarKeyword${voiceContext ? '、speechVoiceId、speechStyleInstruction；speechVoiceId只能使用：' + voiceContext.options.map((option) => option.id).join('、') : ''}。不要解释。` },
         { role: 'user', content: `待修复候选：\n${raw.slice(0, 16000)}` },
       ],
       jsonMode: true,
@@ -429,7 +430,17 @@ async function prepareAvatar(task: ContactGenerationTask, settings: AppSettings)
       const photo = settings.avatarImageSource === 'anime'
         ? await randomAnimeAvatar(settings.animeNsfwEnabled)
         : settings.avatarImageSource === 'generated'
-          ? await generateRemoteImage(settings, `anime-style square avatar, East Asian aesthetic, ${avatarQuery}`)
+          ? await generateRemoteImage(settings, composeImagePrompt({
+              scene: `square profile avatar, head-and-shoulders portrait, ${avatarQuery}`,
+              kind: 'portrait',
+              contacts: [{
+                id: 'avatar-draft', name: task.personaDraft.name, avatar: '', avatarColor: '',
+                systemPrompt: task.personaDraft.persona, visualIdentity: task.personaDraft.visualIdentity,
+                createdAt: 0, memoryFacts: '', memoryStyle: '', memoryUpdatedAt: 0, memoryMessageCursor: 0,
+                relationshipBase: task.personaDraft.relationship || '', relationshipDynamic: '',
+              }],
+              includeUser: false, settings,
+            }), { seed: visualIdentitySeed(task.personaDraft.visualIdentity || task.personaDraft.name) })
           : await searchPexelsPhoto(settings.pexelsApiKey, avatarQuery, 'square')
       if (photo) { finalAvatar = photo.url; avatarPhotographer = 'photographer' in photo ? photo.photographer : undefined; avatarPhotographerUrl = 'photographerUrl' in photo ? photo.photographerUrl : undefined }
     } catch {}
@@ -475,6 +486,8 @@ async function commitTask(task: ContactGenerationTask) {
       birthday: input.birthday?.trim() || parsed.birthday || fallbackBirthday(parsed.ageRange || input.ageRange),
       avatar: task.finalAvatar || input.avatar,
       avatarColor: randomAvatarColor(),
+      visualIdentity: parsed.visualIdentity,
+      visualSeed: visualIdentitySeed(parsed.visualIdentity || parsed.name),
       avatarPhotographer: task.avatarPhotographer,
       avatarPhotographerUrl: task.avatarPhotographerUrl,
       systemPrompt: parsed.persona,
@@ -525,7 +538,7 @@ async function commitTask(task: ContactGenerationTask) {
       id: uuid(), sourceContactId: contactId, name: parsed.name, realName: parsed.realName, nickname: parsed.nickname, birthday: parsed.birthday,
       gender: input.gender || parsed.gender, ageRange: input.ageRange || parsed.ageRange, relationship, occupation: input.occupation || parsed.occupation,
       personalityTrait: input.personalityTrait || parsed.personalityTrait, initialWarmth: input.relationshipEnabled ? warmth : undefined, hobbies: input.hobbies,
-      personaSetting: input.personaSetting || parsed.persona, roleDescription: input.roleDescription || undefined, persona: parsed.persona, personaProfile: parsed.personaProfile,
+      personaSetting: input.personaSetting || parsed.persona, roleDescription: input.roleDescription || undefined, persona: parsed.persona, visualIdentity: parsed.visualIdentity, personaProfile: parsed.personaProfile,
       speechSamples: parsed.speechSamples, mbti: parsed.mbti, schedule: parsed.schedule, avatarKeyword: parsed.avatarKeyword, monthlySalary: parsed.monthlySalary,
       sharedHistory: input.sharedHistory || undefined, createdAt: now,
     })

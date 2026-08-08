@@ -202,7 +202,7 @@ export function ContactCardPage() {
       const remaining = group.memberContactIds.filter((id) => id !== contact.id)
       if (remaining.length <= 1) {
         const conv = await db.conversations.where('groupId').equals(group.id).first()
-        if (conv) { await db.messages.where('conversationId').equals(conv.id).delete(); await db.conversations.delete(conv.id) }
+        if (conv) { await db.messages.where('conversationId').equals(conv.id).delete(); await db.mediaAssets.where('conversationId').equals(conv.id).delete(); await db.conversations.delete(conv.id) }
         await db.groups.delete(group.id)
       } else await db.groups.update(group.id, { memberContactIds: remaining })
     }
@@ -337,6 +337,7 @@ export function ContactCardPage() {
   async function handleDelete() {
     if (conversation) {
       await db.messages.where('conversationId').equals(conversation.id).delete()
+      await db.mediaAssets.where('conversationId').equals(conversation.id).delete()
       await db.conversations.delete(conversation.id)
     }
     await cascadeDeleteContactSocialData(contactId!)
@@ -835,6 +836,7 @@ export function ContactCardPage() {
           }
           onClose={() => setPickingAvatar(false)}
           settings={settings}
+          subject={contact}
         />
       )}
 

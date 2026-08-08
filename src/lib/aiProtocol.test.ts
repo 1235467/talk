@@ -52,9 +52,8 @@ describe('structured chat reply detection', () => {
 describe('private chat local draft parser', () => {
   it('parses compliant text without a utility-model round trip', () => {
     const raw = [
-      '<thought>我想先接住他的玩笑</thought>你这答案也太标准了',
-      '<thought>其实还想听个具体的</thought>所以到底想吃什么',
-      '<mood>被逗笑了</mood>',
+      '（我想先接住他的玩笑）[😌]“你这答案也太标准了”',
+      '（其实还想听个具体的）[😌]“所以到底想吃什么”',
     ].join('\n')
 
     const parsed = parseRawPrivateDraft(raw)
@@ -71,10 +70,9 @@ describe('private chat local draft parser', () => {
 
   it('extracts explicit action markers locally', () => {
     const raw = [
-      '<thought>给他发个红包正合适</thought>[redPacket:66:买杯奶茶]',
-      '<thought>这个词我确实没听过</thought>[knowledge:新的网络梗]',
-      '<thought>顺手发张照片</thought>[image:orange cat sunlight:你看这个]',
-      '<mood>挺开心</mood>',
+      '（给他发个红包正合适）[😊]“[redPacket:66:买杯奶茶]”',
+      '（这个词我确实没听过）[🤔]“[knowledge:新的网络梗]”',
+      '（顺手发张照片）[📷]“[image:orange cat sunlight:你看这个]”',
     ].join('\n')
 
     const parsed = parseRawPrivateDraft(raw)
@@ -89,12 +87,11 @@ describe('private chat local draft parser', () => {
 
   it('preserves arbitrary text, image, sticker, and text ordering', () => {
     const raw = [
-      '<thought>先回应一句</thought>等我一下',
-      '<thought>先把图发过去</thought>[image:orange cat by a rainy window, cinematic lighting:就是这种感觉]',
-      '<thought>再补充一句</thought>窗外还得有一点霓虹',
-      '<thought>最后用表情收尾</thought>[sticker:excited cat reaction]',
-      '<thought>别让话题断掉</thought>你更喜欢暖色还是冷色',
-      '<mood>很有兴致</mood>',
+      '（先回应一句）[😊]“等我一下”',
+      '（先把图发过去）[📷]“[image:orange cat by a rainy window, cinematic lighting:就是这种感觉]”',
+      '（再补充一句）[😊]“窗外还得有一点霓虹”',
+      '（最后用表情收尾）[😄]“[sticker:excited cat reaction]”',
+      '（别让话题断掉）[🤔]“你更喜欢暖色还是冷色”',
     ].join('\n')
 
     const parsed = parseRawPrivateDraft(raw)
@@ -104,10 +101,9 @@ describe('private chat local draft parser', () => {
   })
 
   it('falls back when required metadata or a known-looking marker is malformed', () => {
-    const missingMood = '<thought>先回一句</thought>好啊'
+    const missingMood = '（先回一句）“好啊”'
     const malformedMarker = [
-      '<thought>这个格式不完整</thought>[image:missing-caption]',
-      '<mood>疑惑</mood>',
+      '（这个格式不完整）[🤔]“[image:missing-caption]”',
     ].join('\n')
 
     const first = parseRawPrivateDraft(missingMood)

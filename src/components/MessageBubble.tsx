@@ -6,6 +6,9 @@ import { displayName } from '../lib/contact'
 import type { Contact, Message } from '../types'
 import { Check } from 'lucide-react'
 import { UiIcon } from './UiIcon'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { db } from '../db/db'
+import { retryMediaAsset } from '../lib/imageAssets'
 
 interface MessageBubbleProps {
   message: Message
@@ -66,6 +69,11 @@ export const MessageBubble = memo(function MessageBubble({
   showName = false,
 }: MessageBubbleProps) {
   const isUser = message.role === 'user'
+  const imageAsset = useLiveQuery(
+    () => message.image?.assetId ? db.mediaAssets.get(message.image.assetId) : undefined,
+    [message.image?.assetId],
+    null,
+  )
   const longPress = useLongPress(() => onLongPress?.(message.id))
   const mentionNames = useMemo(
     () =>
@@ -196,7 +204,12 @@ export const MessageBubble = memo(function MessageBubble({
               <p className="mt-1 text-[11px] text-gray-500">可在群聊信息中确认、取消或标记成行</p>
             </div>
           )}
-          {message.type === 'image' && message.image && <div data-ui-scope="special" className="max-w-[240px] overflow-hidden rounded-xl bg-white"><img src={message.image.url} alt={message.image.caption||'聊天图片'} className="max-h-72 w-full object-cover"/>{message.image.caption&&<p className="px-3 py-2 text-xs text-gray-600">{message.image.caption}</p>}{message.image.photographer&&<p className="px-3 pb-2 text-[10px] text-gray-300">Photo: {message.image.photographer}</p>}</div>}
+          {message.type === 'image' && message.image && <div data-ui-scope="special" className="w-[240px] overflow-hidden rounded-xl bg-white">
+            {message.image.assetId && (imageAsset === null || (imageAsset && imageAsset.status !== 'completed' && imageAsset.status !== 'failed')) ? <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 bg-gray-100 text-xs text-gray-400"><span className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-[var(--ui-special)]"/><span>图片生成中…</span></div> : null}
+            {imageAsset?.status === 'failed' ? <div className="flex min-h-36 flex-col items-center justify-center gap-2 bg-gray-50 px-4 text-center"><UiIcon name="image" size={24}/><p className="text-xs text-red-500">{imageAsset.error || '图片生成失败'}</p><button type="button" onClick={() => void retryMediaAsset(imageAsset.id)} className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs text-white">重新生成</button></div> : null}
+            {(imageAsset?.status === 'completed' ? imageAsset.dataUrl || imageAsset.remoteUrl : message.image.url) && <img src={imageAsset?.status === 'completed' ? imageAsset.dataUrl || imageAsset.remoteUrl : message.image.url} alt={message.image.caption||'聊天图片'} className="max-h-72 w-full object-cover"/>}
+            {message.image.caption&&<p className="px-3 py-2 text-xs text-gray-600">{message.image.caption}</p>}{message.image.photographer&&<p className="px-3 pb-2 text-[10px] text-gray-300">Photo: {message.image.photographer}</p>}
+          </div>}
           {['transfer','redPacket','loanRequest','loanResult','repayment'].includes(message.type) && message.finance && (
             <button data-ui-scope="special" onClick={()=>onFinanceClick?.(message)} className="finance-card w-56 rounded-xl border border-orange-200 p-3 text-left text-white">
               <p className="flex items-center gap-1.5 text-sm font-medium"><UiIcon name={message.type==='transfer'?'finance':message.type==='redPacket'?'gift':message.type==='loanRequest'?'loan':message.type==='repayment'?'check':'archive'} size={16} />{message.type==='transfer'?'转账':message.type==='redPacket'?'红包':message.type==='loanRequest'?'借款申请':message.type==='repayment'?'已还款':'借款结果'}</p>

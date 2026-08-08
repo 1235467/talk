@@ -1,6 +1,6 @@
 import { db } from '../db/db'
 import { isModuleEnabled } from '../features'
-import { parseJsonLoose, parseKnowledgeQueriesField } from './aiProtocol'
+import { parseJsonLoose, parseKnowledgeQueriesField, parseScheduleMarker } from './aiProtocol'
 import { activeUpcomingPlansText } from './memory'
 import { customPersonalityTraitsLine, formatPersonaProfile, formatSpeechSamplesForScene, personalityTraitLine } from './prompt'
 import { describeCurrentSchedule } from './schedule'
@@ -95,6 +95,21 @@ export function stripSpeakerNamePrefix(content: string, memberNames: string[]): 
   return content
 }
 
+export function groupRawOutputProtocol(imageGenerationEnabled: boolean, energyLevel: GroupEnergyLevel = 'normal'): string {
+  return `固定输出协议（不可编辑，优先级最高）：
+- 只输出群聊纯文本草稿，不输出JSON、分析、标题或Markdown。
+- 每一行严格使用：<人名>（想法）[emoji心情]“消息内容”
+- 人名只能来自本轮发言人；想法和心情不得为空；心情只能使用一个允许的emoji。
+- 示例：<林夏>（确认见面）[😊]“好，那就这么定。”
+- 图片示例：<林夏>（把照片发过去）[📷]“[image:an English image prompt:配文]”。决定发图时必须输出这个标记，不能只用“我拍给你看”代替。
+- 表情写成[sticker:名称或搜索词]；图片写成[image:英文提示词或搜索词:配文]；陌生知识查询写成[knowledge:关键词]。
+- 消息内容不得残留人名冒号、结构标记或外层格式。
+- 日程卡片只能由已明确同意的本人输出：[schedule:date=YYYY-MM-DD;startHour=0-23;endHour=1-24;locationId=合法地点ID;activity=活动;phoneAccess=available|unavailable;summary=摘要]。该行的发言人就是唯一可变更日程的人；缺少任一字段时不得输出。
+- 地点卡片只能由本人明确抵达时输出：[location:locationId=合法地点ID;summary=到达原因]。不得根据聊天语气猜测地点。
+${imageGenerationEnabled ? '- 生图标记中的英文提示词至少100个英文词；应具体描述当次主体、场景、服装、动作、构图、镜头、光线、色彩、材质和氛围。\n' : ''}
+【本轮输出配额】热闹程度=${energyLevel}。cold 为1到3行，normal 为3到7行，lively 为6到12行；此规则与格式同级，必须遵守。`
+}
+
 function buildGroupPrompt(opts: {
   stylePrompt: string
   groupName: string
@@ -178,19 +193,24 @@ ${samplesText ? `- 说话样例:\n${samplesText}` : ''}`
     worldbookPrompt: worldview,
     currentTime: opts.currentTimeText,
     userProfile: opts.userProfileText,
-    additionalContext: [locationContext, groupMemory, groupVibe, knowledge, targetedContext, recentEvents, aiRelationships].filter(Boolean).join('\n'),
+    // Current turn evidence precedes compressed memory/background.  Each
+    // source is injected once to avoid four copies of the same persona fact.
+    additionalContext: [locationContext, targetedContext, recentEvents, aiRelationships, groupMemory, groupVibe, knowledge].filter(Boolean).join('\n'),
     speakerProfiles: speakerBlocks,
     stickerCapabilities: opts.remoteStickerSearchEnabled ? `支持远程搜索；本地可用项：${stickersText}` : stickersText,
     imageCapabilities: opts.imageGenerationEnabled ? '支持按完整英文提示词生图' : opts.imageSearchEnabled ? '支持按英文关键词搜索真实图片' : '未启用',
   }) ?? ''
-  const finalPrompt = `${editableGroupPrompt}
+  const protocol = groupRawOutputProtocol(!!opts.imageGenerationEnabled, opts.energyLevel ?? 'normal')
+  const priority = `【内容事实优先级｜仅在格式合格后适用】
+人设（身份、边界、与用户和群友的关系） > 最近几轮原始对话与本轮消息 > 记忆 > 过去经历和世界书背景。前一层与后一层冲突时，必须服从前一层；不得用记忆或经历覆盖用户最新明确状态。`
+  const finalPrompt = `${protocol}
 
-固定输出协议（不可编辑）：
-- 只输出群聊纯文本草稿，不输出JSON、分析、标题或Markdown。
-- 每一行严格使用：<人名>（想法）[emoji心情]“消息内容”
-- 人名只能来自本轮发言人；想法和心情不得为空；心情只能使用一个允许的emoji。
-- 表情写成[sticker:名称或搜索词]；图片写成[image:英文提示词或搜索词:配文]；陌生知识查询写成[knowledge:关键词]。
-- 消息内容不得残留人名冒号、结构标记或外层格式。`
+${priority}
+
+${editableGroupPrompt}
+
+${protocol}
+【发送前最终检查】逐行检查发言人、想法、emoji、中文引号、消息标记和行顺序；只输出符合协议的群聊纯文本草稿，不输出检查过程、解释、JSON、标题或Markdown。`
 
   return finalPrompt
 }
@@ -259,13 +279,18 @@ export function buildGroupJsonConversionPrompt(
   speakers: Contact[],
   stickerNames: string[],
   options: { remoteStickerSearchEnabled?: boolean; imageGenerationEnabled?: boolean } = {},
+  members: Contact[] = speakers,
 ): string {
   const speakerLines = speakers.map((speaker, i) => `${i + 1}. ${speaker.name}`).join('\n')
   const stickersText = stickerNames.length > 0 ? stickerNames.join('、') : '（无）'
-  return `把下面的群聊纯文本草稿机械转换成JSON。不要润色、不要改写、不要新增消息。
+  const memberLines = members.map((member, i) => `${i + 1}. ${member.name}`).join('\n')
+  return `把下面的群聊纯文本草稿逐行、机械转换成JSON。不要把它当成新的生成任务，不要润色、不要改写、不要总结、不要合并或拆分消息，不要新增消息。格式标记优先于所有语义；这是纯翻译步骤，草稿是唯一事实来源。
 
 【发言人索引】
 ${speakerLines}
+
+【完整群成员索引（仅用于图片 participantIndexes）】
+${memberLines}
 
 【可用表情包】
 ${stickersText}
@@ -275,22 +300,26 @@ ${rawText}
 
 【抽取规则】
 - 每一行格式通常是 <人名>（想法）[心情]“消息内容”。
+- 每一条非空草稿行必须对应一个messages元素，严格保持原顺序；不能把多行拼成一条，也不能把一行拆成多条。
 - speakerIndex 必须按上面的发言人索引填写；speakerName 保留原人名用于调试。
-- content 只放双引号里的消息内容，去掉外层引号，不能残留<人名>、（想法）、[心情]。
+- content 只放双引号里的消息内容，去掉外层引号，不能残留<人名>、（想法）、[心情]；普通文字必须逐字保留，不得改写、补写、删减或根据上下文润色。
 - thought 取圆括号里的想法，原样保留。
 - mood 取方括号里的心情，原样保留。
-- 每条消息都必须有非空 thought 和 mood；草稿缺失时根据该行语境补一个短的。
+- 每条消息都必须有非空 thought 和 mood；草稿缺失时该行转换失败，绝不根据语境补写。
 - 如果消息内容是 [sticker:名字]，输出 {"speakerIndex":n,"speakerName":"...","type":"sticker","name":"名字","thought":"...","mood":"..."}。
-- 如果消息内容是 [image:英文图片请求词:配文]，输出image类型及query/caption字段；标记不能留在text正文。${options.imageGenerationEnabled ? '这里的 query 是完整生图提示词，不要改写或缩短。' : ''}
+- 如果消息内容是 [image:英文图片请求词:配文]，输出image类型及 query/scene/caption，并根据画面填写 kind（selfie/portrait/group/scene/object）、participantIndexes（完整群成员索引）和 includeUser。人物图必须明确参与者；scene/object 默认不出现人物；最多4名群成员。标记不能留在text正文。${options.imageGenerationEnabled ? 'query/scene 要具体描述当次画面，但不要重复编造人物固定五官或画风，这些由程序统一加入。' : ''}
+- 如果消息内容是 [schedule:date=...;startHour=...;endHour=...;locationId=...;activity=...;phoneAccess=...;summary=...]，仅机械转换为 scheduleChange 的同名字段；不得补全、改写或创建任何日程字段。标记不能留在text正文。
 - ${options.remoteStickerSearchEnabled ? '远程表情搜索已启用，sticker 的 name 可以是草稿里的搜索词，不要因为它不在本地列表而改成文字。' : 'sticker 名字必须来自可用表情包；不在列表里就改成普通text内容。'}
 - 如果草稿里自然提到不懂的新词/热梗/作品名，可在knowledgeQueries里放最多2个查询；没有就给空数组。
 - 必须把[knowledge:关键词]从消息正文删除并写入顶层knowledgeQueries；不能把标记展示给用户。
+- 所有图片、表情、日程、资金和知识标记都必须逐个转换，不能漏掉、伪装成普通text或用一句概括替代；标记中的字段只能来自草稿本身。
+- 如果草稿缺少格式或字段，不要猜测修复，不要凭语义创造新消息；按原文可机械提取的内容转换，无法转换的行不要伪造内容。
 - turnSummary 用一句话概括这一轮群聊发生了什么。
 - planCandidates 只在本轮出现至少两位成员明确同意的共同计划时填写；participantIndexes 使用发言人索引，不能凭空创建计划。
 - groupVibe 必填，用20到60字概括本轮之后最新的群聊氛围，会直接替换旧群聊氛围。
 
 只输出JSON，格式:
-{"messages":[{"speakerIndex":1,"speakerName":"...","type":"text","content":"...","thought":"...","mood":"..."}],"turnSummary":"...","groupVibe":"...","knowledgeQueries":[],"planCandidates":[{"title":"看电影","summary":"周末一起看电影","participantIndexes":[1,2],"location":"待定"}]}`
+{"messages":[{"speakerIndex":1,"speakerName":"...","type":"image","query":"...","scene":"...","kind":"group","participantIndexes":[1,2],"includeUser":false,"caption":"...","thought":"...","mood":"..."}],"turnSummary":"...","groupVibe":"...","knowledgeQueries":[],"planCandidates":[]}`
 }
 
 function parseSpeakerIndex(v: unknown): number | null {
@@ -386,12 +415,17 @@ export function parseGroupRawDraft(
       })
       continue
     }
+    const schedule = parseScheduleMarker(content)
+    if (schedule) {
+      bubbles.push({ ...common, ...schedule })
+      continue
+    }
     bubbles.push({ ...common, type: 'text', content })
   }
 
   const turnSummary = bubbles
     .map((bubble) => `${bubble.speakerName || speakers[bubble.speakerIndex - 1]?.name || '群成员'}：${
-      bubble.type === 'text' ? bubble.content : bubble.type === 'sticker' ? `[表情包:${bubble.name}]` : `[图片:${bubble.caption || bubble.query}]`
+      bubble.type === 'text' ? bubble.content : bubble.type === 'sticker' ? `[表情包:${bubble.name}]` : bubble.type === 'scheduleChange' ? `[日程:${bubble.summary}]` : `[图片:${bubble.caption || bubble.query}]`
     }`)
     .join('；')
     .slice(0, 180)
@@ -443,6 +477,15 @@ export function parseGroupAiResponse(raw: string, speakerCount: number): ParsedG
   return { bubbles: fallbackBubbles, knowledgeQueries: [], turnSummary: fallbackBubbles.map((b) => b.content).join(' ').slice(0, 160), groupVibe: '群聊氛围暂未更新。', planCandidates: [] }
 }
 
+/** Keeps model order, but when trimming a crowded photo always preserves its sender. */
+export function selectGroupImageParticipantIds(requestedIds: string[], speakerId?: string, maxPeople = 4): string[] {
+  const unique = Array.from(new Set(requestedIds))
+  if (unique.length <= maxPeople) return unique
+  return speakerId
+    ? [speakerId, ...unique.filter((id) => id !== speakerId)].slice(0, maxPeople)
+    : unique.slice(0, maxPeople)
+}
+
 function tryParseGroupJson(trimmedRaw: string, speakerCount: number): ParsedGroupTurn | null {
   const parsed = parseJsonLoose<GroupAiResponse>(trimmedRaw)
   if (!parsed || !Array.isArray(parsed.messages)) return null
@@ -460,7 +503,13 @@ function tryParseGroupJson(trimmedRaw: string, speakerCount: number): ParsedGrou
     } else if (m.type === 'sticker' && typeof m.name === 'string' && m.name.trim()) {
       bubbles.push({ speakerIndex, speakerName, type: 'sticker', name: m.name.trim(), thought, mood })
     } else if (m.type === 'image' && typeof (m as unknown as {query?:unknown}).query === 'string') {
-      const im=m as unknown as {query:string;caption?:unknown}; bubbles.push({speakerIndex,speakerName,type:'image',query:im.query.trim().slice(0,2_000),caption:typeof im.caption==='string'?im.caption.slice(0,200):undefined,thought,mood})
+      const im=m as unknown as {query:string;scene?:unknown;kind?:unknown;participantIndexes?:unknown;includeUser?:unknown;caption?:unknown}
+      const kind = ['selfie','portrait','group','scene','object'].includes(String(im.kind)) ? im.kind as import('../types').AiImageKind : undefined
+      const participantIndexes = Array.isArray(im.participantIndexes) ? Array.from(new Set(im.participantIndexes.filter((value): value is number => Number.isInteger(value) && value >= 1 && value <= 999))) : undefined
+      bubbles.push({speakerIndex,speakerName,type:'image',query:im.query.trim().slice(0,2_000),scene:typeof im.scene==='string'?im.scene.trim().slice(0,2_000):undefined,kind,participantIndexes,includeUser:im.includeUser===true,caption:typeof im.caption==='string'?im.caption.slice(0,200):undefined,thought,mood})
+    } else if (m.type === 'scheduleChange') {
+      const schedule = parseScheduleMarker(`[schedule:date=${String((m as any).date ?? '')};startHour=${String((m as any).startHour ?? '')};endHour=${String((m as any).endHour ?? '')};locationId=${String((m as any).locationId ?? '')};activity=${String((m as any).activity ?? '')};phoneAccess=${String((m as any).phoneAccess ?? '')};summary=${String((m as any).summary ?? '')}]`)
+      if (schedule) bubbles.push({ speakerIndex, speakerName, ...schedule, thought, mood })
     }
   }
   return {

@@ -50,6 +50,27 @@ async function traceAiCall(opts: { purpose: AiUsagePurpose; model: string; messa
   } catch {}
 }
 
+/** Records deterministic follow-up work in the same Sky Eye timeline as AI calls. */
+export async function traceTurnEvent(opts: {
+  turnId?: string
+  conversationId?: string
+  stage: AdminAiTraceStage
+  model?: string
+  input?: string
+  output?: string
+  error?: string
+  durationMs?: number
+  diagnostics?: Record<string, unknown>
+}): Promise<void> {
+  await traceAiCall({
+    purpose: 'other', model: opts.model ?? '本地执行',
+    messages: opts.input ? [{ role: 'system', content: opts.input }] : [],
+    output: opts.output, error: opts.error, inputTokens: 0, outputTokens: 0,
+    durationMs: opts.durationMs, turnId: opts.turnId, stage: opts.stage,
+    conversationId: opts.conversationId, diagnostics: opts.diagnostics,
+  })
+}
+
 export async function listModels(apiKey: string, baseUrl: string, provider: AiProviderId = useSettingsStore.getState().aiProvider): Promise<string[]> {
   try {
     const key = requireApiKey(apiKey, 'AI')

@@ -14,6 +14,7 @@ import { resizeImageDataUrl } from '../lib/image'
 import { formatListTime } from '../lib/time'
 import type { Contact, MomentComment, MomentLike } from '../types'
 import { Heart, Pencil, RefreshCw } from 'lucide-react'
+import { retryMediaAsset } from '../lib/imageAssets'
 
 const EMPTY_ARRAY: never[] = []
 
@@ -28,6 +29,8 @@ export function MomentsPage() {
   const likes = useLiveQuery(() => db.momentLikes.toArray(), []) ?? EMPTY_ARRAY
   const comments = useLiveQuery(() => db.momentComments.toArray(), []) ?? EMPTY_ARRAY
   const stickers = useLiveQuery(() => db.stickers.toArray(), []) ?? EMPTY_ARRAY
+  const mediaAssets = useLiveQuery(() => db.mediaAssets.where('origin').equals('moment').toArray(), []) ?? EMPTY_ARRAY
+  const mediaAssetById = useMemo(() => new Map(mediaAssets.map((asset) => [asset.id, asset])), [mediaAssets])
   const [refreshing, setRefreshing] = useState(false)
   const [message, setMessage] = useState('')
   const [composerOpen, setComposerOpen] = useState(false)
@@ -349,9 +352,11 @@ export function MomentsPage() {
                     >
                       {m.content}
                     </p>
-                    {m.imageUrl && (
+                    {m.imageAssetId && mediaAssetById.get(m.imageAssetId)?.status !== 'completed' && mediaAssetById.get(m.imageAssetId)?.status !== 'failed' && <div className="mt-2 flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-lg bg-gray-100 text-xs text-gray-400"><span className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-[var(--ui-special)]"/>图片生成中…</div>}
+                    {m.imageAssetId && mediaAssetById.get(m.imageAssetId)?.status === 'failed' && <div className="mt-2 flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg bg-gray-50 px-4 text-center"><p className="text-xs text-red-500">{mediaAssetById.get(m.imageAssetId)?.error || '图片生成失败'}</p><button type="button" onClick={() => void retryMediaAsset(m.imageAssetId!)} className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs text-white">重新生成</button></div>}
+                    {(m.imageUrl || (m.imageAssetId && mediaAssetById.get(m.imageAssetId)?.status === 'completed' && (mediaAssetById.get(m.imageAssetId)?.dataUrl || mediaAssetById.get(m.imageAssetId)?.remoteUrl))) && (
                       <img
-                        src={m.imageUrl}
+                        src={m.imageAssetId ? mediaAssetById.get(m.imageAssetId)?.dataUrl || mediaAssetById.get(m.imageAssetId)?.remoteUrl || m.imageUrl : m.imageUrl}
                         alt=""
                         className="mt-2 max-h-64 w-full rounded-lg object-cover"
                         title={m.imagePhotographer ? `照片来自 Pexels · ${m.imagePhotographer}` : undefined}

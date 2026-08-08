@@ -189,6 +189,7 @@ export interface PersonaGenerationResult {
   persona: string
   schedule: ScheduleBlock[]
   avatarKeyword: string
+  visualIdentity?: string
   personalityTrait: string
   speechSamples?: string[]
   mbti: string
@@ -269,6 +270,7 @@ ${speechVoiceContext.options.map((option) => `- ${option.id}｜${option.name}｜
   "nickname": "网名/昵称",
   "birthday": "YYYY-MM-DD",
   "persona": "第三人称描述这个人的性格、说话习惯、大概的背景和生活状态、和用户的关系细节 写成一段自然语言 200到400字之间 要具体真实 不要写成产品说明书",
+  "visualIdentity": "English only. Stable physical identity: apparent age, face shape, facial features, skin tone, hairstyle, build and distinctive features. Never include clothing, pose, scene, lighting or art style.",
   "mbti": "这个人的MBTI类型 根据你设计的人设推断最符合的四字母 比如INFP/ESTJ/INTJ等 必须是一个有效的MBTI类型",
   "speechSamples": ["[日常] 一句符合这个人说话方式的短消息", "[被关心] 一句短消息", "[情绪触发] 一句短消息", "[亲近互动] 一句短消息"],
   "personaProfile": {"facts":["不可改变的身份/背景事实"],"boundaries":["关系边界或禁忌"],"habits":["稳定习惯/口癖"],"behaviorAnchors":["遇到某类情境会如何自然反应"]},
@@ -325,6 +327,7 @@ export function diagnosePersonaGeneration(raw: string): { result: PersonaGenerat
       const mbti = /^[IE][SN][TF][JP]$/.test(mbtiRaw) ? mbtiRaw : ''
       return { result: {
         avatarKeyword: typeof parsed.avatarKeyword === 'string' ? parsed.avatarKeyword.trim() : '',
+        visualIdentity: typeof parsed.visualIdentity === 'string' ? parsed.visualIdentity.trim().slice(0, 800) : undefined,
         name: name.trim(),
         realName: typeof parsed.realName === 'string' ? parsed.realName.trim().slice(0, 40) : undefined,
         nickname: typeof parsed.nickname === 'string' ? parsed.nickname.trim().slice(0, 40) : undefined,
@@ -413,6 +416,16 @@ export function formatPersonaProfile(profile: PersonaProfile | undefined): strin
   ].filter(Boolean).join('\n')
 }
 
+export function privateRawOutputProtocol(imageGenerationEnabled: boolean): string {
+  return `【固定输出协议（不可编辑｜最高优先级）】
+只输出私聊纯文本草稿，不输出 JSON、分析、标题或 Markdown。
+每一行严格写作：（想法）[emoji心情]“消息内容”。想法和心情不得为空；心情只能是一个 emoji；消息内容不得残留人名冒号、结构标记或外层格式。
+示范：（确认见面）[😊]“好，那就这么定。”
+表情、图片、陌生知识与资金也必须保留同一外层格式，例如：（发张照片）[📷]“[image:英文提示词:配文]”。不得只写“我拍给你看”来代替已经决定发送的图片。
+日程只有在你已经明确、无条件同意且日期、开始/结束小时、合法地点ID、活动、手机可用性和摘要均已敲定时，才在消息内容中输出：[schedule:date=YYYY-MM-DD;startHour=0-23;endHour=1-24;locationId=合法地点ID;activity=活动;phoneAccess=available|unavailable;summary=摘要]。任何字段缺失都不得输出日程标记，也不得靠猜测补全。
+${imageGenerationEnabled ? '实际生图的英文提示词至少100个英文词，并具体描述主体、场景、服装、动作、构图、镜头、光线、色彩、材质和氛围。\n' : ''}`
+}
+
 /**
  * Step 1: Prompt the main model to generate natural chat text.
  * No JSON — just raw text with parenthetical private thoughts.
@@ -492,7 +505,7 @@ export function buildRawChatPromptParts(opts: {
       ? `\n可用的表情包: ${opts.stickerNames.join('、')}。如果你想发某个表情包，在对应位置写 [sticker:表情名]，名字必须来自列表。`
       : ''
   const imageHint = opts.imageGenerationEnabled
-    ? '- 只有用户明确要求画图/发图/看图，或你在当前语境中有明确、具体的视觉分享动机且图片确实比纯文字合适时，才单独写[image:完整、自包含的英文生图提示词:配文]。提示词要把主体、场景、构图、氛围和风格说清楚，不能只写两三个搜索词；普通寒暄、情绪回应或为了让回复丰富都不能擅自生图。'
+    ? '- 只有用户明确要求画图/发图/看图，或你在当前语境中有明确、具体的视觉分享动机且图片确实比纯文字合适时，才单独写[image:具体英文场景描述:配文]。英文生图提示词至少100个英文词，具体描述当次主体、场景、服装、动作、构图、镜头、光线、色彩、材质和氛围；不要编造固定五官或画风，程序会统一加入。普通寒暄、情绪回应或为了让回复丰富都不能擅自生图。'
     : opts.imageSearchEnabled
       ? '- 想发送一张真实照片时，单独写[image:简洁具体的英文 Pexels 搜图关键词:配文]；只有真的适合发图时才用。'
       : '- 当前没有可用图片服务，不要输出[image:...]标记。'
@@ -514,7 +527,10 @@ export function buildRawChatPromptParts(opts: {
   const situationSource = opts.situationContext ?? opts.recentContext
   const contextBlock = render('chat', 'context', { situationContext: situationSource, latestUserText: opts.latestUserText || '（后台事件）' })
   const intentBlock = opts.activeIntentText ? render('intent', 'chat', { intentContext: opts.activeIntentText }) : ''
-  const logicModules = [identityBlock, worldbookBlock, relationshipBlock, personalityBlock, memoryBlock, contextBlock, intentBlock].filter(Boolean).join('\n\n')
+  // One canonical ordering for every private turn.  Do not move memory or
+  // worldbook text ahead of identity/current-turn evidence: it makes old
+  // recollections outweigh what the user just said.
+  const logicModules = [identityBlock, relationshipBlock, personalityBlock, contextBlock, intentBlock, memoryBlock, worldbookBlock].filter(Boolean).join('\n\n')
   const logic = render('chat', 'logicWrapper', { logicModules })
   const styleBlock = render('chat', 'style')
   const mediaBlock = render('chat', 'media', { stickerHint, imageHint })
@@ -524,20 +540,29 @@ export function buildRawChatPromptParts(opts: {
 
   回复要求:
   - 通常回复2到5条消息，按当前语境决定长短；不要为了显得热闹拆出过多没有新信息的句子
-  - 用换行把长回复拆成短句 每句占一行；每一行严格写成：<thought>这句话对应的第一人称真实想法</thought>真正发出的消息正文
-  - 每条消息都必须有自己独立的thought，10到50字，符合人设且不能写“用户/对方”；不同消息的想法不能机械重复
+  - 用换行把长回复拆成短句，每句占一行；每行的外层格式完全服从最前面的固定输出协议
+  - 每条消息都必须有自己独立、符合人设的想法；不同消息的想法不能机械重复
   - text、sticker、image可以按真实聊天节奏任意穿插，例如文字→图片→文字，或图片→文字→表情→文字；必须严格保留你想发送的先后顺序，不要把媒体统一挪到开头或结尾
   - 需要真实执行金钱互动时可单独写标记：[transfer:金额:备注]、[redPacket:金额:祝福]、[loanRequest:金额:理由]、[giftPurchase:价格:礼物名:emoji:描述]。看到借款申请历史事件时，可写[loanDecision:loanId:accept或reject:金额]
   ${mediaBlock ? '' : '- 媒体提示词已屏蔽，不要输出sticker或image标记。'}
   - 用户提到你确实不了解的新词、梗、作品或专业名词时，先像真人一样自然追问一句，再单独写[knowledge:需要搜索的关键词]。不要假装知道，也不要对普通词滥用搜索
   - 金钱标记会真实扣除你的余额，必须结合关系、理由和余额慎重决定，不能虚构余额或无理由频繁送钱
-  - 最后一行单独写<mood>你此刻15字以内的情绪</mood>
-  - 不要输出JSON 就正常打字聊天`
+  - 不要输出JSON，就按最前面的每行协议正常聊天`
 
   return {
     logic,
     feeling,
-    full: `${logic}\n\n${feeling}`,
+    full: `${privateRawOutputProtocol(!!opts.imageGenerationEnabled)}
+
+【不可编辑优先级】
+1. 输出格式与可执行标记；2. 角色人设、身份边界和关系；3. 最近对话与本轮用户消息；4. 记忆；5. 过去经历与世界书背景。前一层与后一层冲突时，必须服从前一层。
+格式 > 人设与关系 > 前几轮回复 > 记忆 > 过去经历。
+不得让记忆、经历或世界书覆盖用户刚刚明确的新状态；不得为日程或地点补全主模型没有明确写出的字段。
+
+${logic}\n\n${feeling}
+
+${privateRawOutputProtocol(!!opts.imageGenerationEnabled)}
+【发送前最终检查】只保留符合上述协议的逐行草稿；不要输出检查过程、解释或 JSON。`,
   }
 }
 
@@ -545,18 +570,22 @@ export function buildRawChatPromptParts(opts: {
  * Step 2: Prompt the utility model to convert raw chat text into JSON.
  */
 export const DEFAULT_JSON_CONVERSION_PROMPT = `将以下聊天回复解析为JSON。消息正文只做机械提取，不要修改原文；mood/thought是内部元数据。
+这是逐行翻译，不是重新生成：原文是唯一事实来源。不得把原文简单按换行当作最终消息，也不得合并、拆分、重排、润色、总结、补写或删改任何一行。
 
 {{rawText}}
 
 规则:
-- 按换行拆成多条text消息，去除每行的<thought>...</thought>和最后的<mood>...</mood>标签
+- 这是纯翻译步骤：不得依据语义补写、猜测或删改内容；尤其不得自己创建日程、地点、时间、承诺或图片提示词。
+- 每行只机械读取：（想法）[emoji]“消息内容”。将引号内内容转为消息正文；thought 取括号内容，mood 取 emoji。任何一项缺失都不得猜测补写。
+- 每一行非空原文必须对应一个messages元素并保持顺序；普通text的content必须逐字等于引号内内容，只去除外层协议，不能根据语义改写。
 - 如果原文有[sticker:名字]则输出sticker类型
-- 将[image:英文图片请求词:配文]转换为{"type":"image","query":"英文图片请求词","caption":"配文"}，标记不能留在text正文
+- 将[image:英文图片请求词:配文]转换为 image，并填写 query、scene、caption、kind（selfie/portrait/group/scene/object）和 participants（self/user数组）。本人入镜用self，用户入镜用user，纯场景或物品用空数组。标记不能留在text正文
+- 将[schedule:date=...;startHour=...;endHour=...;locationId=...;activity=...;phoneAccess=...;summary=...]仅机械转换为 scheduleChange 的同名字段；不得补全、改写或创建任何字段。
 - 将所有[knowledge:关键词]从正文删除，并把关键词放进顶层knowledgeQueries数组，最多2个；没有标记则输出空数组
+- 图片、日程、资金、表情和知识标记必须逐个机械转换，不能漏掉、变成普通text或用自然语言替代；所有字段只能取自原文，不能补造。
 - 必须将资金标记转换为结构化消息，绝不能当作text或丢弃：[transfer:金额:备注]→{"type":"transfer","amount":金额,"note":"备注"}；[redPacket:金额:备注]→redPacket；[loanRequest:金额:理由]→loanRequest；[loanDecision:loanId:accept或reject:金额]→loanDecision；[giftPurchase:价格:礼物名:emoji:描述]→{"type":"giftPurchase","amount":价格,"name":"礼物名","icon":"emoji","description":"描述"}。标记本身不能出现在text正文
-- thought优先取原文第一条<thought>...</thought>；若缺失，再根据整段回复推断一句简短、第一人称的真实想法，不能写进messages正文
-- mood取原文<mood>...</mood>内容；若缺失再根据语气判断，15字以内，不能为空
-- messages允许的完整类型示例：{"messages":[{"type":"text","content":"..."},{"type":"image","query":"orange cat sunlight","caption":"你看这个"},{"type":"transfer","amount":100,"note":"拿去买奶茶"},{"type":"giftPurchase","amount":299,"name":"围巾","icon":"🧣","description":"给你挑的"}],"mood":"...","thought":"...","knowledgeQueries":[]}。只输出JSON对象`
+- thought取原文第一行括号内的想法；mood取原文第一行的 emoji；若缺失则转换失败，绝不根据语境推断。
+- messages允许的完整类型示例：{"messages":[{"type":"text","content":"..."},{"type":"image","query":"casual selfie by a window","scene":"casual selfie by a window","kind":"selfie","participants":["self"],"caption":"你看这个"},{"type":"transfer","amount":100,"note":"拿去买奶茶"},{"type":"giftPurchase","amount":299,"name":"围巾","icon":"🧣","description":"给你挑的"}],"mood":"...","thought":"...","knowledgeQueries":[]}。只输出JSON对象`
 
 const REQUIRED_JSON_PROTOCOL_MARKERS = ['{{rawText}}', 'messages', 'type', 'mood', 'thought', 'knowledgeQueries']
 

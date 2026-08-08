@@ -5,7 +5,7 @@ import { useSettingsStore } from '../store/useSettingsStore'
 
 beforeEach(async () => {
   await db.open()
-  await Promise.all([db.moments.clear(), db.momentComments.clear(), db.momentLikes.clear(), db.socialEvents.clear()])
+  await Promise.all([db.moments.clear(), db.momentComments.clear(), db.momentLikes.clear(), db.socialEvents.clear(), db.mediaAssets.clear()])
   useSettingsStore.getState().setSettings({ albumSavedImages: [], hiddenAlbumUrls: [] })
 })
 
@@ -33,5 +33,12 @@ describe('moment deletion', () => {
       source: 'Pexels 实拍图',
       caption: '带照片的动态',
     }])
+  })
+
+  it('deletes the persistent generated-image asset linked to a Moment', async () => {
+    await db.mediaAssets.add({ id: 'asset-a', origin: 'moment', originId: 'moment-asset', ownerContactIds: [], provider: 'atlas', status: 'completed', phase: 'completed', scene: 'lake', kind: 'scene', prompt: 'lake', attempt: 1, createdAt: 1, updatedAt: 2 })
+    await db.moments.add({ id: 'moment-asset', contactId: 'user', content: 'lake', imageAssetId: 'asset-a', createdAt: 1 })
+    await deleteMomentCompletely('moment-asset')
+    expect(await db.mediaAssets.get('asset-a')).toBeUndefined()
   })
 })

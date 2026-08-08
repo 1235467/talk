@@ -24,11 +24,12 @@ export async function ensureActiveStoryline(contact: Contact, worldName?: string
 
 async function captureContact(contact: Contact): Promise<ContactSaveSnapshotData> {
   const conversation = await db.conversations.where('contactId').equals(contact.id).first()
-  const [messages, memories] = await Promise.all([
+  const [messages, memories, mediaAssets] = await Promise.all([
     conversation ? db.messages.where('conversationId').equals(conversation.id).toArray() : [],
     db.contactMemories.where('contactId').equals(contact.id).toArray(),
+    conversation ? db.mediaAssets.where('conversationId').equals(conversation.id).toArray() : [],
   ])
-  return { contact: structuredClone(contact), conversation: conversation ? structuredClone(conversation) : undefined, messages: structuredClone(messages), memories: structuredClone(memories) }
+  return { contact: structuredClone(contact), conversation: conversation ? structuredClone(conversation) : undefined, messages: structuredClone(messages), memories: structuredClone(memories), mediaAssets: structuredClone(mediaAssets) }
 }
 
 export async function createContactSave(contact: Contact, options: { name: string; kind: 'manual' | 'automatic'; storyline?: ContactStoryline }) {
@@ -44,10 +45,11 @@ export async function restoreContactSave(snapshotId: string) {
   if (!saved) throw new Error('该联系人存档不存在')
   const data = saved.snapshot
   resetAllChatTurns()
-  await db.transaction('rw', db.contacts, db.conversations, db.messages, db.contactMemories, db.contactStorylines, async () => {
+  await db.transaction('rw', [db.contacts, db.conversations, db.messages, db.contactMemories, db.contactStorylines, db.mediaAssets], async () => {
     const current = await db.conversations.where('contactId').equals(saved.contactId).first()
     if (current) {
       await db.messages.where('conversationId').equals(current.id).delete()
+      await db.mediaAssets.where('conversationId').equals(current.id).delete()
       await db.conversations.delete(current.id)
     }
     await db.contactMemories.where('contactId').equals(saved.contactId).delete()
@@ -55,6 +57,7 @@ export async function restoreContactSave(snapshotId: string) {
     if (data.conversation) await db.conversations.put(data.conversation)
     if (data.messages.length) await db.messages.bulkPut(data.messages)
     if (data.memories.length) await db.contactMemories.bulkPut(data.memories)
+    if (data.mediaAssets?.length) await db.mediaAssets.bulkPut(data.mediaAssets)
     const lines = await db.contactStorylines.where('contactId').equals(saved.contactId).toArray()
     for (const line of lines) await db.contactStorylines.update(line.id, { active: line.id === saved.storylineId, updatedAt: now() })
   })
@@ -66,9 +69,12 @@ export async function switchContactWorldview(contact: Contact, nextWorldviewId: 
   await createContactSave(contact, { storyline: oldLine, kind: 'automatic', name: '切换世界观前' })
   const createdAt = now()
   const newLine: ContactStoryline = { id: uuid(), contactId: contact.id, worldviewId: nextWorldviewId, name: defaultStorylineName(nextWorldName), active: true, createdAt, updatedAt: createdAt }
-  await db.transaction('rw', db.contacts, db.conversations, db.messages, db.contactMemories, db.contactStorylines, async () => {
+  await db.transaction('rw', [db.contacts, db.conversations, db.messages, db.contactMemories, db.contactStorylines, db.mediaAssets], async () => {
     const conversation = await db.conversations.where('contactId').equals(contact.id).first()
-    if (conversation) await db.messages.where('conversationId').equals(conversation.id).delete()
+    if (conversation) {
+      await db.messages.where('conversationId').equals(conversation.id).delete()
+      await db.mediaAssets.where('conversationId').equals(conversation.id).delete()
+    }
     await db.contactMemories.where('contactId').equals(contact.id).delete()
     await db.contacts.update(contact.id, { worldviewId: nextWorldviewId })
     await db.contactStorylines.update(oldLine.id, { active: false, updatedAt: createdAt })

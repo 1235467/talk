@@ -114,6 +114,8 @@ export function createDefaultImageProviders(): ImageProvidersSettings {
       model: 'bytedance/seedream-v4',
       size: '1024*1024',
       promptPrefix: '',
+      visualStyle: 'asian-realistic',
+      customVisualStyle: '',
     },
     novelai: {
       apiKey: '',
@@ -200,7 +202,15 @@ export function normalizeImageProviders(value: unknown): ImageProvidersSettings 
   const comfy = mergeNested(defaults.comfyui, record.comfyui)
   const timeoutSeconds = Number(comfy.timeoutSeconds)
   return {
-    atlas: mergeNested(defaults.atlas, record.atlas),
+    atlas: (() => {
+      const atlas = mergeNested(defaults.atlas, record.atlas)
+      return {
+        ...atlas,
+        visualStyle: ['asian-realistic', 'european-realistic', 'anime', 'custom'].includes(atlas.visualStyle)
+          ? atlas.visualStyle
+          : defaults.atlas.visualStyle,
+      }
+    })(),
     novelai: mergeNested(defaults.novelai, record.novelai),
     comfyui: {
       ...comfy,
@@ -226,7 +236,7 @@ export function isStickerProviderReady(settings: Pick<AppSettings, 'stickerProvi
 export function isImageProviderReady(settings: Pick<AppSettings, 'imageProvider' | 'imageProviders'>): boolean {
   const { imageProvider: provider, imageProviders: providers } = settings
   if (provider === 'none') return false
-  if (provider === 'atlas') return !!providers.atlas.apiKey.trim()
+  if (provider === 'atlas') return !!providers.atlas.apiKey.trim() && (providers.atlas.visualStyle !== 'custom' || !!providers.atlas.customVisualStyle.trim())
   if (provider === 'novelai') return !!providers.novelai.apiKey.trim()
   if (provider === 'comfyui') return !!providers.comfyui.baseUrl.trim() && (providers.comfyui.workflowMode === 'custom' ? !!providers.comfyui.workflow : !!providers.comfyui.model.trim())
   if (provider === 'stable-diffusion') return !!providers.stableDiffusion.baseUrl.trim()

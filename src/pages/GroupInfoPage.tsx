@@ -223,6 +223,7 @@ export function GroupInfoPage() {
     const conv = await db.conversations.where('groupId').equals(group.id).first()
     if (conv) {
       await db.messages.where('conversationId').equals(conv.id).delete()
+      await db.mediaAssets.where('conversationId').equals(conv.id).delete()
       await db.conversations.delete(conv.id)
     }
     await db.groups.delete(group.id)

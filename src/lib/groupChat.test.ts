@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Contact } from '../types'
-import { buildGroupRawChatPrompt, parseGroupRawDraft, serializeGroupTurn } from './groupChat'
+import { buildGroupRawChatPrompt, parseGroupRawDraft, selectGroupImageParticipantIds, serializeGroupTurn } from './groupChat'
 import { createDefaultPromptModules } from './promptModules'
 
 const speakers = [
@@ -9,6 +9,9 @@ const speakers = [
 ] as Contact[]
 
 describe('group chat local draft parser', () => {
+  it('keeps the photo sender when more than four requested participants are trimmed', () => {
+    expect(selectGroupImageParticipantIds(['a', 'b', 'c', 'd', 'e'], 'e')).toEqual(['e', 'a', 'b', 'c'])
+  })
   it('parses a compliant multi-speaker turn without utility conversion', () => {
     const raw = [
       '<林夏>（这回答也太敷衍了，我想先吐槽一句）[😈]“你这不是说了等于没说吗”',

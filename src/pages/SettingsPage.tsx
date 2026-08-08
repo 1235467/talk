@@ -11,7 +11,8 @@ import { apiKeyFingerprint, testPexelsConnection } from '../lib/photoSearch'
 import { friendlyConnectionError } from '../lib/connectionError'
 import { isImageProviderReady } from '../lib/mediaProviders'
 import { db } from '../db/db'
-import { assertTalkBackup, backupFileName, createBackup, restoreBackup } from '../lib/backup'
+import { assertTalkBackup, backupFileName, createBackup, mergeSettingsPreservingSecrets, restoreBackup } from '../lib/backup'
+import { resumeMediaAssets } from '../lib/imageAssets'
 import type { AppSettings } from '../types'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { USER_WALLET_ID, setUserBalance } from '../lib/finance'
@@ -62,7 +63,7 @@ export function SettingsPage() {
 
   async function handleWipeContacts() {
     await cancelAllContactGenerationTasks()
-    await Promise.all([db.messages.clear(), db.conversations.clear(), db.contacts.clear(), db.groups.clear(), db.moments.clear(), db.momentComments.clear(), db.momentLikes.clear(), db.contactRelations.clear(), db.contactMemories.clear(), db.socialEvents.clear(), db.groupPlans.clear(), db.contactLifeStates.clear(), db.lifeEvents.clear(), db.contactExperiences.clear(), db.simulationState.clear(), db.aiUsageRecords.clear(), db.aiTurns.clear(), db.aiTestSuites.clear(), db.adminLogs.clear(), db.adminAiTraces.clear(), db.contactGenerationTasks.clear()])
+    await Promise.all([db.messages.clear(), db.conversations.clear(), db.contacts.clear(), db.groups.clear(), db.moments.clear(), db.momentComments.clear(), db.momentLikes.clear(), db.contactRelations.clear(), db.contactMemories.clear(), db.socialEvents.clear(), db.groupPlans.clear(), db.contactLifeStates.clear(), db.lifeEvents.clear(), db.contactExperiences.clear(), db.simulationState.clear(), db.aiUsageRecords.clear(), db.aiTurns.clear(), db.aiTestSuites.clear(), db.adminLogs.clear(), db.adminAiTraces.clear(), db.contactGenerationTasks.clear(), db.mediaAssets.clear()])
     void navigate('/contacts')
   }
 
@@ -80,7 +81,7 @@ export function SettingsPage() {
     link.click()
     link.remove()
     URL.revokeObjectURL(url)
-    setBackupStatus('备份已导出。这个文件可能包含 API Key，请自己妥善保管。')
+    setBackupStatus('备份已导出。API Key、令牌和密码不会写入备份文件。')
   }
 
   async function handleImportBackup(file: File) {
@@ -95,8 +96,10 @@ export function SettingsPage() {
       await cancelAllContactGenerationTasks()
       await restoreBackup(parsed)
       await markPersistedContactGenerationTasksPaused()
-      setSettings(parsed.settings)
-      useSettingsStore.setState(parsed.settings)
+      const restoredSettings = mergeSettingsPreservingSecrets(parsed.settings, useSettingsStore.getState())
+      setSettings(restoredSettings)
+      useSettingsStore.setState(restoredSettings)
+      await resumeMediaAssets()
       setBackupStatus('备份已恢复。建议返回消息页检查联系人和聊天记录。')
     } catch (err) {
       setBackupStatus(err instanceof Error ? err.message : String(err))

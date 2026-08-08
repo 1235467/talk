@@ -419,6 +419,7 @@ body {
 .desktop-rail-spacer { flex: 1; }
 
 .desktop-sidebar {
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -430,6 +431,28 @@ body {
 .desktop-sidebar-search label { display: flex; min-width: 0; flex: 1; align-items: center; gap: 8px; height: 36px; padding: 0 11px; border-radius: 8px; background: #e9eaec; color: #8f949b; }
 .desktop-sidebar-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: #444; font-size: 13px; }
 .desktop-sidebar-search > button { width: 36px; height: 36px; border-radius: 8px; background: #e9eaec; color: #555b63; }
+.desktop-create-menu {
+  position: absolute;
+  z-index: 20;
+  top: 57px;
+  right: 15px;
+  min-width: 148px;
+  padding: 5px;
+  border: 1px solid #e2e4e7;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .14);
+}
+.desktop-create-menu button {
+  display: block;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 6px;
+  color: #25282d;
+  font-size: 13px;
+  text-align: left;
+}
+.desktop-create-menu button:hover { background: #f0f1f3; }
 .desktop-sidebar-caption { padding: 4px 18px 8px; color: #8b9098; font-size: 13px; }
 .desktop-sidebar-list { min-height: 0; flex: 1; overflow-y: auto; padding-bottom: 12px; }
 .desktop-list-row {

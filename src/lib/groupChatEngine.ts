@@ -4,11 +4,13 @@ import { chatCompletion as chatCompletionResult, chatCompletionText as chatCompl
 import {
   buildGroupJsonConversionPrompt,
   buildGroupRawChatPrompt,
+  groupRawOutputProtocol,
   buildLocationRawChatPrompt,
   groupTypingDelayMs,
   parseGroupAiResponse,
   parseGroupRawDraft,
   pickSociallyConnectedSpeakers,
+  selectGroupImageParticipantIds,
   serializeGroupTurn,
   stripSpeakerNamePrefix,
 } from './groupChat'
@@ -35,6 +37,9 @@ import { useChatUiStore } from '../store/useChatUiStore'
 import { retrieveWorldbookContext } from './worldbook'
 import { featureActive, promptModuleEnabled } from './promptModules'
 import { realisticReplyDelayMs } from './replyTiming'
+import { createMediaAsset, startMediaAsset } from './imageAssets'
+import { auditAndRepairRawTurn } from './responseQuality'
+import { traceTurnEvent } from './deepseek'
 import type { AppSettings, Contact, Group, GroupAiBubble, Message, Sticker } from '../types'
 
 /** Load recent structured memories for each speaker in parallel. */
@@ -486,6 +491,7 @@ async function runGroupAiTurn(
       ].filter(Boolean).join('\n\n') },
       ...recentHistory.map((m): ChatMessage => formatGroupHistoryMessage(m, contactById, messageById, settings.userNickname)),
       ...(regenerationUserMessage ? [{ role: 'user' as const, content: regenerationUserMessage }] : []),
+      { role: 'system', content: `${groupRawOutputProtocol(imageGenerationEnabled, group.energyLevel ?? 'normal')}\n【最终生成提醒】现在只生成符合上述协议的群聊原文草稿，不输出JSON、分析、标题或Markdown。` },
     ])
     let rawText = await chatCompletion({
       apiKey: settings.apiKey,
@@ -498,17 +504,30 @@ async function runGroupAiTurn(
       temperature: regenerationInstruction ? 0.55 : 0.9,
       maxTokens: directOutput ? 1400 : 1000,
       jsonMode: directOutput,
-      trace: { turnId: streamId, stage: 'first_chat', conversationId },
+      trace: { turnId: streamId, stage: 'original_generation', conversationId },
     })
 
     if (!turns.isCurrent(conversationId, streamId)) return
     console.log(`[group] 主模型群聊草稿(${rawText.length}字): ${rawText.slice(0, 160)}...`)
+    if (!directOutput) {
+      const audited = await auditAndRepairRawTurn({
+        settings, masterPrompt: chatMessages[0]?.content ?? systemPrompt,
+        rawDraft: rawText, scene: 'group', regenerationInstruction,
+        signal: controller.signal, trace: { turnId: streamId, conversationId },
+      })
+      rawText = audited.raw
+      if (!turns.isCurrent(conversationId, streamId)) return
+      const auditedDraft = parseGroupRawDraft(rawText, speakers, stickers.map((sticker) => sticker.name), remoteStickerSearchEnabled)
+      if (!auditedDraft.valid) {
+        throw new Error(`审核及修改没有产出符合群聊逐行协议的原文：${auditedDraft.reason || '格式不完整'}；已阻止进入JSON格式翻译`)
+      }
+    }
     let draftFeedback: string | undefined
     let localDraft = parseGroupRawDraft(rawText, speakers, stickers.map((sticker) => sticker.name), remoteStickerSearchEnabled)
     localDraft.groupVibe = group.vibe || '自然、轻松的日常群聊。'
     let parsedTurn = directOutput ? { ...parseGroupAiResponse(rawText, speakers.length), valid: true, needsUtility: false } : localDraft
     let jsonRaw = directOutput ? rawText : serializeGroupTurn(localDraft)
-    if (!directOutput && (!localDraft.valid || localDraft.needsUtility)) {
+    if (!directOutput) {
       draftFeedback = !localDraft.valid
         ? `格式已交给多功能模型修复：${localDraft.reason || '草稿格式不完整'}`
         : '本轮可能包含共同计划，交给多功能模型提取结构化动作。'
@@ -518,7 +537,7 @@ async function runGroupAiTurn(
         model: settings.utilityModel,
         messages: [{
           role: 'system',
-          content: buildGroupJsonConversionPrompt(rawText, speakers, stickers.map((s) => s.name), mediaPromptOptions),
+          content: buildGroupJsonConversionPrompt(rawText, speakers, stickers.map((s) => s.name), mediaPromptOptions, members),
         }, {
           role: 'user',
           content: '请执行上述转换，并且只输出指定的 JSON 对象。',
@@ -528,7 +547,7 @@ async function runGroupAiTurn(
         thinking: 'disabled',
         temperature: 0.1,
         maxTokens: 900,
-        trace: { turnId: streamId, stage: 'other', conversationId },
+        trace: { turnId: streamId, stage: 'json_translation', conversationId },
       })
       if (!turns.isCurrent(conversationId, streamId)) return
       const converted = parseGroupAiResponse(jsonRaw, speakers.length)
@@ -562,8 +581,11 @@ async function runGroupAiTurn(
       signal: controller.signal,
       trace: { turnId: streamId, stage, conversationId },
     })
+    void runLogicReview
     const directReview = directOutput ? parseDirectOutputReview(rawText) : null
-    let logicReview = !directOutput && bubbles.length > 0 ? await runLogicReview('first_quality') : undefined
+    // Semantic/format review is the mandatory second stage above.  Do not
+    // issue legacy extra reviewer calls after JSON translation.
+    let logicReview: { status: 'pass' | 'reject' | 'unavailable'; reason: string } | undefined = (() => undefined as { status: 'pass' | 'reject' | 'unavailable'; reason: string } | undefined)()
     if (!turns.isCurrent(conversationId, streamId)) return
     if (logicReview?.status === 'unavailable') {
       draftFeedback = `审查降级：${logicReview.reason}`
@@ -606,7 +628,7 @@ async function runGroupAiTurn(
           model: settings.utilityModel,
           messages: [{
             role: 'system',
-            content: buildGroupJsonConversionPrompt(rawText, speakers, stickers.map((sticker) => sticker.name), mediaPromptOptions),
+            content: buildGroupJsonConversionPrompt(rawText, speakers, stickers.map((sticker) => sticker.name), mediaPromptOptions, members),
           }, {
             role: 'user',
             content: '请执行上述转换，并且只输出指定的 JSON 对象。',
@@ -630,7 +652,7 @@ async function runGroupAiTurn(
         ;({ bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = localDraft)
       }
       finalRaw = jsonRaw
-      logicReview = bubbles.length > 0 ? await runLogicReview('second_quality') : undefined
+      logicReview = (() => undefined as { status: 'pass' | 'reject' | 'unavailable'; reason: string } | undefined)()
       if (logicReview?.status === 'unavailable') {
         draftFeedback = `二次审查降级：${logicReview.reason}`
         console.warn(`[group] 二次逻辑审查不可用，放行重写回复 群=${group.name} 原因=${logicReview.reason}`)
@@ -646,7 +668,7 @@ async function runGroupAiTurn(
         localDraft = parseGroupRawDraft(rawText, speakers, stickers.map((sticker) => sticker.name), remoteStickerSearchEnabled)
         localDraft.groupVibe = group.vibe || '自然、轻松的日常群聊。'
         if (!localDraft.valid || localDraft.needsUtility) {
-          jsonRaw = await bestEffortUtilityCompletion({apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.utilityModel,messages:[{role:'system',content:buildGroupJsonConversionPrompt(rawText,speakers,stickers.map(s=>s.name),mediaPromptOptions)},{role:'user',content:'请执行上述转换，并且只输出指定的 JSON 对象。'}],jsonMode:true,signal:controller.signal,thinking:'disabled',temperature:0.1,maxTokens:1400,trace:{turnId:streamId,stage:'other',conversationId}})
+          jsonRaw = await bestEffortUtilityCompletion({apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.utilityModel,messages:[{role:'system',content:buildGroupJsonConversionPrompt(rawText,speakers,stickers.map(s=>s.name),mediaPromptOptions,members)},{role:'user',content:'请执行上述转换，并且只输出指定的 JSON 对象。'}],jsonMode:true,signal:controller.signal,thinking:'disabled',temperature:0.1,maxTokens:1400,trace:{turnId:streamId,stage:'other',conversationId}})
           finalRaw=jsonRaw
           const converted=parseGroupAiResponse(finalRaw,speakers.length)
           if(converted.bubbles.length>0){;({bubbles,knowledgeQueries,turnSummary,groupVibe,planCandidates}=converted)}
@@ -733,23 +755,61 @@ function revealGroupBubbles(
       useChatEngineStore.getState().patch(conversationId, {
         typingLabel: speaker ? displayName(speaker) : '群成员',
       })
-      const { imagePayload, imageFailed, remoteSticker, stickerFailed } =
-        await resolveBubbleMedia(bubble, settings, stickers)
-      const content =
+      let imagePayload: Message['image']
+      let imageFailed = false
+      let imageAssetId: string | undefined
+      const media = bubble.type === 'image'
+        ? { remoteSticker: undefined, stickerFailed: false }
+        : await resolveBubbleMedia(bubble, settings, stickers)
+      const { remoteSticker, stickerFailed } = media
+      let content =
         bubble.type === 'text'
           ? stripSpeakerNamePrefix(
               bubble.content,
               members.map((m) => m.name),
             )
-          : bubble.type === 'sticker' ? (stickerFailed ? '表情没找到…' : bubble.name) : imageFailed ? '图片没发出来…' : bubble.caption || '[图片]'
+          : bubble.type === 'sticker' ? (stickerFailed ? '表情没找到…' : bubble.name)
+            : bubble.type === 'scheduleChange' ? bubble.summary
+              : imageFailed ? '图片没发出来…' : bubble.caption || '[图片]'
 
       const messageCreatedAt = await nextMessageTimestamp(conversationId)
+      const messageId = uuid()
+      if (bubble.type === 'scheduleChange' && speaker?.id) {
+        const location = bubble.locationId ? await db.locations.get(bubble.locationId) : undefined
+        if (bubble.locationId && !location) return
+        const fresh = await db.contacts.get(speaker.id)
+        if (!fresh) return
+        await db.contacts.update(speaker.id, { scheduleOverrides: [...(fresh.scheduleOverrides ?? []), {
+          id: uuid(), date: bubble.date, startHour: bubble.startHour, endHour: bubble.endHour,
+          phoneAccess: bubble.phoneAccess, location: location?.name ?? bubble.location, locationId: location?.id,
+          activity: bubble.activity, summary: bubble.summary, priority: 'special', createdAt: Date.now(),
+        }] })
+        void traceTurnEvent({ turnId: streamId, conversationId, stage: 'schedule_change', output: `${displayName(speaker)} 新建：${bubble.activity}｜${bubble.date} ${String(bubble.startHour).padStart(2, '0')}:00-${String(bubble.endHour).padStart(2, '0')}:00｜${location?.name ?? bubble.location}` })
+      }
+      if (bubble.type === 'image') {
+        if (!isImageProviderReady(settings)) imageFailed = true
+        else {
+          try {
+            const kind = bubble.kind ?? 'portrait'
+            let participantIds = (bubble.participantIndexes ?? [])
+              .map((index) => members[index - 1]?.id)
+              .filter((id): id is string => !!id)
+            if (participantIds.length === 0 && kind !== 'scene' && kind !== 'object') participantIds = speaker ? [speaker.id] : []
+            participantIds = selectGroupImageParticipantIds(participantIds, speaker?.id)
+            const asset = await createMediaAsset({ origin: 'chat', originId: messageId, conversationId, turnId: streamId, ownerContactIds: participantIds, includeUser: bubble.includeUser, scene: bubble.scene || bubble.query, kind, settings })
+            imageAssetId = asset.id
+            imagePayload = { assetId: asset.id, caption: bubble.caption, query: bubble.query, provider: asset.provider }
+          } catch (error) { console.warn('[media] 创建群聊图片任务失败', error); imageFailed = true }
+        }
+      }
+      if (bubble.type === 'image' && imageFailed) content = '图片没发出来…'
       const msg: Message = {
-        id: uuid(),
+        id: messageId,
         conversationId,
         role: 'assistant',
         type: (bubble.type === 'image' && imageFailed) || (bubble.type === 'sticker' && stickerFailed) ? 'text' : bubble.type,
         content,
+        scheduleChange: bubble.type === 'scheduleChange' ? { date: bubble.date, startHour: bubble.startHour, endHour: bubble.endHour, phoneAccess: bubble.phoneAccess, location: bubble.location, locationId: bubble.locationId, activity: bubble.activity, summary: bubble.summary } : undefined,
         speakerContactId: speaker?.id,
         debugAiTurnId: aiTurnId,
         debugParsedBubble: bubble,
@@ -759,6 +819,7 @@ function revealGroupBubbles(
         createdAt: messageCreatedAt,
       }
       await db.messages.add(msg)
+      if (imageAssetId) startMediaAsset(imageAssetId)
       if (i === 0) onFirstBubble?.()
       if (remoteSticker) void trackRemoteStickerSend(remoteSticker)
       if (i === 0) {

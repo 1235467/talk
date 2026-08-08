@@ -13,8 +13,12 @@ const COLORS: Record<string, string> = { log: 'text-gray-600', info: 'text-blue-
 const PAGE = 50
 const TRACE_PAGE = 20
 const EMPTY_TRACES: AdminAiTrace[] = []
-const STAGE_ORDER: AdminAiTraceStage[] = ['first_chat', 'first_quality', 'second_chat', 'other', 'second_quality']
-const STAGE_LABEL: Record<AdminAiTraceStage, string> = { first_chat: '第一次 Chat', first_quality: '第一次审核', second_chat: '第二次 Chat', other: 'Other 转换', second_quality: '第二次审核' }
+const STAGE_ORDER: AdminAiTraceStage[] = ['original_generation', 'review_and_repair', 'json_translation', 'image_generation', 'sticker_lookup', 'schedule_change', 'location_change', 'first_chat', 'first_quality', 'second_chat', 'other', 'second_quality']
+const STAGE_LABEL: Record<AdminAiTraceStage, string> = {
+  original_generation: '原文生成', review_and_repair: '审核及修改', json_translation: 'JSON格式翻译',
+  image_generation: '图片生成', sticker_lookup: '表情包获取', schedule_change: '日程变更执行', location_change: '地点变更执行',
+  first_chat: '原文生成（旧记录）', first_quality: '审核及修改（旧记录）', second_chat: '二次生成（旧记录）', other: 'JSON格式翻译（旧记录）', second_quality: '二次审核（旧记录)',
+}
 
 interface TraceTurn { id: string; traces: AdminAiTrace[]; createdAt: number; conversationId?: string; legacy: boolean }
 

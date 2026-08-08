@@ -5,17 +5,19 @@ import { ImageCropper } from './ImageCropper'
 import { Avatar } from './Avatar'
 import { searchAnimeAvatar, searchPexelsPhoto } from '../lib/photoSearch'
 import { generateRemoteImage } from '../lib/remoteMedia'
+import { composeImagePrompt } from '../lib/imageAssets'
 import { isImageProviderReady } from '../lib/mediaProviders'
-import type { AppSettings } from '../types'
+import type { AppSettings, Contact } from '../types'
 
 interface AvatarPickerProps {
   onSelect: (avatar: string, photographer?: { name?: string; url?: string }) => void
   onClose: () => void
   /** Only contact avatars have a "persona photo" concept worth re-searching later — omit for group/user avatars, which hides the search option entirely. */
-  settings?: Pick<AppSettings, 'pexelsApiKey' | 'animeNsfwEnabled' | 'avatarImageSource' | 'imageProvider' | 'imageProviders'>
+  settings?: Pick<AppSettings, 'pexelsApiKey' | 'animeNsfwEnabled' | 'avatarImageSource' | 'imageProvider' | 'imageProviders' | 'userNickname' | 'userGender' | 'userBio'>
+  subject?: Contact
 }
 
-export function AvatarPicker({ onSelect, onClose, settings }: AvatarPickerProps) {
+export function AvatarPicker({ onSelect, onClose, settings, subject }: AvatarPickerProps) {
   const [pendingImage, setPendingImage] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const [searchingPhoto, setSearchingPhoto] = useState(false)
@@ -32,7 +34,7 @@ export function AvatarPicker({ onSelect, onClose, settings }: AvatarPickerProps)
       const photo = source === 'anime'
         ? await searchAnimeAvatar(photoKeyword, settings.animeNsfwEnabled)
         : source === 'generated'
-          ? await generateRemoteImage(settings, `anime-style square avatar, East Asian aesthetic, ${photoKeyword}`)
+          ? await generateRemoteImage(settings as AppSettings, composeImagePrompt({ scene: `square profile avatar, head-and-shoulders portrait, ${photoKeyword}`, kind: 'portrait', contacts: subject ? [subject] : [], includeUser: false, settings: settings as AppSettings }), { seed: subject?.visualSeed })
           : await searchPexelsPhoto(settings.pexelsApiKey, photoKeyword.trim(), 'square')
       if (!photo) {
         setPhotoError('没搜到合适的图片 换个描述试试')

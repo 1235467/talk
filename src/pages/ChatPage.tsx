@@ -348,9 +348,10 @@ export function ChatPage() {
 
   async function deleteMessage(message: Message) {
     if (speechPlayingId === message.id) stopSpeechPlayback()
-    await db.transaction('rw', db.messages, db.speechCache, async () => {
+    await db.transaction('rw', db.messages, db.speechCache, db.mediaAssets, async () => {
       await db.messages.delete(message.id)
       await db.speechCache.delete(message.id)
+      if (message.image?.assetId) await db.mediaAssets.delete(message.image.assetId)
     })
     if (replyToId === message.id) setReplyToId(null)
   }

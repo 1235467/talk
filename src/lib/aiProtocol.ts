@@ -92,38 +92,60 @@ function parseFinanceMarker(line: string): AiBubble | null {
   return null
 }
 
+/** Mechanical only: this parser never infers missing appointment fields. */
+export function parseScheduleMarker(line: string): Extract<AiBubble, { type: 'scheduleChange' }> | null {
+  const match = line.match(/^\[schedule:([^\]]+)\]$/i)
+  if (!match) return null
+  const fields = Object.fromEntries(match[1].split(';').map((entry) => {
+    const pivot = entry.indexOf('=')
+    return pivot > 0 ? [entry.slice(0, pivot).trim(), entry.slice(pivot + 1).trim()] : []
+  })) as Record<string, string>
+  const startHour = Number(fields.startHour)
+  const endHour = Number(fields.endHour)
+  const phoneAccess = fields.phoneAccess
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fields.date || '') || !Number.isInteger(startHour) || !Number.isInteger(endHour)
+    || startHour < 0 || startHour > 23 || endHour < 1 || endHour > 24 || startHour === endHour
+    || (phoneAccess !== 'available' && phoneAccess !== 'unavailable') || !fields.locationId || !fields.activity || !fields.summary) return null
+  // location is resolved from the local map before the record is persisted.
+  return { type: 'scheduleChange', date: fields.date, startHour, endHour, phoneAccess, location: fields.locationId, locationId: fields.locationId, activity: fields.activity.slice(0, 16), summary: fields.summary.slice(0, 40) }
+}
+
 /**
  * Fast path for the main model's line-oriented draft. Ordinary text and the
  * explicit protocol markers are mechanical, so converting them locally avoids
  * a second model request while preserving the main model's exact wording.
  */
 export function parseRawPrivateDraft(raw: string, fallbackMood?: string): ParsedAiTurn {
-  const moodMatch = raw.match(/<mood>\s*([^<]+?)\s*<\/mood>/i)
-  const body = raw.replace(/<mood>[\s\S]*?<\/mood>/gi, '').trim()
   const bubbles: AiBubble[] = []
   const knowledgeQueries: string[] = []
   let turnThought: string | undefined
+  let turnMood: string | undefined
 
-  for (const sourceLine of body.split(/\r?\n/)) {
-    let line = sourceLine.trim().replace(/^[-•]\s*/, '')
+  for (const sourceLine of raw.split(/\r?\n/)) {
+    const line = sourceLine.trim()
     if (!line) continue
+    // Private and group drafts share per-line thought/mood metadata. Private
+    // chat omits only the speaker-name prefix.
+    const match = line.match(/^（([^（）]+)）\[([^\[\]]+)\]“([\s\S]+)”$/)
+    if (!match) continue
+    const thought = match[1].trim().slice(0, 100)
+    const mood = match[2].trim().slice(0, 10)
+    const content = match[3].trim()
+    if (!thought || !mood || !content) continue
+    if (!turnThought) turnThought = thought
+    if (!turnMood) turnMood = normalizeMood(mood)
 
-    const thoughtMatch = line.match(/<thought>\s*([\s\S]*?)\s*<\/thought>/i)
-    if (thoughtMatch?.[1]?.trim() && !turnThought) turnThought = thoughtMatch[1].trim().slice(0, 100)
-    line = line.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim()
-    if (!line) continue
-
-    const knowledge = line.match(/^\[knowledge:([^\]]+)\]$/i)
+    const knowledge = content.match(/^\[knowledge:([^\]]+)\]$/i)
     if (knowledge) {
       if (knowledgeQueries.length < 2) knowledgeQueries.push(knowledge[1].trim())
       continue
     }
-    const sticker = line.match(/^\[sticker:([^\]]+)\]$/i)
+    const sticker = content.match(/^\[sticker:([^\]]+)\]$/i)
     if (sticker) {
       bubbles.push({ type: 'sticker', name: sticker[1].trim() })
       continue
     }
-    const image = line.match(/^\[image:([^:\]]+):([^\]]*)\]$/i)
+    const image = content.match(/^\[image:([^:\]]+):([^\]]*)\]$/i)
     if (image) {
       bubbles.push({
         type: 'image',
@@ -132,16 +154,21 @@ export function parseRawPrivateDraft(raw: string, fallbackMood?: string): Parsed
       })
       continue
     }
-    const finance = parseFinanceMarker(line)
+    const finance = parseFinanceMarker(content)
     if (finance) {
       bubbles.push(finance)
       continue
     }
-    bubbles.push({ type: 'text', content: line })
+    const schedule = parseScheduleMarker(content)
+    if (schedule) {
+      bubbles.push(schedule)
+      continue
+    }
+    bubbles.push({ type: 'text', content })
   }
 
-  const mood = moodMatch?.[1]?.trim()
-    ? normalizeMood(moodMatch[1])
+  const mood = turnMood
+    ? turnMood
     : fallbackMood
       ? normalizeMood(fallbackMood)
       : undefined
@@ -151,14 +178,8 @@ export function parseRawPrivateDraft(raw: string, fallbackMood?: string): Parsed
 /** Use the utility model only when the draft did not follow the local format. */
 export function rawPrivateDraftNeedsUtility(raw: string, parsed: ParsedAiTurn): boolean {
   if (parsed.bubbles.length === 0) return true
-  if (!/<mood>[\s\S]*?<\/mood>/i.test(raw)) return true
-  const visibleLines = raw
-    .replace(/<mood>[\s\S]*?<\/mood>/gi, '')
-    .split(/\r?\n/)
-    .map((line) => line.trim().replace(/^[-•]\s*/, ''))
-    .filter(Boolean)
-    .filter((line) => !/^\[knowledge:[^\]]+\]$/i.test(line))
-  if (visibleLines.some((line) => !/<thought>[\s\S]*?<\/thought>/i.test(line))) return true
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  if (lines.length === 0 || lines.some((line) => !/^（[^（）]+）\[[^\[\]]+\]“[\s\S]+”$/.test(line))) return true
   return parsed.bubbles.some((bubble) => bubble.type === 'text' && /^\[[A-Za-z]+:/.test(bubble.content))
 }
 
@@ -186,7 +207,10 @@ function tryParseJson(trimmedRaw: string): ParsedAiTurn | null {
     } else if (m.type === 'link' && typeof m.app === 'string' && typeof m.label === 'string') {
       bubbles.push({ type: 'link', app: m.app, label: m.label, data: m.data })
     } else if (m.type === 'image' && typeof (m as unknown as Record<string,unknown>).query === 'string') {
-      const im=m as unknown as Record<string,unknown>; bubbles.push({type:'image',query:String(im.query).trim().slice(0,2_000),caption:typeof im.caption==='string'?im.caption.slice(0,200):undefined})
+      const im=m as unknown as Record<string,unknown>
+      const kind = ['selfie','portrait','group','scene','object'].includes(String(im.kind)) ? im.kind as import('../types').AiImageKind : undefined
+      const participants = Array.isArray(im.participants) ? im.participants.filter((value): value is 'self'|'user' => value === 'self' || value === 'user') : undefined
+      bubbles.push({type:'image',query:String(im.query).trim().slice(0,2_000),scene:typeof im.scene==='string'?im.scene.trim().slice(0,2_000):undefined,kind,participants,caption:typeof im.caption==='string'?im.caption.slice(0,200):undefined})
     } else if (m.type === 'scheduleChange') {
       const scheduleChange = parseScheduleChangeBubble(m as unknown as Record<string, unknown>)
       if (scheduleChange) bubbles.push(scheduleChange)
