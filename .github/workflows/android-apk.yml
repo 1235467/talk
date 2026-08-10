@@ -37,6 +37,25 @@ jobs:
       - name: Generate Capacitor Android project
         run: npx cap add android && npx cap sync android
 
+      # cap add regenerates android/ with versionCode 1 / versionName "1.0".
+      # Derive both from package.json so the APK can upgrade previous installs
+      # (0.1.51 -> versionName "0.1.51", versionCode 151; semver growth keeps
+      # the code monotonically increasing).
+      - name: Apply app version from package.json
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          CODE=$(node -p "const [a=0,b=0,c=0]=require('./package.json').version.split('.').map(Number); a*10000+b*100+c")
+          sed -i "s/versionCode .*/versionCode $CODE/" android/app/build.gradle
+          sed -i "s/versionName .*/versionName \"$VERSION\"/" android/app/build.gradle
+          grep -E "versionCode|versionName" android/app/build.gradle
+
+      # cap add ships the default Capacitor launcher icon; regenerate the real
+      # one in place from public/app-icon.png (nothing binary committed).
+      - name: Apply launcher icon
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 scripts/sync-android-icon.py
+
       # Signing: provide secrets ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD /
       # ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD to reuse an existing release keystore
       # (required for seamless upgrades over an already-installed APK). Without them a
