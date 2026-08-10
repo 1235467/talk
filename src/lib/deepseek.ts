@@ -301,6 +301,9 @@ function requestBody(opts: ChatCompletionOptions, messages: ChatMessage[], provi
   if (isK3Model(opts.model)) {
     delete body.thinking
     delete body.enable_thinking
+    // The server pins temperature to 1.0 and rejects any other explicit
+    // value ("only 1 is allowed for this model"), so omit it entirely.
+    delete body.temperature
     body.reasoning_effort = 'high'
   }
   return body
