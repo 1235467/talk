@@ -304,6 +304,12 @@ function requestBody(opts: ChatCompletionOptions, messages: ChatMessage[], provi
     // The server pins temperature to 1.0 and rejects any other explicit
     // value ("only 1 is allowed for this model"), so omit it entirely.
     delete body.temperature
+    // K3 thinking burns through the app's small per-call caps (chat uses
+    // 700-800) before any visible text is emitted, surfacing as
+    // finish_reason=length with empty content. The server-side default
+    // (131072) is generous and billing is per actual output, so omit the cap.
+    delete body.max_tokens
+    delete body.max_completion_tokens
     body.reasoning_effort = 'high'
   }
   return body
