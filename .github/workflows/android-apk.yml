@@ -1,0 +1,103 @@
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TALK_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'talk' }}
+      TALK_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'talk-android' }}
+      TALK_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD || 'talk-android' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # .env is gitignored, so CI builds never bake real VITE_* keys into the bundle.
+      - name: Build web assets
+        run: npm run build
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      # android/ is gitignored, so it is generated fresh on every run.
+      - name: Generate Capacitor Android project
+        run: npx cap add android && npx cap sync android
+
+      # Signing: provide secrets ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD /
+      # ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD to reuse an existing release keystore
+      # (required for seamless upgrades over an already-installed APK). Without them a
+      # throwaway keystore is generated; download it from the artifacts and add it as
+      # ANDROID_KEYSTORE_BASE64 afterwards to keep one stable signing identity.
+      - name: Prepare signing keystore
+        id: keystore
+        working-directory: android/app
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > talk-release.keystore
+            echo "custom=true" >> "$GITHUB_OUTPUT"
+            echo "Using keystore from secrets"
+          else
+            keytool -genkeypair -v -keystore talk-release.keystore \
+              -alias "$TALK_KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10950 \
+              -storepass "$TALK_KEYSTORE_PASSWORD" -keypass "$TALK_KEY_PASSWORD" \
+              -dname "CN=Talk, OU=Talk, O=Talk, L=Talk, S=Talk, C=CN"
+            echo "custom=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret configured. A new throwaway keystore was generated; APKs signed with it cannot upgrade installs signed by a different keystore. Save it as a secret to keep a stable identity."
+          fi
+
+      - name: Configure release signing
+        run: |
+          cat >> android/app/build.gradle <<'EOF'
+          android {
+              signingConfigs {
+                  release {
+                      storeFile file('talk-release.keystore')
+                      storePassword System.getenv('TALK_KEYSTORE_PASSWORD')
+                      keyAlias System.getenv('TALK_KEY_ALIAS')
+                      keyPassword System.getenv('TALK_KEY_PASSWORD')
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                  }
+              }
+          }
+          EOF
+
+      - name: Assemble release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: talk-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Upload generated keystore (only when no secret was provided)
+        if: steps.keystore.outputs.custom != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: talk-release-keystore
+          path: android/app/talk-release.keystore
+          retention-days: 7
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/app/build/outputs/apk/release/app-release.apk

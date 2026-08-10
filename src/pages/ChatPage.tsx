@@ -999,7 +999,7 @@ export function ChatPage() {
         <div className="absolute inset-0 z-[60] flex items-end bg-black/30" onClick={dismissReplyTimeout}>
           <div className="w-full rounded-t-2xl bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]" onClick={(event) => event.stopPropagation()}>
             <h2 className="text-base font-semibold text-gray-900">回复超时</h2>
-            <p className="mt-1 text-sm leading-6 text-gray-500">这轮回复等待超过 30 秒，已自动停止。你可以重新生成这一轮。</p>
+            <p className="mt-1 text-sm leading-6 text-gray-500">这轮回复等待超过 6 分钟，已自动停止。你可以重新生成这一轮。</p>
             <div className="mt-4 flex gap-2">
               <button type="button" onClick={dismissReplyTimeout} className="flex-1 rounded-xl bg-gray-100 py-2.5 text-sm text-gray-700">取消</button>
               <button

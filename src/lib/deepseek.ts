@@ -271,6 +271,18 @@ function completionStatusMessage(result: ChatCompletionResult): string {
   return '模型没有返回有效正文'
 }
 
+/**
+ * Kimi K3 (model id contains "k3", e.g. "kimi-k3" or relay-prefixed variants)
+ * always thinks — there is no "off" — and takes a top-level reasoning_effort
+ * of low/high/max (default max). Force "high" so it never receives a
+ * disabled-style effort, and drop any provider-specific thinking switches
+ * that would conflict. Temperature is left untouched (the server pins it to
+ * 1.0 anyway).
+ */
+function isK3Model(model: string): boolean {
+  return /k3/i.test(model)
+}
+
 function requestBody(opts: ChatCompletionOptions, messages: ChatMessage[], provider: AiProviderId, overrides: { disableJson?: boolean; alternateToken?: boolean; emptyRetry?: boolean } = {}): Record<string, unknown> {
   const adapter = AI_PROVIDERS[provider]
   const tokenParameter = overrides.alternateToken
@@ -286,6 +298,11 @@ function requestBody(opts: ChatCompletionOptions, messages: ChatMessage[], provi
   else if (adapter.thinking === 'reasoning_effort') body.reasoning_effort = thinking === 'enabled' ? 'medium' : 'none'
   else if (adapter.thinking === 'enable_thinking') body.enable_thinking = thinking === 'enabled'
   else if (adapter.thinking === 'anthropic' && thinking === 'enabled') body.thinking = { type: 'enabled', budget_tokens: 1024 }
+  if (isK3Model(opts.model)) {
+    delete body.thinking
+    delete body.enable_thinking
+    body.reasoning_effort = 'high'
+  }
   return body
 }
 
@@ -295,6 +312,46 @@ function retryableProtocolError(status: number, payload: unknown): 'response_for
   if (/response.?format|json.?mode/.test(text)) return 'response_format'
   if (/max_tokens|max_completion_tokens/.test(text)) return 'token'
   return null
+}
+
+/**
+ * Reads an SSE chat-completions stream and folds it back into the standard
+ * non-streaming response shape, so the rest of chatCompletion (status
+ * classification, usage accounting, retries) works unchanged. Accumulates
+ * both content and reasoning_content deltas; the latter keeps the
+ * reasoningFields lookup in extractCompletion working for kimi/custom.
+ */
+async function readStreamingCompletion(body: ReadableStream<Uint8Array>): Promise<Record<string, any>> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let content = ''
+  let reasoning = ''
+  let finishReason: string | undefined
+  let usage: Record<string, unknown> | undefined
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue
+      const data = line.slice(5).trim()
+      if (!data || data === '[DONE]') continue
+      try {
+        const chunk = JSON.parse(data)
+        const choice = chunk?.choices?.[0]
+        const delta = choice?.delta
+        if (typeof delta?.content === 'string') content += delta.content
+        if (typeof delta?.reasoning_content === 'string') reasoning += delta.reasoning_content
+        if (typeof delta?.reasoning === 'string') reasoning += delta.reasoning
+        if (typeof choice?.finish_reason === 'string') finishReason = choice.finish_reason
+        if (chunk?.usage && typeof chunk.usage === 'object') usage = chunk.usage
+      } catch {}
+    }
+  }
+  return { choices: [{ message: { content, reasoning_content: reasoning || undefined }, finish_reason: finishReason }], usage }
 }
 
 export async function chatCompletion(opts: ChatCompletionOptions): Promise<ChatCompletionResult> {
@@ -312,17 +369,27 @@ export async function chatCompletion(opts: ChatCompletionOptions): Promise<ChatC
   let result: ChatCompletionResult | undefined
   let retryMode: { disableJson?: boolean; alternateToken?: boolean; emptyRetry?: boolean } = {}
   const maxAttempts = opts.singleRequest ? 1 : EMPTY_COMPLETION_MAX_ATTEMPTS
+  // K3 thinks for minutes; a streaming request keeps the connection alive
+  // instead of holding one silent HTTP response open the whole time.
+  let streamDisabled = !isK3Model(opts.model)
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const body = requestBody(opts, messages, provider, retryMode)
+    if (!streamDisabled) body.stream = true
     const res = await appFetch(endpoint, {
       method: 'POST', signal: opts.signal,
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody(opts, messages, provider, retryMode)),
+      body: JSON.stringify(body),
     })
-    const text = await res.text()
     let json: Record<string, any>
-    try { json = parseJsonText(text, 'AI 接口') as Record<string, any> }
-    catch (error) { if (res.ok || /^\s*</.test(text)) throw error; json = { error: { message: text.slice(0, 500) } } }
+    if (!streamDisabled && res.ok && res.body && /text\/event-stream/i.test(res.headers.get('content-type') ?? '')) {
+      json = await readStreamingCompletion(res.body)
+    } else {
+      const text = await res.text()
+      try { json = parseJsonText(text, 'AI 接口') as Record<string, any> }
+      catch (error) { if (res.ok || /^\s*</.test(text)) throw error; json = { error: { message: text.slice(0, 500) } } }
+    }
     if (!res.ok) {
+      if (!streamDisabled && /stream|sse|event.?stream/i.test(JSON.stringify(json))) { streamDisabled = true; continue }
       const protocolError = attempt === 0 ? retryableProtocolError(res.status, json) : null
       if (protocolError === 'response_format') { retryMode = { disableJson: true }; continue }
       if (protocolError === 'token') { retryMode = { alternateToken: true }; continue }

@@ -67,8 +67,8 @@ interface ConversationRuntimeState {
 // infinite-loop detection and crashes the page.
 export const DEFAULT_RUNTIME_STATE: ConversationRuntimeState = { aiTyping: false, error: '', typingLabel: undefined, timedOut: false }
 
-const REPLY_TIMEOUT_MS = 30_000
-export const REPLY_TIMEOUT_MESSAGE = '这轮回复等待超过 30 秒，已自动停止。你可以重新生成这一轮。'
+const REPLY_TIMEOUT_MS = 360_000
+export const REPLY_TIMEOUT_MESSAGE = '这轮回复等待超过 6 分钟，已自动停止。你可以重新生成这一轮。'
 
 /** Equal IndexedDB index keys have no stable order, so timestamps must be monotonic per conversation. */
 export async function nextMessageTimestamp(conversationId: string, requested = Date.now()): Promise<number> {

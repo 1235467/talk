@@ -63,7 +63,7 @@ async function loadSpeakerMemories(speakers: Contact[]): Promise<Map<string, str
  * updated per speaker, via maybeUpdateGroupMemory — see memory.ts.
  */
 const turns = createTurnController()
-const REPLY_TIMEOUT_MS = 30_000
+const REPLY_TIMEOUT_MS = 360_000
 
 function scheduleGroupAiTurn(
   conversationId: string,
