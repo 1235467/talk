@@ -8,7 +8,9 @@ pub mod batch;
 pub mod health;
 pub mod kv;
 pub mod media;
+pub mod outbound;
 pub mod presets;
+
 
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
@@ -17,6 +19,7 @@ pub fn router(state: AppState) -> Router {
         .route("/presets", get(presets::list).post(presets::create))
         .route("/presets/{name}", get(presets::get_one).put(presets::update).delete(presets::remove))
         .route("/ai-proxy", post(ai_proxy::forward))
+        .route("/outbound", post(outbound::forward))
         .route("/media", post(media::upload))
         .route("/batch/delete-contact", post(batch::delete_contact))
         .route("/batch/delete-moment", post(batch::delete_moment))

@@ -14,7 +14,7 @@ import {
 } from './mediaProviders'
 import { httpFailureMessage, requireHttpUrl } from './connectionError'
 import { injectComfyWorkflow } from './comfyWorkflow'
-import { appFetch } from './appFetch'
+import { outboundFetch } from './api/client'
 
 export interface RemoteStickerResult {
   url: string
@@ -164,7 +164,7 @@ async function mediaRequest(url: string, options: MediaRequestOptions = {}): Pro
   options.signal?.addEventListener('abort', abort, { once: true })
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const response = await appFetch(requestUrl, {
+    const response = await outboundFetch(requestUrl, {
       method,
       headers,
       body: options.data === undefined ? undefined : JSON.stringify(options.data),

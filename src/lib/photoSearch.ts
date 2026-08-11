@@ -4,7 +4,7 @@
  * (code-driven, not LLM) that decides when each of these gets used.
  */
 import { friendlyConnectionError, httpFailureMessage, parseJsonText, requireApiKey } from './connectionError'
-import { appFetch } from './appFetch'
+import { outboundFetch } from './api/client'
 
 export interface PhotoResult {
   url: string
@@ -30,7 +30,7 @@ export async function searchPexelsPhoto(
     const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=1&orientation=${orientation}`
     const fingerprint = apiKeyFingerprint(key)
     console.info(`[photo] Pexels请求 query="${query}" key:${fingerprint}`)
-    const res = await appFetch(url, { headers: { Authorization: key }, signal })
+    const res = await outboundFetch(url, { headers: { Authorization: key }, signal })
     const body = await res.text()
     let json: { photos?: unknown } & Record<string, unknown>
     try {
@@ -102,7 +102,7 @@ export async function requestAnimeImageLegacy(params: URLSearchParams): Promise<
   let lastError: unknown
   for (let attempt = 1; attempt <= 1; attempt++) {
     try {
-      const res = await appFetch(`https://api.waifu.im/images?${params}`)
+      const res = await outboundFetch(`https://api.waifu.im/images?${params}`)
       if (!res.ok) {
         // A malformed/unknown tag will not become valid by retrying.
         if (res.status === 400) throw Object.assign(new Error('没有这个动漫图库标签；可试试 waifu、husbando、maid、neko'), { noRetry: true })
@@ -124,7 +124,7 @@ export async function requestAnimeImageLegacy(params: URLSearchParams): Promise<
 /** One request per user action: retries are deliberately manual. */
 async function requestAnimeImage(params: URLSearchParams): Promise<PhotoResult | null> {
   try {
-    const res = await appFetch(`https://api.waifu.im/images?${params}`)
+    const res = await outboundFetch(`https://api.waifu.im/images?${params}`)
     if (!res.ok) throw new Error(`Waifu.im request failed: HTTP ${res.status}`)
     const json = await res.json() as WaifuImageResponse
     const url = json.items?.[0]?.url

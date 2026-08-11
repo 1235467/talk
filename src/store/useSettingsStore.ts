@@ -35,6 +35,21 @@ export const SERVER_SYNCED_KEYS = [
   'knowledgeQueryLog',
   'experienceMode',
   'enabledModules',
+  // Provider configurations and their keys — user data shared across devices.
+  // The AI chat key itself stays server-side (TALK_AI_KEY) and is never synced.
+  'aiProvider',
+  'baseUrl',
+  'model',
+  'utilityModel',
+  'imageProvider',
+  'imageProviders',
+  'speechProvider',
+  'speechProviders',
+  'stickerProvider',
+  'stickerProviders',
+  'pexelsApiKey',
+  'tavilyApiKey',
+  'shopModel',
 ] as const
 
 /** Pull server-kv values into the local store on launch (call after the user

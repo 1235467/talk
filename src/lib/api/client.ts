@@ -54,6 +54,41 @@ export function mediaUrl(path: string): string {
   return `${serverBase()}${path}`
 }
 
+/**
+ * Third-party provider calls (Pexels/Tavily/Giphy/image/speech providers).
+ * With a server configured they go through /api/outbound (one egress point,
+ * no browser CORS); otherwise they hit the provider directly.
+ * GET/HEAD requests with no body pass headers through; anything with a JSON
+ * body is wrapped in the proxy envelope.
+ */
+export async function outboundFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const base = serverBase()
+  if (!base) return fetch(url, init)
+  const { serverToken } = useSettingsStore.getState()
+  const headers: Record<string, string> = {}
+  new Headers(init.headers).forEach((value, key) => {
+    headers[key] = value
+  })
+  const method = (init.method ?? 'GET').toUpperCase()
+  let body: unknown
+  if (typeof init.body === 'string' && init.body) {
+    try {
+      body = JSON.parse(init.body)
+    } catch {
+      body = init.body
+    }
+  }
+  return fetch(`${base}/api/outbound`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(serverToken ? { Authorization: `Bearer ${serverToken}` } : {}),
+    },
+    body: JSON.stringify({ url, method, headers, body }),
+    signal: init.signal,
+  })
+}
+
 /** With a server configured, AI calls go through /api/ai-proxy and no local key is needed. */
 export function hasAiAccess(settings: { serverUrl?: string; apiKey?: string }): boolean {
   return Boolean((settings.serverUrl ?? serverBase()) || settings.apiKey?.trim())

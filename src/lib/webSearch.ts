@@ -12,12 +12,12 @@ export interface WebSearchResult {
 }
 
 import { friendlyConnectionError, httpFailureMessage, parseJsonText, requireApiKey } from './connectionError'
-import { appFetch } from './appFetch'
+import { outboundFetch } from './api/client'
 
 export async function tavilySearch(apiKey: string, query: string): Promise<WebSearchResult[]> {
   try {
     const key = requireApiKey(apiKey, 'Tavily')
-    const res = await appFetch('https://api.tavily.com/search', {
+    const res = await outboundFetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

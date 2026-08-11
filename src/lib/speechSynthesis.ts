@@ -3,7 +3,7 @@ import { api } from './api/resources'
 import { getOrUndef } from './api/client'
 import { invalidate } from './api/keys'
 import type { AppSettings, ContactSpeechVoice, SpeechCacheRecord } from '../types'
-import { appFetch } from './appFetch'
+import { outboundFetch } from './api/client'
 import { isSpeechProviderReady } from './speechProviders'
 
 const MAX_CACHE_BYTES = 100 * 1024 * 1024
@@ -107,7 +107,7 @@ async function synthesizeDoubao(text: string, config: AppSettings['speechProvide
     reqParams.emotion = config.emotion.trim()
     reqParams.emotion_scale = config.emotionScale
   }
-  const response = await appFetch(config.baseUrl.trim(), {
+  const response = await outboundFetch(config.baseUrl.trim(), {
     method: 'POST',
     headers: doubaoHeaders(config),
     body: JSON.stringify({ user: { uid: 'talk-user' }, req_params: reqParams }),
@@ -121,7 +121,7 @@ async function synthesizeMimo(text: string, config: AppSettings['speechProviders
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = []
   if (config.styleInstruction.trim()) messages.push({ role: 'user', content: config.styleInstruction.trim() })
   messages.push({ role: 'assistant', content: text })
-  const response = await appFetch(endpoint, {
+  const response = await outboundFetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'api-key': config.apiKey.trim() },
     body: JSON.stringify({
