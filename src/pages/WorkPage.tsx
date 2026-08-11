@@ -1,10 +1,11 @@
-// @ts-nocheck — 未迁移的非核心功能，见 db/unmigrated.ts
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useLocalQuery } from '../lib/useLocalQuery'
+import { useQuery } from '@tanstack/react-query'
 import { v4 as uuid } from 'uuid'
 import { TopBar } from '../components/TopBar'
-import { db } from '../db/unmigrated'
+import { api } from '../lib/api/resources'
+import { getOrUndef } from '../lib/api/client'
+import { invalidate } from '../lib/api/keys'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { chatCompletionText as chatCompletion } from '../lib/deepseek'
 import { buildJobsPrompt, parseJobs, employmentPatch } from '../lib/career'
@@ -16,12 +17,13 @@ export function WorkPage() {
   const settings = useSettingsStore(), navigate = useNavigate()
   const [query,setQuery]=useState(''), [loading,setLoading]=useState(false), [error,setError]=useState('')
   const [page,setPage]=useState(0)
-  const jobs = useLocalQuery(()=>db.jobListings.orderBy('createdAt').reverse().toArray(),[]) ?? []
-  const activeInterview = useLocalQuery(()=>db.interviews.where('status').equals('active').first(),[])
+  const { data: jobs = [] } = useQuery({ queryKey: ['jobListings'], queryFn: () => api.jobListings.list() })
+  const { data: activeInterviews = [] } = useQuery({ queryKey: ['interviews', 'active'], queryFn: () => api.interviews.list({ status: 'active' }) })
+  const activeInterview = activeInterviews[0]
   const activeJob = activeInterview ? jobs.find(job=>job.id===activeInterview.jobId) : undefined
-  const wallet = useLocalQuery(()=>db.walletAccounts.get(USER_WALLET_ID),[]) 
-  async function generate(search=query) { if(!settings.apiKey){setError('请先在设置中配置 API Key');return} setLoading(true);setError('');try{const prompt=buildJobsPrompt(search.trim()||undefined,settings);if(!prompt.trim())throw new Error('职业提示词模块已屏蔽');const raw=await chatCompletion({apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.utilityModel,messages:[{role:'system',content:prompt},{role:'user',content:'生成岗位'}],jsonMode:true});const list=parseJobs(raw);if(!list.length)throw new Error('岗位生成失败，请重试');await db.jobListings.bulkAdd(list.map(j=>({...j,id:uuid(),status:'open' as const,sourceQuery:search.trim()||undefined,createdAt:Date.now()})));setPage(0)}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setLoading(false)}}
-  async function hire(job: typeof jobs[number]) { if(!confirm(`跳过面试，直接入职“${job.title}”？`))return; const p=employmentPatch(job.title,job.monthlySalary); settings.setSettings({userOccupation:p.occupation,userMonthlySalary:p.monthlySalary,userJobStartedDate:p.jobStartedDate,userLastSalaryDate:p.lastSalaryDate}); await db.jobListings.update(job.id,{status:'hired',hiredBySkip:true}) }
+  const { data: wallet } = useQuery({ queryKey: ['walletAccounts', USER_WALLET_ID], queryFn: () => getOrUndef(api.walletAccounts.get(USER_WALLET_ID)) }) 
+  async function generate(search=query) { if(!settings.apiKey){setError('请先在设置中配置 API Key');return} setLoading(true);setError('');try{const prompt=buildJobsPrompt(search.trim()||undefined,settings);if(!prompt.trim())throw new Error('职业提示词模块已屏蔽');const raw=await chatCompletion({apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.utilityModel,messages:[{role:'system',content:prompt},{role:'user',content:'生成岗位'}],jsonMode:true});const list=parseJobs(raw);if(!list.length)throw new Error('岗位生成失败，请重试');await api.jobListings.bulkPut(list.map(j=>({...j,id:uuid(),status:'open' as const,sourceQuery:search.trim()||undefined,createdAt:Date.now()})));invalidate('jobListings');setPage(0)}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setLoading(false)}}
+  async function hire(job: typeof jobs[number]) { if(!confirm(`跳过面试，直接入职“${job.title}”？`))return; const p=employmentPatch(job.title,job.monthlySalary); settings.setSettings({userOccupation:p.occupation,userMonthlySalary:p.monthlySalary,userJobStartedDate:p.jobStartedDate,userLastSalaryDate:p.lastSalaryDate}); await api.jobListings.patch(job.id,{status:'hired',hiredBySkip:true}); invalidate('jobListings') }
   return <div className="flex h-[var(--app-height)] flex-col overflow-hidden bg-[#f4f4f6]"><TopBar title="工作" showBack right={<span className="pr-2 text-xs text-gray-500">{formatCurrency(wallet?.balance??0,settings)}</span>}/><div className="flex-1 overflow-y-auto pb-5">
     <section className="mt-3 bg-white p-4"><p className="text-xs text-gray-400">当前职业</p><p className="mt-1 text-lg font-medium">{settings.userOccupation||'待业中'}</p><p className="text-sm text-gray-500">{settings.userOccupation?`月薪 ${formatCurrency(settings.userMonthlySalary,settings)}`:'搜索岗位并参加面试吧'}</p></section>
     <section className="mt-3 flex items-center justify-between bg-white px-4 py-3"><div><p className="text-sm font-medium text-gray-900">宝宝模式</p><p className="mt-0.5 text-[11px] text-gray-400">开启后跳过专业面试，申请岗位即可直接入职</p></div><ToggleSwitch checked={settings.jobBabyMode} onChange={(checked)=>settings.setSettings({jobBabyMode:checked})} ariaLabel="切换宝宝模式" /></section>

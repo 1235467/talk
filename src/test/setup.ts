@@ -62,6 +62,8 @@ const RESOURCE_PK: Record<string, string> = {
   loans: 'id',
   inventory: 'id',
   'shop-purchase-history': 'productKey',
+  'job-listings': 'id',
+  interviews: 'id',
 }
 
 /** camelCase backup-table name → REST path (mirrors server import_order). */
@@ -82,6 +84,7 @@ const BACKUP_TO_PATH: Record<string, string> = {
   aiTurns: 'ai-turns', aiUsageRecords: 'ai-usage-records',
   walletAccounts: 'wallet-accounts', walletTransactions: 'wallet-transactions', loans: 'loans',
   inventory: 'inventory', shopPurchaseHistory: 'shop-purchase-history',
+  jobListings: 'job-listings', interviews: 'interviews',
 }
 
 interface FakeDb {

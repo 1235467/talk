@@ -7,7 +7,7 @@
  * Kept in its own dependency-free module because useSettingsStore and
  * features/index import each other.
  */
-export const DORMANT_MODULES = new Set(['career', 'saveLoad'])
+export const DORMANT_MODULES = new Set(['saveLoad'])
 
 export function filterDormantModules(ids: string[]): string[] {
   return ids.filter((id) => !DORMANT_MODULES.has(id))

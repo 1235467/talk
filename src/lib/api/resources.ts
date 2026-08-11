@@ -13,7 +13,9 @@ import type {
   Group,
   GroupPlan,
   InternalTask,
+  InterviewSession,
   InventoryItem,
+  JobListing,
   LibraryItem,
   LifeEvent,
   LocationModuleState,
@@ -108,6 +110,8 @@ export const api = {
   loans: resource<Loan>('/loans'),
   inventory: resource<InventoryItem>('/inventory'),
   shopPurchaseHistory: keyedResource<ShopPurchaseHistory>('/shop-purchase-history'),
+  jobListings: resource<JobListing>('/job-listings'),
+  interviews: resource<InterviewSession>('/interviews'),
 
   /** Atomic ledger operations (balance math and idempotency live server-side). */
   finance: {
