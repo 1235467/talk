@@ -80,6 +80,7 @@ export const useSettingsStore = create<SettingsState>()(
       aiProvider: 'deepseek',
       apiKey: envKey,
       baseUrl: envBaseUrl,
+      baseUrls: envBaseUrl ? { deepseek: envBaseUrl } : {},
       model: 'deepseek-v4-pro',
       utilityModel: 'deepseek-v4-flash',
       globalSystemPrompt: DEFAULT_STYLE_PROMPT,
@@ -153,11 +154,14 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'talk-settings',
-      version: 23,
+      version: 24,
       migrate: (persisted, version) => {
         const next = persisted as Partial<SettingsState>
         if (typeof next.serverUrl !== 'string') next.serverUrl = ''
         if (typeof next.serverToken !== 'string') next.serverToken = ''
+        if (!next.baseUrls || typeof next.baseUrls !== 'object') {
+          next.baseUrls = next.baseUrl && next.aiProvider ? { [next.aiProvider]: next.baseUrl } as SettingsState['baseUrls'] : {}
+        }
         // Non-core features (shop/warehouse/career/saveLoad) are disabled until
         // they migrate to the server; strip them from any persisted list.
         if (Array.isArray(next.enabledModules)) {

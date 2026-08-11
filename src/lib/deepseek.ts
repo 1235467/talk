@@ -5,6 +5,7 @@ export interface ChatMessage {
 import { assertAutomaticAiBudget, estimateTokens, recordAiUsage } from './aiUsage'
 import { v4 as uuid } from 'uuid'
 import { api } from './api/resources'
+import { isServerConfigured, serverBase } from './api/client'
 import type { AdminAiTraceStage, AiUsagePurpose } from '../types'
 import { friendlyConnectionError, httpFailureMessage, parseJsonText, requireApiKey, requireHttpUrl } from './connectionError'
 import { useSettingsStore } from '../store/useSettingsStore'
@@ -367,11 +368,12 @@ async function readStreamingCompletion(body: ReadableStream<Uint8Array>): Promis
  * SettingsPage on any authed device just works everywhere.
  */
 function resolveAiEndpoint(opts: ChatCompletionOptions, provider: AiProviderId): { endpoint: string; key: string; targetUrl?: string } {
-  const { serverUrl, serverToken } = useSettingsStore.getState()
-  if (serverUrl) {
+  if (isServerConfigured()) {
+    const base = serverBase()
     return {
-      endpoint: `${serverUrl.replace(/\/+$/, '')}/api/ai-proxy`,
-      key: serverToken,
+      // Empty serverBase → relative URL hits the same origin (nginx or the vite dev proxy).
+      endpoint: `${base}/api/ai-proxy`,
+      key: useSettingsStore.getState().serverToken,
       targetUrl: resolveChatCompletionsUrl(opts.baseUrl, provider),
     }
   }

@@ -32,6 +32,7 @@ export function SettingsPage() {
     aiProvider,
     apiKey,
     baseUrl,
+    baseUrls,
     model,
     utilityModel,
     serverUrl,
@@ -198,7 +199,15 @@ export function SettingsPage() {
 
 
   function persistConnection() {
-    setSettings({ aiProvider: providerDraft, apiKey: apiKeyDraft.trim(), baseUrl: baseUrlDraft.trim(), model: modelDraft.trim() })
+    const trimmedUrl = baseUrlDraft.trim() || AI_PROVIDERS[providerDraft].defaultBaseUrl
+    setSettings({
+      aiProvider: providerDraft,
+      apiKey: apiKeyDraft.trim(),
+      baseUrl: trimmedUrl,
+      baseUrls: { ...(baseUrls ?? {}), [providerDraft]: trimmedUrl },
+      model: modelDraft.trim(),
+      utilityModel: utilityModelDraft.trim(),
+    })
   }
 
   async function handlePullModels() {
@@ -210,14 +219,8 @@ export function SettingsPage() {
       if (list.length > 0) {
         // Keep both saved choices valid when switching API providers. A
         // provider-specific stale id must not remain selected after refresh.
-        if (!list.includes(modelDraft)) {
-          setModelDraft(list[0])
-          setSettings({ model: list[0] })
-        }
-        if (!list.includes(utilityModelDraft)) {
-          setUtilityModelDraft(list[0])
-          setSettings({ utilityModel: list[0] })
-        }
+        if (!list.includes(modelDraft)) setModelDraft(list[0])
+        if (!list.includes(utilityModelDraft)) setUtilityModelDraft(list[0])
       }
     } catch (err) {
       setPullError(err instanceof Error ? err.message : String(err))
@@ -229,7 +232,6 @@ export function SettingsPage() {
   async function handleTest() {
     setTesting(true)
     setTestResult(null)
-    persistConnection()
     const result = await testConnection(apiKeyDraft.trim(), baseUrlDraft.trim(), modelDraft.trim(), providerDraft)
     setTestResult(result)
     setTesting(false)
@@ -421,8 +423,9 @@ export function SettingsPage() {
             setModels([])
             setPullError('')
             setTestResult(null)
-            if (next !== 'custom') setBaseUrlDraft(AI_PROVIDERS[next].defaultBaseUrl)
-            setSettings({ aiProvider: next, ...(next !== 'custom' ? { baseUrl: AI_PROVIDERS[next].defaultBaseUrl } : {}) })
+            // Every provider has its own stored endpoint; switching just
+            // loads that provider's slot. Nothing persists until 保存.
+            setBaseUrlDraft(baseUrls?.[next] ?? AI_PROVIDERS[next].defaultBaseUrl)
           }}
           className="mb-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
         >
@@ -446,7 +449,7 @@ export function SettingsPage() {
               setApiKeyDraft(e.target.value)
               setTestResult(null)
             }}
-            onBlur={persistConnection}
+
             type={visibleApiKeys.ai ? 'text' : 'password'}
             placeholder="sk-..."
             className="w-full rounded-lg border border-gray-200 py-2 pl-3 pr-16 text-sm"
@@ -478,7 +481,7 @@ export function SettingsPage() {
             setBaseUrlDraft(e.target.value)
             setTestResult(null)
           }}
-          onBlur={persistConnection}
+
           className={`mb-3 w-full rounded-lg border px-3 py-2 text-sm ${
             providerDraft === 'custom'
               ? 'border-gray-200 bg-white text-gray-800'
@@ -503,7 +506,7 @@ export function SettingsPage() {
                 setModelDraft(e.target.value)
                 setTestResult(null)
               }}
-              onBlur={persistConnection}
+  
               className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm"
             />
           )}
@@ -525,7 +528,7 @@ export function SettingsPage() {
             <input
               value={utilityModelDraft}
               onChange={(e) => setUtilityModelDraft(e.target.value)}
-              onBlur={() => setSettings({ utilityModel: utilityModelDraft.trim() })}
+
               className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm"
             />
           )}
@@ -542,11 +545,18 @@ export function SettingsPage() {
           <button
             onClick={handleTest}
             disabled={testing || !apiKeyDraft}
-            className="flex-1 rounded-lg bg-gray-900 py-2 text-sm text-white disabled:opacity-50"
+            className="flex-1 rounded-lg bg-gray-100 py-2 text-sm text-gray-700 disabled:opacity-50"
           >
             {testing ? '测试中…' : '测试连接'}
           </button>
+          <button
+            onClick={persistConnection}
+            className="flex-1 rounded-lg bg-gray-900 py-2 text-sm text-white"
+          >
+            保存
+          </button>
         </div>
+        <p className="mt-2 text-[11px] text-gray-400">修改供应商、密钥、接口或模型后需要点保存才会生效并同步到其他设备。</p>
         {testResult && (
           <p className={`mt-2 text-xs ${testResult.ok ? 'text-green-600' : 'text-red-500'}`}>
             {testResult.ok ? '✓ ' : '✗ '}

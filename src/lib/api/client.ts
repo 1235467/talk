@@ -67,8 +67,10 @@ export function mediaUrl(path: string): string {
  * body is wrapped in the proxy envelope.
  */
 export async function outboundFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  // Only the Capacitor shell with no server configured talks to providers
+  // directly; browsers always use the same-origin proxy (no CORS).
   const base = serverBase()
-  if (!base) return fetch(url, init)
+  if (!base && Capacitor.isNativePlatform()) return fetch(url, init)
   const { serverToken } = useSettingsStore.getState()
   const headers: Record<string, string> = {}
   new Headers(init.headers).forEach((value, key) => {

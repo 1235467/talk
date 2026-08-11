@@ -356,6 +356,8 @@ vi.mock('../lib/api/client', async (importOriginal) => {
     apiFetch: fakeApiFetch,
     serverBase: () => '',
     isServerConfigured: () => false,
+    // Provider calls hit the (mocked) fetch directly in tests.
+    outboundFetch: (url: string, init?: RequestInit) => fetch(url, init),
   }
 })
 

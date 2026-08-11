@@ -865,7 +865,10 @@ export interface AppSettings {
   serverToken: string
   aiProvider: import('../lib/aiProviders').AiProviderId
   apiKey: string
+  /** Active provider's endpoint. Mirror of baseUrls[aiProvider]; kept as the single read path for all call sites. */
   baseUrl: string
+  /** Each provider carries its own endpoint — switching providers never touches another provider's stored URL. */
+  baseUrls?: Partial<Record<import('../lib/aiProviders').AiProviderId, string>>
   model: string
   utilityModel: string // model for secondary tasks: shop generation, warmth scoring / memory updates, worldview drafts, etc.
   globalSystemPrompt: string
