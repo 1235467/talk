@@ -46,7 +46,6 @@ shop/warehouse/inventory、finance/wallet/loans、career/jobs、scopedSaves（�
 
 - `npx vitest run` — `src/test/setup.ts` 在 `apiFetch` 单点 mock 了一个内存版假服务器（完整语义：过滤/contains/patch/级联/导入导出），`resetFakeServer()` 重置。新测试种数据用 `api.X.put`，不要引用 Dexie。
 - `npx tsc -b` 必须干净。`npm run lint`（type-aware）**在 Termux 上跑不了**（缺 `@oxlint-tsgolint/android-arm64`），用 `npx oxlint` 代替。
-- Termux 没有 Playwright——e2e（`tests/e2e/`）需要在桌面环境跑。
 - **sqlx migrate! 是编译期内嵌**：新增 migration 文件后 `cargo build` 可能不感知，需 `touch src/db.rs`（或随便一个源文件）触发重编。
 
 ## 服务器开发
