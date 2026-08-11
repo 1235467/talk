@@ -107,7 +107,7 @@ export const useSettingsStore = create<SettingsState>()(
       customCurrencyEmoji: '💎',
       moodExpiryMs: 30 * 60 * 1000,
       adminModeEnabled: false,
-      enabledModules: ['shop', 'warehouse', 'worldview', 'knowledgeBase', 'relationship', 'personalityTraits', 'intent', 'storyOutline', 'career', 'location'],
+      enabledModules: ['worldview', 'knowledgeBase', 'relationship', 'personalityTraits', 'intent', 'storyOutline', 'location'],
       setSettings: (patch) => set(patch),
     }),
     {
@@ -117,6 +117,11 @@ export const useSettingsStore = create<SettingsState>()(
         const next = persisted as Partial<SettingsState>
         if (typeof next.serverUrl !== 'string') next.serverUrl = ''
         if (typeof next.serverToken !== 'string') next.serverToken = ''
+        // Non-core features (shop/warehouse/career/saveLoad) are disabled until
+        // they migrate to the server; strip them from any persisted list.
+        if (Array.isArray(next.enabledModules)) {
+          next.enabledModules = next.enabledModules.filter((id) => !['shop', 'warehouse', 'career', 'saveLoad'].includes(id))
+        }
         if (next.experienceMode !== 'immersive' && next.experienceMode !== 'free') next.experienceMode = 'free'
         if (!['deepseek', 'openai', 'gemini', 'anthropic', 'xai', 'qwen', 'glm', 'minimax', 'kimi', 'custom'].includes(String(next.aiProvider))) {
           next.aiProvider = 'deepseek' as AiProviderId

@@ -10,7 +10,7 @@ import { tavilySearch } from '../lib/webSearch'
 import { apiKeyFingerprint, testPexelsConnection } from '../lib/photoSearch'
 import { friendlyConnectionError } from '../lib/connectionError'
 import { isImageProviderReady } from '../lib/mediaProviders'
-import { db } from '../db/db'
+import { db } from '../db/unmigrated'
 import { useLocalQuery } from '../lib/useLocalQuery'
 import { api } from '../lib/api/resources'
 import { invalidateAll } from '../lib/api/keys'
@@ -104,7 +104,6 @@ export function SettingsPage() {
     for (const row of await api.contactLifeStates.list()) await api.contactLifeStates.delete(row.contactId)
     for (const row of await api.simulationState.list()) await api.simulationState.delete(row.id)
     await wipeRows(() => api.contacts.list(), (ids) => api.contacts.bulkDelete(ids))
-    await Promise.all([db.aiTestSuites.clear(), db.adminLogs.clear(), db.adminAiTraces.clear()])
     invalidateAll()
     void navigate('/contacts')
   }

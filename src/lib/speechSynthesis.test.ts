@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { db } from '../db/db'
+import { resetFakeServer } from '../test/setup'
 import { createDefaultSpeechProviders } from './speechProviders'
 import { cacheSpeechForMessage, speechSignature, synthesizeSpeech } from './speechSynthesis'
 
 afterEach(async () => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
-  await db.speechCache.clear()
+  resetFakeServer()
 })
 
 describe('speech synthesis providers', () => {

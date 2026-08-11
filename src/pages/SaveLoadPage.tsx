@@ -1,9 +1,10 @@
+// @ts-nocheck — 未迁移的非核心功能，见 db/unmigrated.ts
 import { useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, Clock3, Database, Map, RotateCcw, Trash2 } from 'lucide-react'
 import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
-import { db } from '../db/db'
+import { db } from '../db/unmigrated'
 import { api } from '../lib/api/resources'
 import { getOrUndef } from '../lib/api/client'
 import { useLocalQuery } from '../lib/useLocalQuery'

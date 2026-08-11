@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
 import { TopBar } from '../components/TopBar'
 import { ToggleSwitch } from '../components/ToggleSwitch'
-import { db } from '../db/db'
+import { db } from '../db/unmigrated'
 import { api } from '../lib/api/resources'
 import { getOrUndef } from '../lib/api/client'
 import { invalidate } from '../lib/api/keys'
@@ -78,7 +78,7 @@ export function ContactAdminPage() {
     enabled: !!contactId,
   })
   const wallet = useLocalQuery(() => contactId ? db.walletAccounts.get(contactId) : undefined, [contactId])
-  const transactions = useLocalQuery(() => contactId ? db.walletTransactions.filter((row) => row.fromOwnerId === contactId || row.toOwnerId === contactId).toArray() : EMPTY_TRANSACTIONS, [contactId]) ?? EMPTY_TRANSACTIONS
+  const transactions = useLocalQuery(() => contactId ? db.walletTransactions.filter((row: any) => row.fromOwnerId === contactId || row.toOwnerId === contactId).toArray() : EMPTY_TRANSACTIONS, [contactId]) ?? EMPTY_TRANSACTIONS
 
   const [draft, setDraft] = useState<Contact | null>(null)
   const [promptDraft, setPromptDraft] = useState<PromptModuleSettings | null>(null)
@@ -179,7 +179,7 @@ export function ContactAdminPage() {
       invalidate('contactLifeStates')
       if (nextWallet) await db.walletAccounts.put({ ...nextWallet, ownerId: contactId })
       else await db.walletAccounts.delete(contactId)
-      await db.walletTransactions.filter((row) => row.fromOwnerId === contactId || row.toOwnerId === contactId).delete()
+      await db.walletTransactions.filter((row: any) => row.fromOwnerId === contactId || row.toOwnerId === contactId).delete()
       if (nextTransactions.length) await db.walletTransactions.bulkPut(nextTransactions)
       setStatus('已保存，下一轮聊天会使用新资料。')
       setDraft((current) => current ? { ...current, promptModulesSnapshot: clonePromptModules(promptDraft), promptSnapshotUpdatedAt: Date.now() } : current)

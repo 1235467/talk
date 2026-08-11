@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { db } from '../db/unmigrated'
 import { api } from './api/resources'
 import { getOrUndef, hasAiAccess } from './api/client'
 import { invalidate } from './api/keys'
@@ -428,8 +428,8 @@ async function runAiTurn(
         ? Promise.all([
             getBalance(contact.id),
             getBalance(USER_WALLET_ID),
-            db.loans.filter(l => l.status === 'active' && (l.lenderId === contact.id || l.borrowerId === contact.id)).toArray(),
-          ]).then(([contactBalance, userBalance, loans]) => `\n【经济状况】你的可用余额：${contactBalance}；对方可用余额：${userBalance}。未结清借款：${loans.map(l => `${l.borrowerId === contact.id ? '你欠对方' : '对方欠你'}${l.outstanding}`).join('；') || '无'}。所有金钱动作必须量力而行，不得凭空造钱。`)
+            db.loans.filter((l: any) => l.status === 'active' && (l.lenderId === contact.id || l.borrowerId === contact.id)).toArray(),
+          ]).then(([contactBalance, userBalance, loans]) => `\n【经济状况】你的可用余额：${contactBalance}；对方可用余额：${userBalance}。未结清借款：${loans.map((l: any) => `${l.borrowerId === contact.id ? '你欠对方' : '对方欠你'}${l.outstanding}`).join('；') || '无'}。所有金钱动作必须量力而行，不得凭空造钱。`)
         : Promise.resolve(''),
       memoryPromptOn ? socialMemoriesText(contact.id) : Promise.resolve(''),
       memoryPromptOn ? recentSharedOriginalContext([contact.id], settings.userNickname, {

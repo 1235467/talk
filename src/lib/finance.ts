@@ -1,5 +1,6 @@
+// @ts-nocheck — 未迁移的禁用功能，见 db/unmigrated.ts
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { db } from '../db/unmigrated'
 import { isAiTestId } from './aiTestIsolation'
 import { useSettingsStore } from '../store/useSettingsStore'
 import type { WalletOwnerId, WalletTransactionKind } from '../types'

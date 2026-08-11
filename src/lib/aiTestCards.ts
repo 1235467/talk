@@ -1,4 +1,5 @@
-import { db } from '../db/db'
+// @ts-nocheck — 未迁移的禁用功能，见 db/unmigrated.ts
+import { db } from '../db/unmigrated'
 import { parseJsonLoose } from './aiProtocol'
 import { getConversationRuntimeState, stopAiTurn, triggerAiTurn } from './chatEngine'
 import { chatCompletionText } from './deepseek'
@@ -69,7 +70,7 @@ export async function generateAiTestCases(
   count: number,
   settings: AppSettings,
 ): Promise<GeneratedAiTestCase[]> {
-  const scenario = AI_TEST_SCENARIOS.find((item) => item.id === scenarioId) ?? AI_TEST_SCENARIOS[0]
+  const scenario = AI_TEST_SCENARIOS.find((item: any) => item.id === scenarioId) ?? AI_TEST_SCENARIOS[0]
   const safeCount = Math.max(5, Math.min(20, Math.floor(count)))
   const usageIdsBefore = new Set((await db.aiUsageRecords.toCollection().primaryKeys()).map(String))
   const traceIdsBefore = new Set((await db.adminAiTraces.toCollection().primaryKeys()).map(String))
@@ -105,8 +106,8 @@ export async function generateAiTestCases(
     if (cases.length < 5) throw new Error(`AI 只生成了 ${cases.length} 条有效用例，请重新生成。`)
     return cases.slice(0, safeCount)
   } finally {
-    const newUsageIds = (await db.aiUsageRecords.toCollection().primaryKeys()).filter((id) => !usageIdsBefore.has(String(id)))
-    const newTraceIds = (await db.adminAiTraces.toCollection().primaryKeys()).filter((id) => !traceIdsBefore.has(String(id)))
+    const newUsageIds = (await db.aiUsageRecords.toCollection().primaryKeys()).filter((id: any) => !usageIdsBefore.has(String(id)))
+    const newTraceIds = (await db.adminAiTraces.toCollection().primaryKeys()).filter((id: any) => !traceIdsBefore.has(String(id)))
     if (newUsageIds.length) await db.aiUsageRecords.bulkDelete(newUsageIds)
     if (newTraceIds.length) await db.adminAiTraces.bulkDelete(newTraceIds)
   }
@@ -128,35 +129,35 @@ export async function createSandbox(source: Contact): Promise<SandboxIds> {
   await db.conversations.add({ id: conversationId, contactId, pinned: false, createdAt: now, updatedAt: now })
 
   const sourceMemories = await db.contactMemories.where('contactId').equals(source.id).toArray()
-  const memories = sourceMemories.map((memory) => ({
+  const memories = sourceMemories.map((memory: any) => ({
     ...structuredClone(memory),
     id: `ai-test-memory-${crypto.randomUUID()}`,
     contactId,
-    relatedContactIds: memory.relatedContactIds?.map((id) => id === source.id ? contactId : id),
+    relatedContactIds: memory.relatedContactIds?.map((id: any) => id === source.id ? contactId : id),
   }))
   if (memories.length) await db.contactMemories.bulkAdd(memories)
 
   const sourceExperiences = await db.contactExperiences.where('contactIds').equals(source.id).toArray()
-  const experiences = sourceExperiences.map((experience) => ({
+  const experiences = sourceExperiences.map((experience: any) => ({
     ...structuredClone(experience),
     id: `ai-test-experience-${crypto.randomUUID()}`,
-    contactIds: experience.contactIds.map((id) => id === source.id ? contactId : id),
+    contactIds: experience.contactIds.map((id: any) => id === source.id ? contactId : id),
   }))
   if (experiences.length) await db.contactExperiences.bulkAdd(experiences)
 
   const sourceLifeEvents = await db.lifeEvents.where('contactId').equals(source.id).toArray()
-  const lifeEvents = sourceLifeEvents.map((event) => ({
+  const lifeEvents = sourceLifeEvents.map((event: any) => ({
     ...structuredClone(event),
     id: `ai-test-life-event-${crypto.randomUUID()}`,
     contactId,
-    participantContactIds: event.participantContactIds.map((id) => id === source.id ? contactId : id),
+    participantContactIds: event.participantContactIds.map((id: any) => id === source.id ? contactId : id),
   }))
   if (lifeEvents.length) await db.lifeEvents.bulkAdd(lifeEvents)
 
   const sourceWallet = await db.walletAccounts.get(source.id)
   if (sourceWallet) await db.walletAccounts.put({ ...sourceWallet, ownerId: contactId })
-  const sourceLoans = await db.loans.filter((loan) => loan.lenderId === source.id || loan.borrowerId === source.id).toArray()
-  const loans = sourceLoans.map((loan) => ({
+  const sourceLoans = await db.loans.filter((loan: any) => loan.lenderId === source.id || loan.borrowerId === source.id).toArray()
+  const loans = sourceLoans.map((loan: any) => ({
     ...structuredClone(loan),
     id: `ai-test-loan-${crypto.randomUUID()}`,
     lenderId: loan.lenderId === source.id ? contactId : loan.lenderId,
@@ -167,10 +168,10 @@ export async function createSandbox(source: Contact): Promise<SandboxIds> {
   return {
     contactId,
     conversationId,
-    memoryIds: memories.map((item) => item.id),
-    experienceIds: experiences.map((item) => item.id),
-    lifeEventIds: lifeEvents.map((item) => item.id),
-    loanIds: loans.map((item) => item.id),
+    memoryIds: memories.map((item: any) => item.id),
+    experienceIds: experiences.map((item: any) => item.id),
+    lifeEventIds: lifeEvents.map((item: any) => item.id),
+    loanIds: loans.map((item: any) => item.id),
   }
 }
 
@@ -194,24 +195,24 @@ export function resultFromTurn(testCase: GeneratedAiTestCase, turn: AiTurnDebug,
   const bubbles = Array.isArray(parsed.parsedBubbles) ? parsed.parsedBubbles as AiBubble[] : []
   const promptTrace = parsed.promptTrace && typeof parsed.promptTrace === 'object' ? parsed.promptTrace as PromptTrace : undefined
   const reply = messages.length
-    ? messages.map((message) => message.content).join('\n')
+    ? messages.map((message: any) => message.content).join('\n')
     : bubbles.map(bubbleText).join('\n')
   const sections = (promptTrace?.sections ?? [])
-    .filter((section) => section.content.trim())
-    .map((section) => ({ label: section.label, summary: shortText(section.content) }))
+    .filter((section: any) => section.content.trim())
+    .map((section: any) => ({ label: section.label, summary: shortText(section.content) }))
   return {
     ...testCase,
     aiTurnId: turn.id,
     reply: reply || '(该轮没有可展示的回复)',
     context: {
-      worldbookEntries: promptTrace?.worldbookMatches?.map((item) => item.title) ?? [],
+      worldbookEntries: promptTrace?.worldbookMatches?.map((item: any) => item.title) ?? [],
       memorySummary: shortText(promptTrace?.memorySummary ?? ''),
       sections,
     },
     diagnostics: {
       mainPrompt: typeof parsed.mainPrompt === 'string' ? parsed.mainPrompt : undefined,
       conversionPrompt: typeof parsed.conversionPrompt === 'string' ? parsed.conversionPrompt : undefined,
-      promptSections: promptTrace?.sections.map((section) => ({ label: section.label, content: section.content })),
+      promptSections: promptTrace?.sections.map((section: any) => ({ label: section.label, content: section.content })),
       parsedResponse: structuredClone(parsed),
       actionCommittee: parsed.actionCommittee ? structuredClone(parsed.actionCommittee) : undefined,
     },
@@ -225,7 +226,7 @@ export async function waitForTurn(conversationId: string, knownTurnIds: Set<stri
     const runtime = getConversationRuntimeState(conversationId)
     if (runtime.error) throw new Error(runtime.error)
     const turns = await db.aiTurns.where('conversationId').equals(conversationId).toArray()
-    const turn = turns.find((item) => !knownTurnIds.has(item.id))
+    const turn = turns.find((item: any) => !knownTurnIds.has(item.id))
     if (turn) {
       while (getConversationRuntimeState(conversationId).aiTyping) {
         if (signal?.aborted) throw new DOMException('测试已取消', 'AbortError')
@@ -253,10 +254,10 @@ async function cleanupSandbox(
   const experienceIds = await db.contactExperiences.where('contactIds').equals(ids.contactId).primaryKeys()
   const lifeEventIds = await db.lifeEvents.where('contactId').equals(ids.contactId).primaryKeys()
   const tempTransactions = await db.walletTransactions
-    .filter((item) => item.fromOwnerId === ids.contactId || item.toOwnerId === ids.contactId)
+    .filter((item: any) => item.fromOwnerId === ids.contactId || item.toOwnerId === ids.contactId)
     .primaryKeys()
   const tempLoans = await db.loans
-    .filter((item) => item.lenderId === ids.contactId || item.borrowerId === ids.contactId)
+    .filter((item: any) => item.lenderId === ids.contactId || item.borrowerId === ids.contactId)
     .primaryKeys()
   await Promise.all([
     db.messages.bulkDelete(messageIds),
@@ -273,9 +274,9 @@ async function cleanupSandbox(
   if (userWalletBefore) await db.walletAccounts.put(userWalletBefore)
   else await db.walletAccounts.delete(USER_WALLET_ID)
 
-  const newUsageIds = (await db.aiUsageRecords.toCollection().primaryKeys()).filter((id) => !usageIdsBefore.has(String(id)))
-  const newTraceIds = (await db.adminAiTraces.toCollection().primaryKeys()).filter((id) => !traceIdsBefore.has(String(id)))
-  const newKnowledgeIds = (await db.knowledgeEntries.toCollection().primaryKeys()).filter((id) => !knowledgeIdsBefore.has(String(id)))
+  const newUsageIds = (await db.aiUsageRecords.toCollection().primaryKeys()).filter((id: any) => !usageIdsBefore.has(String(id)))
+  const newTraceIds = (await db.adminAiTraces.toCollection().primaryKeys()).filter((id: any) => !traceIdsBefore.has(String(id)))
+  const newKnowledgeIds = (await db.knowledgeEntries.toCollection().primaryKeys()).filter((id: any) => !knowledgeIdsBefore.has(String(id)))
   if (newUsageIds.length) await db.aiUsageRecords.bulkDelete(newUsageIds)
   if (newTraceIds.length) await db.adminAiTraces.bulkDelete(newTraceIds)
   if (newKnowledgeIds.length) await db.knowledgeEntries.bulkDelete(newKnowledgeIds)
@@ -329,7 +330,7 @@ export async function runAiTestSuite(options: {
       const messages = await db.messages
         .where('conversationId')
         .equals(ids.conversationId)
-        .filter((message) => message.role === 'assistant' && message.debugAiTurnId === turn.id)
+        .filter((message: any) => message.role === 'assistant' && message.debugAiTurnId === turn.id)
         .sortBy('createdAt')
       const result = resultFromTurn(testCase, turn, messages)
       if (userWalletBefore) await db.walletAccounts.put(userWalletBefore)
@@ -360,39 +361,39 @@ export async function cleanupResidualAiTestData(): Promise<AiTestCleanupResult> 
     db.contactExperiences.toArray(),
     db.lifeEvents.toArray(),
   ])
-  const temporaryContacts = allContacts.filter((item) => isAiTestId(item.id))
-  const temporaryAccounts = allAccounts.filter((item) => isAiTestId(item.ownerId))
-  const temporaryGroups = allGroups.filter((item) => isAiTestId(item.id))
-  const temporaryGroupIds = new Set(temporaryGroups.map((item) => item.id))
+  const temporaryContacts = allContacts.filter((item: any) => isAiTestId(item.id))
+  const temporaryAccounts = allAccounts.filter((item: any) => isAiTestId(item.ownerId))
+  const temporaryGroups = allGroups.filter((item: any) => isAiTestId(item.id))
+  const temporaryGroupIds = new Set(temporaryGroups.map((item: any) => item.id))
   const temporaryContactIds = new Set([
-    ...temporaryContacts.map((item) => item.id),
-    ...allConversations.filter((item) => isAiTestId(item.contactId)).flatMap((item) => item.contactId ? [item.contactId] : []),
-    ...temporaryAccounts.map((item) => item.ownerId),
+    ...temporaryContacts.map((item: any) => item.id),
+    ...allConversations.filter((item: any) => isAiTestId(item.contactId)).flatMap((item) => item.contactId ? [item.contactId] : []),
+    ...temporaryAccounts.map((item: any) => item.ownerId),
     ...allTransactions.flatMap((item) => [item.fromOwnerId, item.toOwnerId].filter(isAiTestId)),
     ...allLoans.flatMap((item) => [item.lenderId, item.borrowerId].filter(isAiTestId)),
-    ...allMemories.filter((item) => isAiTestId(item.contactId)).map((item) => item.contactId),
+    ...allMemories.filter((item: any) => isAiTestId(item.contactId)).map((item: any) => item.contactId),
     ...allExperiences.flatMap((item) => item.contactIds.filter(isAiTestId)),
     ...allLifeEvents.flatMap((item) => [item.contactId, ...item.participantContactIds].filter(isAiTestId)),
   ])
   const temporaryConversationIds = new Set(allConversations
-    .filter((item) => isAiTestId(item.id) || (item.contactId ? temporaryContactIds.has(item.contactId) : false) || (item.groupId ? temporaryGroupIds.has(item.groupId) : false))
-    .map((item) => item.id))
+    .filter((item: any) => isAiTestId(item.id) || (item.contactId ? temporaryContactIds.has(item.contactId) : false) || (item.groupId ? temporaryGroupIds.has(item.groupId) : false))
+    .map((item: any) => item.id))
 
   for (const conversationId of temporaryConversationIds) stopAiTurn(conversationId)
 
   const [messages, turns, memories, experiences, lifeEvents, lifeStates, relations, socialEvents, traces, transactions, loans, groupPlans] = await Promise.all([
-    db.messages.filter((item) => isAiTestId(item.id) || temporaryConversationIds.has(item.conversationId)).toArray(),
-    db.aiTurns.filter((item) => isAiTestId(item.id) || temporaryConversationIds.has(item.conversationId)).toArray(),
-    Promise.resolve(allMemories.filter((item) => isAiTestId(item.id) || temporaryContactIds.has(item.contactId))),
-    Promise.resolve(allExperiences.filter((item) => isAiTestId(item.id) || item.contactIds.some((id) => temporaryContactIds.has(id)))),
-    Promise.resolve(allLifeEvents.filter((item) => isAiTestId(item.id) || temporaryContactIds.has(item.contactId) || item.participantContactIds.some((id) => temporaryContactIds.has(id)))),
-    db.contactLifeStates.filter((item) => temporaryContactIds.has(item.contactId)).toArray(),
-    db.contactRelations.filter((item) => isAiTestId(item.id) || temporaryContactIds.has(item.fromContactId) || temporaryContactIds.has(item.toContactId)).toArray(),
-    db.socialEvents.filter((item) => isAiTestId(item.id) || temporaryContactIds.has(item.actorId) || (item.targetId ? temporaryContactIds.has(item.targetId) : false) || item.relatedContactIds.some((id) => temporaryContactIds.has(id))).toArray(),
-    db.adminAiTraces.filter((item) => isAiTestId(item.id) || (item.conversationId ? temporaryConversationIds.has(item.conversationId) : false)).toArray(),
-    Promise.resolve(allTransactions.filter((item) => isAiTestId(item.id) || isAiTestId(item.idempotencyKey) || (item.fromOwnerId ? temporaryContactIds.has(item.fromOwnerId) : false) || (item.toOwnerId ? temporaryContactIds.has(item.toOwnerId) : false))),
-    Promise.resolve(allLoans.filter((item) => isAiTestId(item.id) || temporaryContactIds.has(item.lenderId) || temporaryContactIds.has(item.borrowerId))),
-    db.groupPlans.filter((item) => isAiTestId(item.id) || temporaryGroupIds.has(item.groupId)).toArray(),
+    db.messages.filter((item: any) => isAiTestId(item.id) || temporaryConversationIds.has(item.conversationId)).toArray(),
+    db.aiTurns.filter((item: any) => isAiTestId(item.id) || temporaryConversationIds.has(item.conversationId)).toArray(),
+    Promise.resolve(allMemories.filter((item: any) => isAiTestId(item.id) || temporaryContactIds.has(item.contactId))),
+    Promise.resolve(allExperiences.filter((item: any) => isAiTestId(item.id) || item.contactIds.some((id: any) => temporaryContactIds.has(id)))),
+    Promise.resolve(allLifeEvents.filter((item: any) => isAiTestId(item.id) || temporaryContactIds.has(item.contactId) || item.participantContactIds.some((id: any) => temporaryContactIds.has(id)))),
+    db.contactLifeStates.filter((item: any) => temporaryContactIds.has(item.contactId)).toArray(),
+    db.contactRelations.filter((item: any) => isAiTestId(item.id) || temporaryContactIds.has(item.fromContactId) || temporaryContactIds.has(item.toContactId)).toArray(),
+    db.socialEvents.filter((item: any) => isAiTestId(item.id) || temporaryContactIds.has(item.actorId) || (item.targetId ? temporaryContactIds.has(item.targetId) : false) || item.relatedContactIds.some((id: any) => temporaryContactIds.has(id))).toArray(),
+    db.adminAiTraces.filter((item: any) => isAiTestId(item.id) || (item.conversationId ? temporaryConversationIds.has(item.conversationId) : false)).toArray(),
+    Promise.resolve(allTransactions.filter((item: any) => isAiTestId(item.id) || isAiTestId(item.idempotencyKey) || (item.fromOwnerId ? temporaryContactIds.has(item.fromOwnerId) : false) || (item.toOwnerId ? temporaryContactIds.has(item.toOwnerId) : false))),
+    Promise.resolve(allLoans.filter((item: any) => isAiTestId(item.id) || temporaryContactIds.has(item.lenderId) || temporaryContactIds.has(item.borrowerId))),
+    db.groupPlans.filter((item: any) => isAiTestId(item.id) || temporaryGroupIds.has(item.groupId)).toArray(),
   ])
 
   // A crash can happen after a test transfer changed the real user's balance.
@@ -410,18 +411,18 @@ export async function cleanupResidualAiTestData(): Promise<AiTestCleanupResult> 
   }
 
   await Promise.all([
-    db.messages.bulkDelete(messages.map((item) => item.id)),
-    db.aiTurns.bulkDelete(turns.map((item) => item.id)),
-    db.contactMemories.bulkDelete(memories.map((item) => item.id)),
-    db.contactExperiences.bulkDelete(experiences.map((item) => item.id)),
-    db.lifeEvents.bulkDelete(lifeEvents.map((item) => item.id)),
-    db.contactLifeStates.bulkDelete(lifeStates.map((item) => item.contactId)),
-    db.contactRelations.bulkDelete(relations.map((item) => item.id)),
-    db.socialEvents.bulkDelete(socialEvents.map((item) => item.id)),
-    db.adminAiTraces.bulkDelete(traces.map((item) => item.id)),
-    db.walletTransactions.bulkDelete(transactions.map((item) => item.id)),
-    db.loans.bulkDelete(loans.map((item) => item.id)),
-    db.groupPlans.bulkDelete(groupPlans.map((item) => item.id)),
+    db.messages.bulkDelete(messages.map((item: any) => item.id)),
+    db.aiTurns.bulkDelete(turns.map((item: any) => item.id)),
+    db.contactMemories.bulkDelete(memories.map((item: any) => item.id)),
+    db.contactExperiences.bulkDelete(experiences.map((item: any) => item.id)),
+    db.lifeEvents.bulkDelete(lifeEvents.map((item: any) => item.id)),
+    db.contactLifeStates.bulkDelete(lifeStates.map((item: any) => item.contactId)),
+    db.contactRelations.bulkDelete(relations.map((item: any) => item.id)),
+    db.socialEvents.bulkDelete(socialEvents.map((item: any) => item.id)),
+    db.adminAiTraces.bulkDelete(traces.map((item: any) => item.id)),
+    db.walletTransactions.bulkDelete(transactions.map((item: any) => item.id)),
+    db.loans.bulkDelete(loans.map((item: any) => item.id)),
+    db.groupPlans.bulkDelete(groupPlans.map((item: any) => item.id)),
     db.walletAccounts.bulkDelete([...temporaryContactIds]),
     db.conversations.bulkDelete([...temporaryConversationIds]),
     db.groups.bulkDelete([...temporaryGroupIds]),

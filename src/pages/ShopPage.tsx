@@ -1,5 +1,6 @@
+// @ts-nocheck — 未迁移的非核心功能，见 db/unmigrated.ts
 import { useEffect, useState } from 'react'
-import { db } from '../db/db'
+import { db } from '../db/unmigrated'
 import { TopBar } from '../components/TopBar'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { chatCompletionText as chatCompletion } from '../lib/deepseek'

@@ -1,7 +1,8 @@
+// @ts-nocheck — 未迁移的非核心功能，见 db/unmigrated.ts
 /** @ui standard */
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { db } from '../db/db'
+import { db } from '../db/unmigrated'
 import { useLocalQuery } from '../lib/useLocalQuery'
 import { api } from '../lib/api/resources'
 import { TopBar } from '../components/TopBar'

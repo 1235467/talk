@@ -1,4 +1,5 @@
-import { db } from '../db/db'
+// @ts-nocheck — 未迁移的禁用功能，见 db/unmigrated.ts
+import { db } from '../db/unmigrated'
 import { parseJsonLoose } from './aiProtocol'
 import { createSandbox, resultFromTurn, waitForTurn, type CompletedAiTestCase, type GeneratedAiTestCase } from './aiTestCards'
 import { sendMessage, stopAiTurn } from './chatEngine'

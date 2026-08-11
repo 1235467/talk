@@ -1,9 +1,10 @@
+// @ts-nocheck — 未迁移的非核心功能，见 db/unmigrated.ts
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLocalQuery } from '../lib/useLocalQuery'
 import { v4 as uuid } from 'uuid'
 import { TopBar } from '../components/TopBar'
-import { db } from '../db/db'
+import { db } from '../db/unmigrated'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { chatCompletionText as chatCompletion } from '../lib/deepseek'
 import { buildJobsPrompt, parseJobs, employmentPatch } from '../lib/career'

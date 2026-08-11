@@ -1,20 +1,20 @@
 import { useEffect, useState } from 'react'
-import { liveQuery } from 'dexie'
 
 /**
- * Live-query hook for dropped (Dexie-only) feature tables — finance, inventory,
- * career, scoped saves, aiTest, speechCache. Migrated resources use TanStack
- * Query against the server instead; this keeps the remaining local-only tables
- * reactive without pulling dexie-react-hooks back into pages/components.
+ * One-shot async query hook for NOT-YET-MIGRATED non-core feature data
+ * (finance, inventory, career, scoped saves, aiTest). Migrated resources use
+ * TanStack Query against the server instead. Until those features land on the
+ * server this stays a plain fetch-on-mount hook with no live reactivity.
  */
 export function useLocalQuery<T>(querier: () => Promise<T> | T, deps: readonly unknown[] = []): T | undefined {
   const [value, setValue] = useState<T>()
   useEffect(() => {
-    const subscription = liveQuery(querier).subscribe({
-      next: (next) => setValue(() => next),
-      error: () => undefined,
-    })
-    return () => subscription.unsubscribe()
+    let cancelled = false
+    void Promise.resolve()
+      .then(querier)
+      .then((next) => { if (!cancelled) setValue(() => next) })
+      .catch(() => undefined)
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
   return value

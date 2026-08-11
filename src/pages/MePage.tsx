@@ -122,7 +122,7 @@ export function MePage() {
         <Avatar avatar={userAvatar} size={60} />
         <div className="flex flex-col items-end gap-1">
           <span className="text-[16px] font-medium text-gray-900">{userNickname}</span>
-          <span className="text-xs text-gray-400">{formatCurrency(walletBalance, settings)}</span>
+          {careerEnabled && <span className="text-xs text-gray-400">{formatCurrency(walletBalance, settings)}</span>}
         </div>
       </button>
 
