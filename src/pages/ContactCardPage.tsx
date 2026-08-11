@@ -33,7 +33,7 @@ import { buildOccupationPrompt, parseOccupation, employmentPatch, OCCUPATION_OPT
 import { formatCurrency } from '../lib/wallet'
 import { setWalletBalance } from '../lib/finance'
 import { switchContactWorldview } from '../lib/scopedSaves'
-import { resolveContactPromptModules } from '../lib/promptPresets'
+import { FACTORY_PRESET_NAME, resolveContactPromptModules } from '../lib/promptPresets'
 import { contactSpeechVoice, isSpeechProviderReady, speechProviderName, speechVoiceOptions } from '../lib/speechProviders'
 import { synthesizeSpeech } from '../lib/speechSynthesis'
 import { ArrowUpFromLine, ChevronLeft, ChevronRight, ClipboardList, Phone, PhoneOff } from 'lucide-react'
@@ -492,7 +492,7 @@ export function ContactCardPage() {
 
       {!immersiveMode && <section className="mt-3 bg-white px-4 py-4"><h3 className="mb-2 text-xs font-medium text-gray-400">所属世界</h3><select value={contact.worldviewId || settings.defaultWorldviewId || ''} onChange={(event) => void changeWorldview(event.target.value)} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800">{worldviews.map((world) => <option key={world.id} value={world.id}>{world.name}</option>)}</select><p className="mt-2 text-[11px] leading-relaxed text-gray-400">修改后会移出不同世界的群聊；群里只剩一人时自动解散。</p></section>}
 
-      {!immersiveMode && <section className="mt-3 bg-white px-4 py-4"><h3 className="mb-2 text-xs font-medium text-gray-400">提示词预设</h3><select value={contact.presetName ?? ''} onChange={(event) => void patchContact({ presetName: event.target.value || undefined })} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800"><option value="">出厂默认</option>{promptPresets.filter((preset) => !preset.isFactory).map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}</select><p className="mt-2 text-[11px] leading-relaxed text-gray-400">按名引用服务器预设；在"全局提示词模块"里改预设内容时，所有引用它的联系人一起生效。</p></section>}
+      {!immersiveMode && <section className="mt-3 bg-white px-4 py-4"><h3 className="mb-2 text-xs font-medium text-gray-400">提示词预设</h3><select value={contact.presetName ?? FACTORY_PRESET_NAME} onChange={(event) => void patchContact({ presetName: event.target.value === FACTORY_PRESET_NAME ? undefined : event.target.value })} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800">{promptPresets.map((preset) => <option key={preset.name} value={preset.name}>{preset.name}{preset.isFactory ? '（出厂）' : ''}</option>)}</select><p className="mt-2 text-[11px] leading-relaxed text-gray-400">按名引用服务器预设；在"全局提示词模块"里改预设内容时，所有引用它的联系人一起生效。</p></section>}
 
       <section className="mt-3 bg-white px-4 py-4">
         <div className="flex items-start justify-between gap-3">

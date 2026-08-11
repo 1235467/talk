@@ -47,7 +47,7 @@ export function normalizePromptPresets(value: unknown, legacyModules?: PromptMod
   return [fallback, ...withoutSystem]
 }
 
-export const FACTORY_PRESET_NAME = '出厂默认'
+export const FACTORY_PRESET_NAME = '默认提示词'
 
 /**
  * Resolve the prompt modules for a contact in the two-layer model:
@@ -67,7 +67,9 @@ export async function resolveContactPromptModules(contact: Contact | undefined, 
 
 /**
  * Seed the server preset table: the read-only factory preset from code, plus
- * any user presets the legacy settings carried. Idempotent by name.
+ * any user presets the legacy settings carried. The legacy "system default"
+ * archive is deliberately skipped — it was always just a clone of the
+ * factory preset and shares its name. Idempotent by name.
  */
 export async function ensureServerPresets(settings: Pick<AppSettings, 'promptPresets' | 'promptModules'>): Promise<void> {
   const { isServerConfigured } = await import('./api/client')
