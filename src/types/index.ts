@@ -586,7 +586,7 @@ export interface StickerProvidersSettings {
   }
 }
 
-export type ImageProviderId = 'none' | 'atlas' | 'novelai' | 'comfyui' | 'stable-diffusion' | 'custom'
+export type ImageProviderId = 'none' | 'atlas' | 'volcano' | 'novelai' | 'comfyui' | 'stable-diffusion' | 'custom'
 export type AtlasVisualStyle = 'asian-realistic' | 'european-realistic' | 'anime' | 'custom'
 
 export interface ImageProvidersSettings {
@@ -669,6 +669,16 @@ export interface ImageProvidersSettings {
     sampler: string
     negativePrompt: string
     promptPrefix: string
+  }
+  /** 火山引擎（豆包 Seedream）生图。提示词优化是 5.0 Pro 独占能力：非 5.0 Pro 模型请求里绝不带 optimize_prompt_options。 */
+  volcano: {
+    apiKey: string
+    /** 预设模型 ID，或自定义模型/Endpoint ID（ep-…）。 */
+    model: string
+    /** 分辨率档位（如 2K，按模型而异）或宽x高像素（如 2048x2048）。 */
+    size: string
+    /** 仅 5.0 Pro 生效；standard 为官方默认、质量更高，fast 更快。 */
+    optimizeMode: 'fast' | 'standard'
   }
   custom: {
     endpoint: string

@@ -51,6 +51,7 @@ aiTest 框架已整删（2026-08，见 TODO 第 3 节）；finance/shop/warehous
 ## 测试
 
 - `npx vitest run` — `src/test/setup.ts` 在 `apiFetch` 单点 mock 了一个内存版假服务器（完整语义：过滤/contains/patch/级联/导入导出），`resetFakeServer()` 重置。新测试种数据用 `api.X.put`，不要引用 Dexie。
+- `liveMedia.integration.test.ts` 是真实第三方媒体（GIPHY/Atlas）活集成测试，**默认跳过**（生图按次付费 + 需真实 key + 依赖外网）；手动运行方式和时机见文件头注释。
 - `npx tsc -b` 必须干净。`npm run lint`（type-aware）**在 Termux 上跑不了**（缺 `@oxlint-tsgolint/android-arm64`），用 `npx oxlint` 代替。
 - **sqlx migrate! 是编译期内嵌**：新增 migration 文件后 `cargo build` 可能不感知，需 `touch src/db.rs`（或随便一个源文件）触发重编。
 

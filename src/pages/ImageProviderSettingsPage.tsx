@@ -4,8 +4,11 @@ import { TopBar } from '../components/TopBar'
 import {
   ATLAS_IMAGE_MODEL_PRESETS,
   IMAGE_PROVIDER_INFO,
+  VOLCANO_IMAGE_MODEL_PRESETS,
   atlasImageModelPreset,
   isImageProviderReady,
+  isSeedream5ProModel,
+  volcanoImageModelPreset,
 } from '../lib/mediaProviders'
 import {
   generateRemoteImage,
@@ -141,6 +144,15 @@ export function ImageProviderSettingsPage() {
   const [generating, setGenerating] = useState(false)
   const [atlasCustomMode, setAtlasCustomMode] = useState(
     () => !atlasImageModelPreset(useSettingsStore.getState().imageProviders.atlas.model),
+  )
+  const [volcanoCustomModel, setVolcanoCustomModel] = useState(
+    () => !volcanoImageModelPreset(useSettingsStore.getState().imageProviders.volcano.model),
+  )
+  const [volcanoCustomSize, setVolcanoCustomSize] = useState(
+    () => {
+      const size = useSettingsStore.getState().imageProviders.volcano.size
+      return !VOLCANO_IMAGE_MODEL_PRESETS.some((preset) => preset.sizeTiers.includes(size))
+    },
   )
   const [status, setStatus] = useState<{ ok: boolean; text: string; pending?: boolean } | null>(null)
   const [preview, setPreview] = useState<GeneratedImageResult | null>(null)
@@ -437,6 +449,103 @@ export function ImageProviderSettingsPage() {
                 <textarea value={providers.atlas.promptPrefix} onChange={(event) => updateProvider('atlas', { promptPrefix: event.target.value })} rows={2} placeholder="例如：anime illustration, expressive" className={inputClass} />
               </label>
               <p className="text-[11px] leading-relaxed text-gray-400">任务提交和结果轮询已经内置，不需要自己填写 URL 或任务 ID。</p>
+            </div>
+          )}
+
+          {provider === 'volcano' && (
+            <div className="space-y-3">
+              <label className="block">
+                <span className={labelClass}>火山引擎 API Key</span>
+                <input aria-label="火山引擎 API Key" type="password" value={providers.volcano.apiKey} onChange={(event) => updateProvider('volcano', { apiKey: event.target.value })} placeholder="在方舟控制台 API Key 管理页获取" className={inputClass} />
+              </label>
+              <label className="block">
+                <span className={labelClass}>模型</span>
+                <select
+                  value={volcanoCustomModel ? '__custom__' : providers.volcano.model}
+                  onChange={(event) => {
+                    const model = event.target.value
+                    if (model === '__custom__') {
+                      setVolcanoCustomModel(true)
+                      updateProvider('volcano', { model: '' })
+                      return
+                    }
+                    setVolcanoCustomModel(false)
+                    const preset = volcanoImageModelPreset(model)
+                    updateProvider('volcano', {
+                      model,
+                      ...(preset && !preset.sizeTiers.includes(providers.volcano.size) ? { size: preset.sizeTiers[0] } : {}),
+                    })
+                  }}
+                  className={inputClass}
+                >
+                  {VOLCANO_IMAGE_MODEL_PRESETS.map((preset) => (
+                    <option key={preset.id} value={preset.id}>{preset.name}{preset.badge ? ` · ${preset.badge}` : ''}</option>
+                  ))}
+                  <option value="__custom__">自定义模型 / Endpoint ID…</option>
+                </select>
+              </label>
+              {volcanoCustomModel && (
+                <label className="block">
+                  <span className={labelClass}>自定义模型 ID</span>
+                  <input
+                    value={providers.volcano.model}
+                    onChange={(event) => updateProvider('volcano', { model: event.target.value })}
+                    placeholder="例如：ep-xxxxxxxx（方舟 Endpoint ID）"
+                    className={inputClass}
+                  />
+                </label>
+              )}
+              <label className="block">
+                <span className={labelClass}>图片大小</span>
+                {volcanoCustomModel ? (
+                  <input
+                    value={providers.volcano.size}
+                    onChange={(event) => updateProvider('volcano', { size: event.target.value })}
+                    placeholder="分辨率档位（如 2K）或宽x高（如 2048x2048）"
+                    className={inputClass}
+                  />
+                ) : (
+                  <select
+                    value={volcanoCustomSize ? '__custom__' : providers.volcano.size}
+                    onChange={(event) => {
+                      const size = event.target.value
+                      if (size === '__custom__') {
+                        setVolcanoCustomSize(true)
+                        return
+                      }
+                      setVolcanoCustomSize(false)
+                      updateProvider('volcano', { size })
+                    }}
+                    className={inputClass}
+                  >
+                    {(volcanoImageModelPreset(providers.volcano.model)?.sizeTiers ?? ['2K']).map((size) => (
+                      <option key={size} value={size}>{size}</option>
+                    ))}
+                    <option value="__custom__">自定义像素…</option>
+                  </select>
+                )}
+              </label>
+              {!volcanoCustomModel && volcanoCustomSize && (
+                <label className="block">
+                  <span className={labelClass}>自定义像素</span>
+                  <input
+                    value={providers.volcano.size}
+                    onChange={(event) => updateProvider('volcano', { size: event.target.value })}
+                    placeholder="宽x高，例如 2048x2048"
+                    className={inputClass}
+                  />
+                </label>
+              )}
+              {isSeedream5ProModel(providers.volcano.model) && (
+                <label className="block">
+                  <span className={labelClass}>提示词优化</span>
+                  <select value={providers.volcano.optimizeMode} onChange={(event) => updateProvider('volcano', { optimizeMode: event.target.value as ImageProvidersSettings['volcano']['optimizeMode'] })} className={inputClass}>
+                    <option value="fast">fast 快速（等待时间更短）</option>
+                    <option value="standard">standard 标准（官方默认，质量更高）</option>
+                  </select>
+                </label>
+              )}
+              <p className="text-[11px] leading-relaxed text-gray-400">单图生成、无水印、b64 返回已内置；提示词优化仅 Seedream 5.0 Pro 支持，换用其他模型或 Endpoint ID 时不会发送该参数。生成会真实扣费，「生成测试图」前先确认 Key 与模型。</p>
             </div>
           )}
 

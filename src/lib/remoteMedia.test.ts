@@ -225,6 +225,72 @@ describe('image generation providers', () => {
     await generateRemoteImage({ imageProvider: 'atlas', imageProviders: providers }, 'Chinese poster')
   })
 
+  it('sends the full Seedream 5.0 Pro request and decodes b64 output', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(String(input)).toBe('https://ark.cn-beijing.volces.com/api/v3/images/generations')
+      expect(init?.headers).toMatchObject({ Authorization: 'Bearer ark-test-key' })
+      const body = JSON.parse(String(init?.body))
+      expect(body).toMatchObject({
+        model: 'doubao-seedream-5-0-pro-260628',
+        prompt: '雨夜的便利店',
+        size: '2K',
+        response_format: 'b64_json',
+        watermark: false,
+        optimize_prompt_options: { mode: 'fast' },
+      })
+      return jsonResponse({ model: 'doubao-seedream-5-0-pro-260628', created: 1, data: [{ b64_json: 'iVBORw0KGgoAAAANSUhEUg==', size: '2048x2048' }] })
+    }))
+    const providers = createDefaultImageProviders()
+    providers.volcano.apiKey = 'ark-test-key'
+
+    const result = await generateRemoteImage({ imageProvider: 'volcano', imageProviders: providers }, '雨夜的便利店')
+    expect(result?.url).toBe('data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==')
+    expect(result?.provider).toBe('volcano')
+  })
+
+  it('never sends optimize_prompt_options for non-5.0-Pro models', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body))
+      expect(body.model).toBe('doubao-seedream-4-0-250828')
+      expect(body).not.toHaveProperty('optimize_prompt_options')
+      return jsonResponse({ data: [{ b64_json: '/9j/4AAQSkZJRg==' }] })
+    }))
+    const providers = createDefaultImageProviders()
+    providers.volcano.apiKey = 'ark-test-key'
+    providers.volcano.model = 'doubao-seedream-4-0-250828'
+    providers.volcano.size = '4K'
+
+    const result = await generateRemoteImage({ imageProvider: 'volcano', imageProviders: providers }, 'poster')
+    expect(result?.url).toBe('data:image/jpeg;base64,/9j/4AAQSkZJRg==')
+  })
+
+  it('never sends optimize_prompt_options for unrecognizable Endpoint IDs', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body))
+      expect(body.model).toBe('ep-20260801-abcd')
+      expect(body).not.toHaveProperty('optimize_prompt_options')
+      return jsonResponse({ data: [{ b64_json: 'iVBORw0KGgo=' }] })
+    }))
+    const providers = createDefaultImageProviders()
+    providers.volcano.apiKey = 'ark-test-key'
+    providers.volcano.model = 'ep-20260801-abcd'
+
+    await generateRemoteImage({ imageProvider: 'volcano', imageProviders: providers }, 'poster')
+  })
+
+  it('passes standard optimize mode through on 5.0 Pro', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body))
+      expect(body.optimize_prompt_options).toEqual({ mode: 'standard' })
+      return jsonResponse({ data: [{ b64_json: 'iVBORw0KGgo=' }] })
+    }))
+    const providers = createDefaultImageProviders()
+    providers.volcano.apiKey = 'ark-test-key'
+    providers.volcano.optimizeMode = 'standard'
+
+    await generateRemoteImage({ imageProvider: 'volcano', imageProviders: providers }, 'poster')
+  })
+
   it('decodes the first PNG from NovelAI zip output', async () => {
     const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
     const archive = zipSync({ 'image.png': png })

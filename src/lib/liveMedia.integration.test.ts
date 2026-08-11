@@ -1,3 +1,19 @@
+/**
+ * 真实第三方媒体活集成测试 —— 默认跳过，不进常规 `npx vitest run`。
+ *
+ * 为什么默认跳过：
+ * 1. Atlas 生图是**按次付费**的 API 调用，每跑一次都花钱；
+ * 2. 需要真实 API Key（GIPHY/Atlas），且调用真实外网接口，受速率和网络可用性影响。
+ *
+ * 什么时候值得手动跑一次：改了 `remoteMedia.ts` / `mediaProviders.ts` / 服务器
+ * `/api/outbound` 转发之后，确认线上链路（Key 有效、代理正常、返回格式没变）。
+ *
+ * 手动运行：
+ *   VITE_RUN_LIVE_MEDIA_TESTS=1 \
+ *   VITE_LIVE_GIPHY_API_KEY=... \
+ *   VITE_LIVE_ATLAS_API_KEY=... \
+ *   npx vitest run src/lib/liveMedia.integration.test.ts
+ */
 import { describe, expect, it } from 'vitest'
 import { createDefaultImageProviders, createDefaultStickerProviders } from './mediaProviders'
 import { generateRemoteImage, searchRemoteStickers } from './remoteMedia'

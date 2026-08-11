@@ -10,6 +10,7 @@ import {
   ATLAS_IMAGE_MODEL_PRESETS,
   atlasImageModelPreset,
   isImageProviderReady,
+  isSeedream5ProModel,
   isStickerProviderReady,
 } from './mediaProviders'
 import { httpFailureMessage, requireHttpUrl } from './connectionError'
@@ -805,6 +806,32 @@ async function generateCustom(
   return generatedImageFromPayload(response.data, 'custom', query, config.responsePath)
 }
 
+const VOLCANO_ARK_IMAGES_ENDPOINT = 'https://ark.cn-beijing.volces.com/api/v3/images/generations'
+
+/** 火山引擎（豆包 Seedream）文生图：单图、同步返回、b64 输出、无水印。 */
+async function generateVolcano(
+  settings: Pick<AppSettings, 'imageProviders'>,
+  query: string,
+): Promise<GeneratedImageResult | null> {
+  const config = settings.imageProviders.volcano
+  const response = await mediaRequest(VOLCANO_ARK_IMAGES_ENDPOINT, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${config.apiKey.trim()}`, 'Content-Type': 'application/json' },
+    data: {
+      model: config.model,
+      prompt: query,
+      size: config.size,
+      response_format: 'b64_json',
+      watermark: false,
+      // 提示词优化是 5.0 Pro 独占能力：其他模型（含无法识别的 Endpoint ID）绝不发送该字段。
+      ...(isSeedream5ProModel(config.model) ? { optimize_prompt_options: { mode: config.optimizeMode } } : {}),
+    },
+    responseKind: 'auto',
+  })
+  ensureOk(response, '火山引擎')
+  return generatedImageFromPayload(response.data, 'volcano', query, 'data.0.b64_json')
+}
+
 export async function generateRemoteImage(
   settings: Pick<AppSettings, 'imageProvider' | 'imageProviders'>,
   query: string,
@@ -812,6 +839,7 @@ export async function generateRemoteImage(
 ): Promise<GeneratedImageResult | null> {
   if (!isImageProviderReady(settings)) return null
   if (settings.imageProvider === 'atlas') return generateAtlas(settings, query, options)
+  if (settings.imageProvider === 'volcano') return generateVolcano(settings, query)
   if (settings.imageProvider === 'novelai') return generateNovelAi(settings, query)
   if (settings.imageProvider === 'comfyui') return generateComfyUi(settings, query, options)
   if (settings.imageProvider === 'stable-diffusion') return generateStableDiffusion(settings, query)

@@ -91,11 +91,40 @@ export const IMAGE_PROVIDER_INFO: Array<{
   badge?: string
 }> = [
   { id: 'atlas', name: 'Atlas Cloud', description: '云端生图，只需 API Key 并选择模型参数', badge: '云端' },
+  { id: 'volcano', name: '火山引擎', description: '豆包 Seedream 生图，只需 API Key', badge: '云端' },
   { id: 'novelai', name: 'NovelAI', description: 'NovelAI Image 官方接口，适合二次元图片', badge: 'NAI' },
   { id: 'comfyui', name: 'ComfyUI', description: '连接电脑上的 ComfyUI，自动构建基础工作流', badge: '本地' },
   { id: 'stable-diffusion', name: 'Stable Diffusion WebUI / Forge', description: '连接 A1111 或 Forge 的 txt2img 接口', badge: '本地' },
   { id: 'custom', name: '其他接口', description: '自定义 GET/POST、鉴权、请求体与返回路径' },
 ]
+
+export interface VolcanoImageModelPreset {
+  id: string
+  name: string
+  badge?: string
+  /** 官方文档逐模型校对的分辨率档位；另可自定义宽x高像素。 */
+  sizeTiers: readonly string[]
+  /** 提示词优化（optimize_prompt_options）是 5.0 Pro 独占能力。 */
+  promptOptimize: boolean
+}
+
+export const VOLCANO_IMAGE_MODEL_PRESETS: readonly VolcanoImageModelPreset[] = [
+  { id: 'doubao-seedream-5-0-pro-260628', name: 'Seedream 5.0 Pro', badge: '推荐', sizeTiers: ['2K', '1K', '1.5K'], promptOptimize: true },
+  { id: 'doubao-seedream-5-0-260128', name: 'Seedream 5.0 Lite', sizeTiers: ['2K', '3K', '4K'], promptOptimize: false },
+  { id: 'doubao-seedream-4-5-251128', name: 'Seedream 4.5', sizeTiers: ['2K', '4K'], promptOptimize: false },
+  { id: 'doubao-seedream-4-0-250828', name: 'Seedream 4.0', sizeTiers: ['1K', '2K', '4K'], promptOptimize: false },
+]
+
+/** 提示词优化仅 Seedream 5.0 Pro 可用；自定义模型/Endpoint ID 按字符串识别，识别不出一律视为不支持（请求里绝不带 optimize_prompt_options）。 */
+export function isSeedream5ProModel(model: string): boolean {
+  const preset = VOLCANO_IMAGE_MODEL_PRESETS.find((item) => item.id === model)
+  if (preset) return preset.promptOptimize
+  return model.toLowerCase().includes('seedream-5-0-pro')
+}
+
+export function volcanoImageModelPreset(model: string): VolcanoImageModelPreset | undefined {
+  return VOLCANO_IMAGE_MODEL_PRESETS.find((item) => item.id === model)
+}
 
 export function createDefaultStickerProviders(): StickerProvidersSettings {
   return {
@@ -169,6 +198,12 @@ export function createDefaultImageProviders(): ImageProvidersSettings {
       negativePrompt: 'low quality, blurry, text, watermark',
       promptPrefix: '',
     },
+    volcano: {
+      apiKey: '',
+      model: 'doubao-seedream-5-0-pro-260628',
+      size: '2K',
+      optimizeMode: 'fast',
+    },
     custom: {
       endpoint: '',
       apiKey: '',
@@ -222,6 +257,13 @@ export function normalizeImageProviders(value: unknown): ImageProvidersSettings 
       },
     },
     stableDiffusion: mergeNested(defaults.stableDiffusion, record.stableDiffusion),
+    volcano: (() => {
+      const volcano = mergeNested(defaults.volcano, record.volcano)
+      return {
+        ...volcano,
+        optimizeMode: volcano.optimizeMode === 'standard' ? 'standard' : 'fast',
+      }
+    })(),
     custom: mergeNested(defaults.custom, record.custom),
   }
 }
@@ -237,6 +279,7 @@ export function isImageProviderReady(settings: Pick<AppSettings, 'imageProvider'
   const { imageProvider: provider, imageProviders: providers } = settings
   if (provider === 'none') return false
   if (provider === 'atlas') return !!providers.atlas.apiKey.trim() && (providers.atlas.visualStyle !== 'custom' || !!providers.atlas.customVisualStyle.trim())
+  if (provider === 'volcano') return !!providers.volcano.apiKey.trim()
   if (provider === 'novelai') return !!providers.novelai.apiKey.trim()
   if (provider === 'comfyui') return !!providers.comfyui.baseUrl.trim() && (providers.comfyui.workflowMode === 'custom' ? !!providers.comfyui.workflow : !!providers.comfyui.model.trim())
   if (provider === 'stable-diffusion') return !!providers.stableDiffusion.baseUrl.trim()
