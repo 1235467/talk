@@ -2,7 +2,7 @@
 
 use axum::{routing::get, Router};
 
-use crate::crud::{crud_routes, Col, ColType::*, Join, Resource};
+use crate::crud::{crud_routes, Col, ColType::*, Resource};
 
 const fn text(name: &'static str, json: &'static str) -> Col {
     Col { name, json, ty: Text }
@@ -355,6 +355,44 @@ macro_rules! mount {
             get($mod::get).put($mod::upsert).delete($mod::remove),
         )
     };
+}
+
+/// Backup-table-name → resource, in FK-safe import order (parents first).
+/// Used by `talk-server import` and `POST /api/import`.
+pub fn import_order() -> Vec<(&'static str, &'static Resource)> {
+    vec![
+        ("contacts", &contacts::RES),
+        ("conversations", &conversations::RES),
+        ("groups", &groups::RES),
+        ("messages", &messages::RES),
+        ("stickers", &stickers::RES),
+        ("contactRelations", &contact_relations::RES),
+        ("moments", &moments::RES),
+        ("momentComments", &moment_comments::RES),
+        ("momentLikes", &moment_likes::RES),
+        ("worldbookCollections", &worldbook_collections::RES),
+        ("worldbookEntries", &worldbook_entries::RES),
+        ("libraryItems", &library_items::RES),
+        ("savedWorldviews", &saved_worldviews::RES),
+        ("simulationState", &simulation_state::RES),
+        ("contactLifeStates", &contact_life_states::RES),
+        ("lifeEvents", &life_events::RES),
+        ("contactExperiences", &contact_experiences::RES),
+        ("socialEvents", &social_events::RES),
+        ("contactMemories", &contact_memories::RES),
+        ("groupPlans", &group_plans::RES),
+        ("internalTasks", &internal_tasks::RES),
+        ("savedPersonas", &saved_personas::RES),
+        ("personaCreationRecords", &persona_creation_records::RES),
+        ("contactGenerationTasks", &contact_generation_tasks::RES),
+        ("locations", &locations::RES),
+        ("worldMaps", &world_maps::RES),
+        ("locationModuleState", &location_module_state::RES),
+        ("acousticEdges", &acoustic_edges::RES),
+        ("mediaAssets", &media_assets::RES),
+        ("aiTurns", &ai_turns::RES),
+        ("aiUsageRecords", &ai_usage_records::RES),
+    ]
 }
 
 pub fn router() -> Router<crate::state::AppState> {

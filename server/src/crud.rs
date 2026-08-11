@@ -6,17 +6,10 @@
 //! one transaction. Responses are the `data` blobs re-serialized, so the
 //! frontend's TypeScript types pass through untouched.
 
-use axum::{
-    extract::{Path, Query, State},
-    Json,
-};
 use serde::Deserialize;
 use sqlx::SqlitePool;
 
-use crate::{
-    error::{AppError, AppResult},
-    state::AppState,
-};
+use crate::error::{AppError, AppResult};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ColType {
@@ -221,12 +214,14 @@ macro_rules! crud_routes {
     ($mod_name:ident, $path:literal, $res:expr) => {
         pub mod $mod_name {
             use axum::{extract::{Path, Query, State}, Json};
-            use crate::crud::{parse_page, Join, ListParams, Resource};
+            use crate::crud::{parse_page, ListParams, Resource};
+            #[allow(unused_imports)]
+            use crate::crud::Join;
             use crate::error::AppResult;
             use crate::state::AppState;
             #[allow(unused_imports)]
             use crate::resources::{int, real, text};
-            const RES: Resource = $res;
+            pub const RES: Resource = $res;
 
             pub async fn list(State(state): State<AppState>, Query(params): Query<ListParams>) -> AppResult<Json<serde_json::Value>> {
                 let (limit, before) = parse_page(&params);
