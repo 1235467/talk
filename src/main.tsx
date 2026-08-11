@@ -1,9 +1,11 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
+import { QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
 import App from './App.tsx'
 import { useSettingsStore } from './store/useSettingsStore'
+import { queryClient } from './lib/api/keys'
 
 // See the --app-height comment in index.css: some Android WebViews don't
 // size 100dvh/100vh correctly against the real visible area, so the actual
@@ -72,9 +74,11 @@ useSettingsStore.subscribe((state, previous) => {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <HashRouter>
-      <App />
-    </HashRouter>
+    <QueryClientProvider client={queryClient}>
+      <HashRouter>
+        <App />
+      </HashRouter>
+    </QueryClientProvider>
   </StrictMode>,
 )
 

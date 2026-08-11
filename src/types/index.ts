@@ -861,6 +861,10 @@ export interface AlbumSavedImage {
 
 export interface AppSettings {
   experienceMode: ContactGenerationExperienceMode
+  /** Talk server base URL, e.g. "https://talk.example.com" — empty means the app talks to a same-origin server. */
+  serverUrl: string
+  /** Bearer token for the talk server (TALK_TOKEN on the server side). */
+  serverToken: string
   aiProvider: import('../lib/aiProviders').AiProviderId
   apiKey: string
   baseUrl: string

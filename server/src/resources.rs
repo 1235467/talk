@@ -350,9 +350,10 @@ macro_rules! mount {
             get($mod::list).post($mod::upsert),
         )
         .route(concat!($path, "/bulk"), axum::routing::post($mod::bulk_upsert))
+        .route(concat!($path, "/bulk-delete"), axum::routing::post($mod::bulk_remove))
         .route(
             concat!($path, "/{id}"),
-            get($mod::get).put($mod::upsert).delete($mod::remove),
+            get($mod::get).put($mod::upsert).patch($mod::patch).delete($mod::remove),
         )
     };
 }

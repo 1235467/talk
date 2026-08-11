@@ -43,6 +43,8 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       experienceMode: 'free',
+      serverUrl: '',
+      serverToken: '',
       aiProvider: 'deepseek',
       apiKey: envKey,
       baseUrl: envBaseUrl,
@@ -110,9 +112,11 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'talk-settings',
-      version: 22,
+      version: 23,
       migrate: (persisted, version) => {
         const next = persisted as Partial<SettingsState>
+        if (typeof next.serverUrl !== 'string') next.serverUrl = ''
+        if (typeof next.serverToken !== 'string') next.serverToken = ''
         if (next.experienceMode !== 'immersive' && next.experienceMode !== 'free') next.experienceMode = 'free'
         if (!['deepseek', 'openai', 'gemini', 'anthropic', 'xai', 'qwen', 'glm', 'minimax', 'kimi', 'custom'].includes(String(next.aiProvider))) {
           next.aiProvider = 'deepseek' as AiProviderId

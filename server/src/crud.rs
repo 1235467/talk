@@ -69,6 +69,24 @@ pub async fn list(pool: &SqlitePool, res: &Resource, params: &ListParams, limit:
         if key == "limit" || key == "before" || key == "order" {
             continue;
         }
+        // Array membership: ?contactIds_contains=c1 → row's join table contains the value.
+        if let Some(field) = key.strip_suffix("_contains") {
+            let Some(join) = res.join else {
+                return Err(AppError::BadRequest(format!("cannot filter {key} on {}", res.table)));
+            };
+            if join.json != field {
+                return Err(AppError::BadRequest(format!("cannot filter {key} on {}", res.table)));
+            }
+            clauses.push(format!(
+                "\"{}\" IN (SELECT \"{}\" FROM \"{}\" WHERE \"{}\" = ?)",
+                res.pk,
+                join.fk,
+                join.table,
+                id_col(join.table)
+            ));
+            binds.push(serde_json::Value::String(value.clone()));
+            continue;
+        }
         let Some(col) = res.cols.iter().find(|c| c.name == key || c.json == key) else {
             return Err(AppError::BadRequest(format!("cannot filter {key} on {}", res.table)));
         };
@@ -199,6 +217,40 @@ pub async fn remove(pool: &SqlitePool, res: &Resource, id: &str) -> AppResult<()
     Ok(())
 }
 
+/// Shallow-merge a patch object into the stored JSON, then re-run the normal
+/// upsert so indexed columns and join tables stay in sync. Top-level `null`
+/// values in the patch remove that key (matching how the web app writes
+/// `undefined` fields away with Dexie's update()).
+pub async fn patch(pool: &SqlitePool, res: &Resource, id: &str, patch: serde_json::Value) -> AppResult<serde_json::Value> {
+    let mut current = get(pool, res, id).await?;
+    let serde_json::Value::Object(current_map) = &mut current else {
+        return Err(AppError::BadRequest("stored row is not an object".into()));
+    };
+    let serde_json::Value::Object(patch_map) = patch else {
+        return Err(AppError::BadRequest("patch must be an object".into()));
+    };
+    for (key, value) in patch_map {
+        if value.is_null() {
+            current_map.remove(&key);
+        } else {
+            current_map.insert(key, value);
+        }
+    }
+    upsert(pool, res, current).await
+}
+
+pub async fn bulk_remove(pool: &SqlitePool, res: &Resource, ids: Vec<String>) -> AppResult<u64> {
+    let mut affected = 0u64;
+    for id in ids {
+        let result = sqlx::query(&format!("DELETE FROM \"{}\" WHERE \"{}\" = ?", res.table, res.pk))
+            .bind(id)
+            .execute(pool)
+            .await?;
+        affected += result.rows_affected();
+    }
+    Ok(affected)
+}
+
 /// Query param parsing shared by all list endpoints: `?limit=` & `?before=ts,id`
 /// plus equality filters on the resource's indexed columns.
 pub fn parse_page(params: &ListParams) -> (Option<i64>, Option<(i64, String)>) {
@@ -238,6 +290,13 @@ macro_rules! crud_routes {
                     crate::crud::upsert(&state.db, &RES, item).await?;
                 }
                 Ok(Json(serde_json::json!({ "ok": true })))
+            }
+            pub async fn patch(State(state): State<AppState>, Path(id): Path<String>, Json(body): Json<serde_json::Value>) -> AppResult<Json<serde_json::Value>> {
+                Ok(Json(crate::crud::patch(&state.db, &RES, &id, body).await?))
+            }
+            pub async fn bulk_remove(State(state): State<AppState>, Json(body): Json<Vec<String>>) -> AppResult<Json<serde_json::Value>> {
+                let affected = crate::crud::bulk_remove(&state.db, &RES, body).await?;
+                Ok(Json(serde_json::json!({ "ok": true, "deleted": affected })))
             }
             pub async fn remove(State(state): State<AppState>, Path(id): Path<String>) -> AppResult<Json<serde_json::Value>> {
                 crate::crud::remove(&state.db, &RES, &id).await?;

@@ -31,6 +31,8 @@ export function SettingsPage() {
     baseUrl,
     model,
     utilityModel,
+    serverUrl,
+    serverToken,
     tavilyApiKey,
     pexelsApiKey,
     imageProvider,
@@ -58,8 +60,21 @@ export function SettingsPage() {
     return { today: records.filter((r) => new Date(r.createdAt).toDateString() === today), recent }
   }, [])
   const [adminBalance, setAdminBalance] = useState('')
+  const [serverTestResult, setServerTestResult] = useState('')
   const backupInputRef = useRef<HTMLInputElement | null>(null)
   const backgroundInputRef = useRef<HTMLInputElement | null>(null)
+
+  async function testServer() {
+    setServerTestResult('测试中…')
+    try {
+      const base = serverUrl.trim().replace(/\/+$/, '')
+      const response = await fetch(`${base}/health`)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      setServerTestResult('✓ 连接成功')
+    } catch (error) {
+      setServerTestResult(`✗ ${error instanceof Error ? error.message : '连接失败'}`)
+    }
+  }
 
   async function handleWipeContacts() {
     await cancelAllContactGenerationTasks()
@@ -231,6 +246,16 @@ export function SettingsPage() {
     <div className="flex h-[var(--app-height)] flex-col overflow-hidden bg-[#f4f4f6]">
       <TopBar title="设置" showBack />
       <div className="flex-1 overflow-y-auto">
+
+      <section className="mt-3 bg-white px-4 py-3">
+        <h2 className="mb-2 text-xs font-medium text-gray-400">服务器</h2>
+        <label className="mb-1 block text-xs text-gray-500">服务器地址</label>
+        <input value={serverUrl} onChange={(e) => setSettings({ serverUrl: e.target.value.trim() })} placeholder="https://talk.example.com" className="mb-2 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm" />
+        <label className="mb-1 block text-xs text-gray-500">访问令牌（服务器的 TALK_TOKEN）</label>
+        <input type="password" value={serverToken} onChange={(e) => setSettings({ serverToken: e.target.value.trim() })} className="mb-2 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm" />
+        <button type="button" onClick={() => void testServer()} className="rounded-lg bg-gray-900 px-4 py-2 text-sm text-white">测试连接</button>
+        {serverTestResult && <p className={`mt-2 text-xs ${serverTestResult.startsWith('✓') ? 'text-green-600' : 'text-red-500'}`}>{serverTestResult}</p>}
+      </section>
 
       <section className="mt-3 bg-white px-4 py-3">
         <h2 className="mb-2 text-xs font-medium text-gray-400">外观</h2>
