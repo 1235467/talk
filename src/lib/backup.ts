@@ -27,7 +27,7 @@ export const BACKUP_TABLES = [
   'socialEvents',
   'contactMemories',
   'locations', 'worldMaps', 'locationModuleState', 'acousticEdges',
-  'walletAccounts', 'walletTransactions', 'loans', 'jobListings', 'interviews', 'groupPlans', 'adminLogs', 'adminAiTraces', 'savedPersonas', 'shopPurchaseHistory',
+  'walletAccounts', 'walletTransactions', 'loans', 'jobListings', 'interviews', 'groupPlans', 'savedPersonas', 'shopPurchaseHistory',
   'contactGenerationTasks',
   'contactStorylines', 'contactSaveSnapshots', 'globalSaveSnapshots',
   'mediaAssets',
@@ -84,7 +84,7 @@ export function assertTalkBackup(value: unknown): asserts value is TalkBackup {
   if (![1, 2, 3, 4, 5, 6, 7, BACKUP_SCHEMA_VERSION].includes(backup.schemaVersion as number)) throw new Error('备份版本暂不支持')
   if (!backup.tables || typeof backup.tables !== 'object') throw new Error('备份文件缺少数据表')
   for (const name of BACKUP_TABLES) {
-    if (['libraryItems','worldbookCollections','worldbookEntries','simulationState','contactLifeStates','lifeEvents','contactExperiences','aiUsageRecords','socialEvents','contactMemories','walletAccounts','walletTransactions','loans','jobListings','interviews','groupPlans','adminLogs','adminAiTraces','savedPersonas','shopPurchaseHistory','locations','worldMaps','locationModuleState','acousticEdges','contactGenerationTasks','contactStorylines','contactSaveSnapshots','globalSaveSnapshots','mediaAssets'].includes(name) && backup.tables[name] === undefined) continue
+    if (['libraryItems','worldbookCollections','worldbookEntries','simulationState','contactLifeStates','lifeEvents','contactExperiences','aiUsageRecords','socialEvents','contactMemories','walletAccounts','walletTransactions','loans','jobListings','interviews','groupPlans','savedPersonas','shopPurchaseHistory','locations','worldMaps','locationModuleState','acousticEdges','contactGenerationTasks','contactStorylines','contactSaveSnapshots','globalSaveSnapshots','mediaAssets'].includes(name) && backup.tables[name] === undefined) continue
     if (!Array.isArray(backup.tables[name])) throw new Error(`备份文件缺少 ${name} 表`)
   }
 }

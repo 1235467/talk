@@ -27,7 +27,6 @@ import { resolveLocationParticipants, syncContactLocationsAt } from '../lib/loca
 import { revertInternalTask } from '../lib/internalTasks'
 import { ArrowLeftRight, BriefcaseBusiness, CircleDollarSign, Gift, HandCoins, Package, Plus, ShoppingBag, Sticker as StickerIcon } from 'lucide-react'
 import { UiIcon } from '../components/UiIcon'
-import { isAiTestId } from '../lib/aiTestIsolation'
 import { contactSpeechVoice, isSpeechProviderReady } from '../lib/speechProviders'
 import { cacheSpeechForMessage, speechSignature } from '../lib/speechSynthesis'
 import { playSpeechMessage, playSpeechRecord, stopSpeechPlayback, useSpeechPlayerStore } from '../lib/speechPlayer'
@@ -50,10 +49,6 @@ export function ChatPage() {
   const shopEnabled = useModuleEnabled('shop')
   const warehouseEnabled = useModuleEnabled('warehouse')
   const desktop = Boolean(window.talkDesktop)
-  const hiddenTestConversation = isAiTestId(conversationId)
-  useEffect(() => {
-    if (hiddenTestConversation) void navigate('/ai-test-cards', { replace: true })
-  }, [hiddenTestConversation, navigate])
 
   const { data: conversationData, isPending: conversationPending } = useQuery({
     queryKey: ['conversations', conversationId],
@@ -670,7 +665,6 @@ export function ChatPage() {
     }
   }
 
-  if (hiddenTestConversation) return null
   if (conversation === undefined) return null
   if (conversation === null) {
     return (

@@ -24,7 +24,7 @@
 
 ## 3. 删除不迁移（稳定化）
 
-- [ ] **aiTest 框架**（aiTestSuites/adminLogs/adminAiTraces + aiTestCards.ts/aiTestManager.ts/AiTestCardsPage + 相关路由）：管理员的提示词回归测试沙盒，确认无用后整删，consoleCapture 保持内存版；连带 types 的 `AdminLogRecord`
+- [x] **aiTest 框架**（2026-08 整删：aiTestCards.ts/aiTestManager.ts/AiTestCardsPage + 2 个专属测试 + /ai-test-cards 路由 + DiscoverPage 入口 + ChatPage 重定向 + 7 个类型（含 AdminLogRecord）+ backup.ts 清单清理；保留 aiTestIsolation.ts 前缀过滤（18+ 活跃文件在用）和 consoleCapture 内存版；`db/unmigrated.ts` 随之删除——休眠机制落幕；服务器 SKIPPED_TABLES 保留 adminLogs/adminAiTraces/aiTestSuites/saveSlots 名字作永不导入标记）
 
 ## 4. 媒体文件化（稳定化；media/ 目录已建，目前只接了 TTS）
 

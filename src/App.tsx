@@ -53,7 +53,6 @@ const ImageProviderSettingsPage = lazy(() => loadImageProviderSettingsPage().the
 const OtherInterfacesPage = lazy(() => loadOtherInterfacesPage().then((m) => ({ default: m.OtherInterfacesPage })))
 const SpeechProviderListPage = lazy(() => import('./pages/SpeechProviderListPage').then((m) => ({ default: m.SpeechProviderListPage })))
 const SpeechProviderSettingsPage = lazy(() => import('./pages/SpeechProviderSettingsPage').then((m) => ({ default: m.SpeechProviderSettingsPage })))
-const AiTestCardsPage = lazy(() => import('./pages/AiTestCardsPage').then((m) => ({ default: m.AiTestCardsPage })))
 const ProfileEditPage = lazy(() => import('./pages/ProfileEditPage').then((m) => ({ default: m.ProfileEditPage })))
 const ModulesPage = lazy(() => import('./pages/ModulesPage').then((m) => ({ default: m.ModulesPage })))
 const SkyEyePage = lazy(() => import('./pages/SkyEyePage').then((m) => ({ default: m.SkyEyePage })))
@@ -250,7 +249,6 @@ function App() {
         {adminModeEnabled && (
           <>
             <Route path="/sky-eye" element={<SkyEyePage />} />
-            <Route path="/ai-test-cards" element={<AiTestCardsPage />} />
             <Route path="/contact/:contactId/admin" element={<ContactAdminPage />} />
           </>
         )}

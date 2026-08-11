@@ -541,96 +541,6 @@ export interface AiTurnDebug {
   createdAt: number
 }
 
-export type AiTestKind = 'conversation' | 'group' | 'moments' | 'sticker' | 'transfer' | 'gift' | 'image' | 'locationSchedule'
-export type AiTestExecutionMode = 'sequential' | 'isolated'
-export type AiTestSuiteStatus = 'draft' | 'running' | 'completed' | 'interrupted' | 'cancelled' | 'failed'
-export type AiTestCardStatus = 'pending' | 'running' | 'completed' | 'failed'
-
-export interface AiTestCardRecord {
-  id: string
-  order: number
-  description: string
-  userMessage: string
-  status: AiTestCardStatus
-  reply?: string
-  rawResponse?: string
-  context?: {
-    worldbookEntries: string[]
-    memorySummary: string
-    sections: Array<{ label: string; summary: string }>
-  }
-  error?: string
-  rating?: 'up' | 'down'
-  comment?: string
-  cloneContactIds?: string[]
-  cloneGroupId?: string
-  conversationId?: string
-  aiTurnId?: string
-  /** Full, persisted diagnostic material used by the administrator export. */
-  diagnostics?: {
-    mainPrompt?: string
-    conversionPrompt?: string
-    promptSections?: Array<{ label: string; content: string }>
-    parsedResponse?: unknown
-    actionCommittee?: unknown
-    locationSchedule?: {
-      before: Record<string, unknown>
-      after: Record<string, unknown>
-      addedScheduleOverrides: ScheduleOverride[]
-      /** Retained for reports created before the catalog moved to suite scope. */
-      locations?: Array<{ id: string; name: string; parentId?: string }>
-      currentLocationChange: {
-        beforeId?: string
-        beforeName?: string
-        afterId?: string
-        afterName?: string
-      }
-      scheduledTaskLocationChecks: Array<{
-        taskId: string
-        summary: string
-        startsAt: number
-        endsAt: number
-        expectedLocationId?: string
-        expectedLocationName?: string
-        resolvedLocationId?: string
-        resolvedLocationName?: string
-        matches: boolean
-      }>
-      checks: {
-        scheduleChanged: boolean
-        allLocationIdsValid: boolean
-        activeLocationMatchesTask: boolean
-        scheduledTasksResolveToExpectedLocations: boolean
-      }
-    }
-  }
-  completedAt?: number
-}
-
-/** Persisted human-review artifact. Sandbox contacts/conversations remain separate and hidden until an administrator removes them. */
-export interface AiTestSuiteRecord {
-  id: string
-  kind: AiTestKind
-  executionMode: AiTestExecutionMode
-  status: AiTestSuiteStatus
-  title: string
-  scenarioLabel: string
-  targetContactId?: string
-  targetGroupId?: string
-  targetLabel: string
-  targetSnapshot: unknown
-  /** Settings at generation time with credentials and large binary data removed. */
-  settingsSnapshot?: unknown
-  /** Shared test environment data, stored once instead of repeated on every card. */
-  environmentSnapshot?: {
-    locations?: Array<{ id: string; name: string; parentId?: string }>
-  }
-  cards: AiTestCardRecord[]
-  currentCardIndex?: number
-  error?: string
-  createdAt: number
-  updatedAt: number
-}
 
 export interface PromptTrace {
   sections: Array<{ label: string; content: string }>
@@ -991,7 +901,6 @@ export interface PromptPreset {
   updatedAt: number
 }
 
-export interface AdminLogRecord { id: string; level: 'log' | 'info' | 'warn' | 'error'; message: string; createdAt: number }
 export type AdminAiTraceStage = 'original_generation' | 'tool_call' | 'review_and_repair' | 'json_translation' | 'image_generation' | 'sticker_lookup' | 'schedule_change' | 'location_change' | 'first_chat' | 'first_quality' | 'second_chat' | 'other' | 'second_quality'
 /** A single timeline includes model calls and deterministic follow-up work. */
 export interface AdminAiTrace { id: string; purpose: AiUsagePurpose; model: string; messages: { role: string; content: string }[]; output?: string; error?: string; inputTokens: number; outputTokens: number; durationMs?: number; createdAt: number; turnId?: string; stage?: AdminAiTraceStage; conversationId?: string; diagnostics?: Record<string, unknown> }

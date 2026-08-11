@@ -77,23 +77,6 @@ export function DiscoverPage() {
         ))}
       </div>
 
-      {adminModeEnabled && (
-        <section className="mx-4 mt-5">
-          <h2 className="mb-2 px-1 text-xs font-medium text-gray-400">小程序</h2>
-          <button
-            type="button"
-            onClick={() => navigate('/ai-test-cards')}
-            className="flex w-full items-center justify-between rounded-xl bg-white px-4 py-3.5 text-left active:bg-gray-50"
-          >
-            <span className="flex items-center gap-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--ui-special-soft)]"><UiIcon name="🧪" size={19} /></span>
-              <span><span className="block text-[15px] text-gray-900">AI 自动测试</span><span className="mt-0.5 block text-[11px] text-gray-400">后台运行并人工评测真实回复</span></span>
-            </span>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          </button>
-        </section>
-      )}
-
       <div className="flex flex-1 items-center justify-center">
         <p className="text-sm text-gray-400">更多小程序敬请期待</p>
       </div>

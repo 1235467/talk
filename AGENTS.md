@@ -38,9 +38,9 @@
 - 老数据的 `promptModulesSnapshot` 由**服务器 import 时**转成共享命名预设（`迁移快照`），客户端没有任何快照兜底逻辑。
 - `GlobalPromptModulesPage` = 预设管理（原地保存/另存为/删除/应用到联系人/设为新联系人默认 `settings.defaultPresetName`）。
 
-## 非核心功能（休眠，不是删除）
+## 非核心功能（休眠机制已落幕）
 
-aiTest 框架：**代码保留**但功能已停（模块从未注册进 ALL_MODULES，相关表在服务器 SKIPPED_TABLES），数据不迁移。它的 db 引用指向 `src/db/unmigrated.ts`（调用即抛"尚未迁移"的 stub），文件带 `@ts-nocheck`、对应测试 `describe.skip`。恢复路径：服务器补表 → api 资源 → 启用模块。
+aiTest 框架已整删（2026-08，见 TODO 第 3 节）；finance/shop/warehouse/career/scopedSaves 已全部迁移回服务器，`DORMANT_MODULES` 为空集合、`src/db/unmigrated.ts` 已删除。保留的唯一前缀机制：`src/lib/aiTestIsolation.ts` 的 `isAiTestId`/`excludeAiTestRows`——过滤旧备份里可能残留的 `ai-test-` 前缀行（18+ 个活跃文件在用，服务器 finance 路由内也有同款前缀常量）。
 
 **已迁移（2026-08）**：
 - **finance/wallet/loans**：表 `wallet_accounts`/`wallet_transactions`（幂等键唯一索引）/`loans`；余额变动必须走原子端点 `POST /api/finance/{ensure,transfer,claim-red-packet,claim-daily-salaries,purchase}`（`routes/finance.rs`，客户端封装 `lib/finance.ts`/`lib/inventory.ts`），不要客户端多步读写余额。删联系人级联清钱包/交易/贷款。
