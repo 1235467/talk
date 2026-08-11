@@ -60,6 +60,8 @@ const RESOURCE_PK: Record<string, string> = {
   'wallet-accounts': 'ownerId',
   'wallet-transactions': 'id',
   loans: 'id',
+  inventory: 'id',
+  'shop-purchase-history': 'productKey',
 }
 
 /** camelCase backup-table name → REST path (mirrors server import_order). */
@@ -79,6 +81,7 @@ const BACKUP_TO_PATH: Record<string, string> = {
   acousticEdges: 'acoustic-edges', mediaAssets: 'media-assets',
   aiTurns: 'ai-turns', aiUsageRecords: 'ai-usage-records',
   walletAccounts: 'wallet-accounts', walletTransactions: 'wallet-transactions', loans: 'loans',
+  inventory: 'inventory', shopPurchaseHistory: 'shop-purchase-history',
 }
 
 interface FakeDb {
@@ -288,6 +291,22 @@ async function fakeApiFetch(path: string, options: { method?: string; body?: any
       }
       if (alreadyClaimed) throw new FakeApiError(400, '今天已经领取过工资了')
       return { userAmount, contactAmount, contactCount, date }
+    }
+    if (id === 'purchase' && method === 'POST') {
+      const product = options.body
+      applyTransfer({ from: 'user', amount: product.price, kind: 'purchase', note: product.note ?? product.name })
+      const now = Date.now()
+      const item: Row = { id: `item-${now}-${table('inventory').size}`, productKey: product.productKey, name: product.name, description: product.description, icon: product.icon, price: product.price, acquiredAt: now }
+      table('inventory').set(item.id, item)
+      const history = table('shop-purchase-history')
+      const existing = history.get(product.productKey)
+      history.set(product.productKey, {
+        productKey: product.productKey, name: product.name, description: product.description, icon: product.icon, price: product.price,
+        purchaseCount: (existing?.purchaseCount ?? 0) + 1,
+        firstPurchasedAt: existing?.firstPurchasedAt ?? now,
+        lastPurchasedAt: now,
+      })
+      return item
     }
     throw new FakeApiError(404, `unknown finance endpoint ${id}`)
   }

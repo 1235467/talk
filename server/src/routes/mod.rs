@@ -29,6 +29,7 @@ pub fn router(state: AppState) -> Router {
         .route("/finance/transfer", post(finance::transfer))
         .route("/finance/claim-red-packet", post(finance::claim_red_packet))
         .route("/finance/claim-daily-salaries", post(finance::claim_daily_salaries))
+        .route("/finance/purchase", post(finance::purchase))
         .route("/export", get(batch::export_all))
         .route("/import", post(import_backup))
         .merge(crate::resources::router())

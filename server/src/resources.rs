@@ -378,6 +378,24 @@ crud_routes!(loans, "/loans", Resource {
     default_order: "created_at DESC",
 });
 
+crud_routes!(inventory, "/inventory", Resource {
+    table: "inventory",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("product_key", "productKey"), text("name", "name"), int("acquired_at", "acquiredAt")],
+    join: None,
+    default_order: "acquired_at DESC",
+});
+
+crud_routes!(shop_purchase_history, "/shop-purchase-history", Resource {
+    table: "shop_purchase_history",
+    pk: "product_key",
+    pk_json: "productKey",
+    cols: &[int("last_purchased_at", "lastPurchasedAt")],
+    join: None,
+    default_order: "last_purchased_at DESC",
+});
+
 crud_routes!(speech_cache, "/speech-cache", Resource {
     table: "speech_cache",
     pk: "message_id",
@@ -419,6 +437,8 @@ pub fn import_order() -> Vec<(&'static str, &'static Resource)> {
         ("walletAccounts", &wallet_accounts::RES),
         ("walletTransactions", &wallet_transactions::RES),
         ("loans", &loans::RES),
+        ("inventory", &inventory::RES),
+        ("shopPurchaseHistory", &shop_purchase_history::RES),
         ("conversations", &conversations::RES),
         ("groups", &groups::RES),
         ("messages", &messages::RES),
@@ -488,5 +508,7 @@ pub fn router() -> Router<crate::state::AppState> {
     let r = mount!(r, "/wallet-accounts", wallet_accounts);
     let r = mount!(r, "/wallet-transactions", wallet_transactions);
     let r = mount!(r, "/loans", loans);
+    let r = mount!(r, "/inventory", inventory);
+    let r = mount!(r, "/shop-purchase-history", shop_purchase_history);
     mount!(r, "/speech-cache", speech_cache)
 }

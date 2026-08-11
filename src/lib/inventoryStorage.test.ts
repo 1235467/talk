@@ -1,24 +1,23 @@
-// @ts-nocheck — 非核心功能迁移完成前休眠（见 db/unmigrated.ts）
 import { beforeEach, describe, expect, it } from 'vitest'
-import { db } from '../db/unmigrated'
-import { addInventoryProduct, consumeInventoryItem } from './inventory'
+import { resetFakeServer } from '../test/setup'
+import { api } from './api/resources'
+import { addInventoryProduct, consumeInventoryItem, purchaseInventoryProduct } from './inventory'
 
-beforeEach(async () => {
-  await db.open()
-  await db.inventory.clear()
-  await db.shopPurchaseHistory.clear()
+beforeEach(() => {
+  localStorage.clear()
+  resetFakeServer()
 })
 
-// TODO(server-migration): 非核心功能（金融/仓库/AI测试）尚未迁移到服务器，恢复时去掉 .skip
-describe.skip('one-card-per-item inventory', () => {
+describe('one-card-per-item inventory', () => {
   it('creates separate cards while keeping one repurchase history entry', async () => {
     const product = { name: '热可可', description: '冬日饮品', icon: '☕', price: 18 }
     await addInventoryProduct(product)
     await addInventoryProduct(product)
 
-    expect(await db.inventory.count()).toBe(2)
-    expect(await db.shopPurchaseHistory.count()).toBe(1)
-    expect((await db.shopPurchaseHistory.toArray())[0]?.purchaseCount).toBe(2)
+    expect((await api.inventory.list()).length).toBe(2)
+    const history = await api.shopPurchaseHistory.list()
+    expect(history.length).toBe(1)
+    expect(history[0]?.purchaseCount).toBe(2)
   })
 
   it('removes exactly one card when an item is consumed', async () => {
@@ -26,7 +25,28 @@ describe.skip('one-card-per-item inventory', () => {
     await addInventoryProduct({ name: '礼物', description: '测试', icon: '🎁', price: 10 })
 
     expect(await consumeInventoryItem(first.id)).toBe(true)
-    expect(await db.inventory.count()).toBe(1)
-    expect(await db.shopPurchaseHistory.count()).toBe(1)
+    expect(await consumeInventoryItem(first.id)).toBe(false)
+    expect((await api.inventory.list()).length).toBe(1)
+    expect((await api.shopPurchaseHistory.list()).length).toBe(1)
+  })
+
+  it('purchase charges the wallet and stacks the history atomically', async () => {
+    await api.walletAccounts.put({ ownerId: 'user', balance: 100, updatedAt: 1 })
+    const product = { name: '热可可', description: '冬日饮品', icon: '☕', price: 18 }
+
+    await purchaseInventoryProduct(product)
+    await purchaseInventoryProduct(product, '复购：热可可')
+
+    expect((await api.walletAccounts.get('user')).balance).toBe(64)
+    expect((await api.inventory.list()).length).toBe(2)
+    expect((await api.shopPurchaseHistory.list())[0]?.purchaseCount).toBe(2)
+  })
+
+  it('rejects a purchase the wallet cannot afford', async () => {
+    await api.walletAccounts.put({ ownerId: 'user', balance: 5, updatedAt: 1 })
+
+    await expect(purchaseInventoryProduct({ name: '豪车', description: 'x', icon: '🚗', price: 99999 })).rejects.toThrow('余额不足')
+    expect((await api.inventory.list()).length).toBe(0)
+    expect((await api.walletAccounts.get('user')).balance).toBe(5)
   })
 })

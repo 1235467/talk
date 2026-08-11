@@ -1,12 +1,12 @@
-// @ts-nocheck — 未迁移的非核心功能，见 db/unmigrated.ts
 import { useEffect, useState } from 'react'
-import { db } from '../db/unmigrated'
+import { useQuery } from '@tanstack/react-query'
 import { TopBar } from '../components/TopBar'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { chatCompletionText as chatCompletion } from '../lib/deepseek'
 import { buildShopPrompt, parseShopProducts, type GeneratedProduct } from '../lib/shop'
 import { formatCurrency } from '../lib/wallet'
-import { useLocalQuery } from '../lib/useLocalQuery'
+import { api } from '../lib/api/resources'
+import { getOrUndef } from '../lib/api/client'
 import { USER_WALLET_ID } from '../lib/finance'
 import { purchaseInventoryProduct } from '../lib/inventory'
 import type { ShopPurchaseHistory } from '../types'
@@ -20,8 +20,8 @@ export function ShopPage() {
   const [toast, setToast] = useState('')
   const [repurchaseOpen, setRepurchaseOpen] = useState(false)
   const [buyingKey, setBuyingKey] = useState('')
-  const wallet = useLocalQuery(() => db.walletAccounts.get(USER_WALLET_ID), [])
-  const purchaseHistory = useLocalQuery(() => db.shopPurchaseHistory.orderBy('lastPurchasedAt').reverse().toArray(), []) ?? []
+  const { data: wallet } = useQuery({ queryKey: ['walletAccounts', USER_WALLET_ID], queryFn: () => getOrUndef(api.walletAccounts.get(USER_WALLET_ID)) })
+  const { data: purchaseHistory = [] } = useQuery({ queryKey: ['shopPurchaseHistory'], queryFn: () => api.shopPurchaseHistory.list() })
 
   useEffect(() => {
     if (!toast) return

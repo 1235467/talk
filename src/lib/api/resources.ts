@@ -13,6 +13,7 @@ import type {
   Group,
   GroupPlan,
   InternalTask,
+  InventoryItem,
   LibraryItem,
   LifeEvent,
   LocationModuleState,
@@ -26,6 +27,7 @@ import type {
   PersonaCreationRecord,
   SavedPersona,
   SavedWorldview,
+  ShopPurchaseHistory,
   SimulationState,
   SocialEvent,
   Sticker,
@@ -104,6 +106,8 @@ export const api = {
   walletAccounts: keyedResource<WalletAccount>('/wallet-accounts'),
   walletTransactions: resource<WalletTransaction>('/wallet-transactions'),
   loans: resource<Loan>('/loans'),
+  inventory: resource<InventoryItem>('/inventory'),
+  shopPurchaseHistory: keyedResource<ShopPurchaseHistory>('/shop-purchase-history'),
 
   /** Atomic ledger operations (balance math and idempotency live server-side). */
   finance: {
@@ -114,6 +118,9 @@ export const api = {
       apiFetch<WalletTransaction>('/finance/claim-red-packet', { method: 'POST', body: { transactionId, to } }),
     claimDailySalaries: (date: string) =>
       apiFetch<{ userAmount: number; contactAmount: number; contactCount: number; date: string }>('/finance/claim-daily-salaries', { method: 'POST', body: { date } }),
+    /** Atomic: charges the user wallet, adds the inventory card, upserts repurchase history. */
+    purchase: (product: { name: string; description: string; icon: string; price: number; productKey: string; note?: string }) =>
+      apiFetch<InventoryItem>('/finance/purchase', { method: 'POST', body: product }),
   },
 
   kv: {

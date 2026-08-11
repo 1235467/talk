@@ -11,12 +11,10 @@ use sqlx::SqlitePool;
 /// — the table-level counterpart of the client's DORMANT_MODULES list. When a
 /// feature migrates, its tables move from here into import_order().
 const SKIPPED_TABLES: &[&str] = &[
-    "inventory",
     "jobListings",
     "interviews",
     "adminLogs",
     "adminAiTraces",
-    "shopPurchaseHistory",
     "contactStorylines",
     "contactSaveSnapshots",
     "globalSaveSnapshots",

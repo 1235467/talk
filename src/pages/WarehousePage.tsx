@@ -1,10 +1,7 @@
-// @ts-nocheck — 未迁移的非核心功能，见 db/unmigrated.ts
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/unmigrated'
-import { useLocalQuery } from '../lib/useLocalQuery'
 import { api } from '../lib/api/resources'
 import { invalidate } from '../lib/api/keys'
 import { isAiTestId } from '../lib/aiTestIsolation'
@@ -20,7 +17,7 @@ import type { InventoryItem } from '../types'
 
 export function WarehousePage() {
   const navigate = useNavigate()
-  const items = useLocalQuery(() => db.inventory.orderBy('acquiredAt').reverse().toArray(), []) ?? []
+  const { data: items = [] } = useQuery({ queryKey: ['inventory'], queryFn: () => api.inventory.list() })
   const { data: contactsRaw = [] } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
   const contacts = contactsRaw.filter((item) => !isAiTestId(item.id))
   const { data: stickers = [] } = useQuery({ queryKey: ['stickers'], queryFn: () => api.stickers.list() })

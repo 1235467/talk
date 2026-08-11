@@ -1,7 +1,7 @@
-// @ts-nocheck — 未迁移的禁用功能，见 db/unmigrated.ts
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/unmigrated'
-import { transferFunds, USER_WALLET_ID } from './finance'
+import { api } from './api/resources'
+import { getOrUndef } from './api/client'
+import { invalidate } from './api/keys'
 import type { InventoryItem } from '../types'
 
 export interface InventoryProduct {
@@ -28,6 +28,9 @@ export function inventoryQuantity(item: InventoryItem): number {
   return Number.isFinite(item.quantity) ? Math.max(0, Math.floor(item.quantity!)) : 1
 }
 
+function invalidateShop() { invalidate('inventory', 'shopPurchaseHistory', 'walletAccounts', 'walletTransactions') }
+
+/** Add one card per acquisition; the repurchase history stacks by productKey. */
 export async function addInventoryProduct(product: InventoryProduct): Promise<InventoryItem> {
   const productKey = inventoryProductKey(product)
   const now = Date.now()
@@ -40,43 +43,37 @@ export async function addInventoryProduct(product: InventoryProduct): Promise<In
     price: product.price,
     acquiredAt: now,
   }
-  await db.transaction('rw', db.inventory, db.shopPurchaseHistory, async () => {
-    await db.inventory.add(result)
-    const existing = await db.shopPurchaseHistory.get(productKey)
-    await db.shopPurchaseHistory.put({
-      productKey,
-      name: product.name,
-      description: product.description,
-      icon: product.icon,
-      price: product.price,
-      purchaseCount: (existing?.purchaseCount ?? 0) + 1,
-      firstPurchasedAt: existing?.firstPurchasedAt ?? now,
-      lastPurchasedAt: now,
-    })
+  await api.inventory.put(result)
+  const existing = await getOrUndef(api.shopPurchaseHistory.get(productKey))
+  await api.shopPurchaseHistory.put({
+    productKey,
+    name: product.name,
+    description: product.description,
+    icon: product.icon,
+    price: product.price,
+    purchaseCount: (existing?.purchaseCount ?? 0) + 1,
+    firstPurchasedAt: existing?.firstPurchasedAt ?? now,
+    lastPurchasedAt: now,
   })
+  invalidateShop()
   return result
 }
 
 export async function consumeInventoryItem(itemId: string): Promise<boolean> {
-  let consumed = false
-  await db.transaction('rw', db.inventory, async () => {
-    const item = await db.inventory.get(itemId)
-    if (!item) return
-    await db.inventory.delete(itemId)
-    consumed = true
-  })
-  return consumed
+  if (!(await getOrUndef(api.inventory.get(itemId)))) return false
+  await api.inventory.delete(itemId)
+  invalidateShop()
+  return true
 }
 
+/** Atomic server-side purchase: charge the user wallet, add the card, bump the history. */
 export async function purchaseInventoryProduct(product: InventoryProduct, note = product.name): Promise<InventoryItem> {
-  let purchased!: InventoryItem
-  await db.transaction('rw', db.walletAccounts, db.walletTransactions, db.inventory, db.shopPurchaseHistory, async () => {
-    await transferFunds({ from: USER_WALLET_ID, amount: product.price, kind: 'purchase', note })
-    purchased = await addInventoryProduct(product)
-  })
-  return purchased
+  const item = await api.finance.purchase({ ...product, productKey: inventoryProductKey(product), note })
+  invalidateShop()
+  return item
 }
 
 export async function discardInventoryItem(itemId: string): Promise<void> {
-  await db.inventory.delete(itemId)
+  await api.inventory.delete(itemId)
+  invalidateShop()
 }

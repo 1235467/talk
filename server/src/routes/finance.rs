@@ -256,6 +256,89 @@ pub async fn ensure(State(state): State<AppState>) -> AppResult<Json<serde_json:
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PurchaseBody {
+    name: String,
+    description: String,
+    icon: String,
+    price: i64,
+    product_key: String,
+    note: Option<String>,
+}
+
+/// Buying a shop product charges the user wallet and adds the inventory card
+/// plus the repurchase-history row — all in one transaction.
+pub async fn purchase(State(state): State<AppState>, Json(body): Json<PurchaseBody>) -> AppResult<Json<serde_json::Value>> {
+    if body.price <= 0 {
+        return Err(AppError::BadRequest("金额必须是正整数".into()));
+    }
+    let mut tx = state.db.begin().await?;
+    let now = now_ms();
+    apply_transfer(
+        &mut tx,
+        &TransferBody {
+            from: Some(USER_WALLET_ID.to_string()),
+            to: None,
+            amount: body.price,
+            kind: "purchase".into(),
+            note: body.note.clone().or(Some(body.name.clone())),
+            idempotency_key: None,
+            status: None,
+        },
+    )
+    .await?;
+
+    let item = serde_json::json!({
+        "id": uuid::Uuid::new_v4().to_string(),
+        "productKey": body.product_key,
+        "name": body.name,
+        "description": body.description,
+        "icon": body.icon,
+        "price": body.price,
+        "acquiredAt": now,
+    });
+    sqlx::query("INSERT INTO inventory (id, product_key, name, acquired_at, data) VALUES (?, ?, ?, ?, ?)")
+        .bind(item["id"].as_str().unwrap())
+        .bind(&body.product_key)
+        .bind(&body.name)
+        .bind(now)
+        .bind(serde_json::to_string(&item)?)
+        .execute(&mut *tx)
+        .await?;
+
+    let history: Option<(String,)> = sqlx::query_as("SELECT data FROM shop_purchase_history WHERE product_key = ?")
+        .bind(&body.product_key)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let mut entry = match history {
+        Some((data,)) => serde_json::from_str::<serde_json::Value>(&data)?,
+        None => serde_json::json!({
+            "productKey": body.product_key,
+            "name": body.name,
+            "description": body.description,
+            "icon": body.icon,
+            "price": body.price,
+            "purchaseCount": 0,
+            "firstPurchasedAt": now,
+        }),
+    };
+    entry["purchaseCount"] = serde_json::Value::from(entry["purchaseCount"].as_i64().unwrap_or(0) + 1);
+    entry["lastPurchasedAt"] = serde_json::Value::from(now);
+    sqlx::query(
+        "INSERT INTO shop_purchase_history (product_key, last_purchased_at, data) VALUES (?, ?, ?)
+         ON CONFLICT(product_key) DO UPDATE SET last_purchased_at = excluded.last_purchased_at, data = excluded.data",
+    )
+    .bind(&body.product_key)
+    .bind(now)
+    .bind(serde_json::to_string(&entry)?)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(ok(item))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ClaimSalariesBody {
     date: String,
 }
