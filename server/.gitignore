@@ -1,3 +1,6 @@
 /target
 talk.db*
+import-test.db*
 /media
+talk-backup-*.json
+talk-backup-*.zip

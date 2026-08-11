@@ -24,24 +24,8 @@ const SKIPPED_TABLES: &[&str] = &[
     "saveSlots",
 ];
 
-/// AppSettings keys worth keeping server-side (user data, not device config).
-const SETTINGS_TO_KV: &[&str] = &[
-    "userNickname",
-    "userAvatar",
-    "userGender",
-    "userBirthday",
-    "userBio",
-    "userVisualIdentity",
-    "worldview",
-    "momentsCoverPhoto",
-    "albumSavedImages",
-    "hiddenAlbumUrls",
-    "promptModules",
-    "proactiveMessageLog",
-    "knowledgeQueryLog",
-    "experienceMode",
-    "enabledModules",
-];
+/// Settings keys that stay on the device and never belong in kv.
+const DEVICE_ONLY_SETTINGS: &[&str] = &["serverUrl", "serverToken", "topInsetAdjustmentPx", "setSettings"];
 
 pub async fn import_backup(pool: &SqlitePool, file: &str) -> anyhow::Result<()> {
     let text = std::fs::read_to_string(file)?;
@@ -115,16 +99,19 @@ pub async fn import_value(pool: &SqlitePool, backup: &serde_json::Value) -> anyh
     }
 
     if let Some(settings) = backup.get("settings").and_then(|v| v.as_object()) {
+        // Everything syncs (secrets included — authed devices are trusted);
+        // only genuinely device-bound keys stay out.
         let mut kv_count = 0usize;
-        for key in SETTINGS_TO_KV {
-            if let Some(value) = settings.get(*key) {
-                sqlx::query("INSERT INTO kv (key, value, updated_at) VALUES (?, ?, unixepoch() * 1000) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
-                    .bind(key)
-                    .bind(serde_json::to_string(value)?)
-                    .execute(pool)
-                    .await?;
-                kv_count += 1;
+        for (key, value) in settings {
+            if DEVICE_ONLY_SETTINGS.contains(&key.as_str()) {
+                continue;
             }
+            sqlx::query("INSERT INTO kv (key, value, updated_at) VALUES (?, ?, unixepoch() * 1000) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+                .bind(key)
+                .bind(serde_json::to_string(value)?)
+                .execute(pool)
+                .await?;
+            kv_count += 1;
         }
         summary.push(format!("settings→kv: {kv_count} keys"));
 
