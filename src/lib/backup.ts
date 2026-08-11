@@ -96,5 +96,5 @@ export async function restoreBackup(backup: TalkBackup) {
   // Generated speech is a disposable derivative of message text and provider
   // settings. Never let cache rows from the pre-restore history attach to a
   // restored message that happens to reuse the same id.
-  await ensureWalletsAfterRestore(backup.settings)
+  await ensureWalletsAfterRestore()
 }

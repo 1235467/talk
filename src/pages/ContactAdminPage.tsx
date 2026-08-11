@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react'
-import { useLocalQuery } from '../lib/useLocalQuery'
 import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
 import { TopBar } from '../components/TopBar'
-import { db } from '../db/unmigrated'
 import { api } from '../lib/api/resources'
 import { getOrUndef } from '../lib/api/client'
 import { invalidate } from '../lib/api/keys'
@@ -75,8 +73,19 @@ export function ContactAdminPage() {
     enabled: !!contactId,
   })
   const { data: presets } = useQuery({ queryKey: ['presets'], queryFn: () => api.presets.list() })
-  const wallet = useLocalQuery(() => contactId ? db.walletAccounts.get(contactId) : undefined, [contactId])
-  const transactions = useLocalQuery(() => contactId ? db.walletTransactions.filter((row: any) => row.fromOwnerId === contactId || row.toOwnerId === contactId).toArray() : EMPTY_TRANSACTIONS, [contactId]) ?? EMPTY_TRANSACTIONS
+  const { data: wallet } = useQuery({ queryKey: ['walletAccounts', contactId], queryFn: () => getOrUndef(api.walletAccounts.get(contactId!)), enabled: !!contactId })
+  const { data: transactions = EMPTY_TRANSACTIONS } = useQuery({
+    queryKey: ['walletTransactions', 'by-contact', contactId],
+    queryFn: async () => {
+      const [outgoing, incoming] = await Promise.all([
+        api.walletTransactions.list({ fromOwnerId: contactId! }),
+        api.walletTransactions.list({ toOwnerId: contactId! }),
+      ])
+      const seen = new Set(outgoing.map((row) => row.id))
+      return [...outgoing, ...incoming.filter((row) => !seen.has(row.id))]
+    },
+    enabled: !!contactId,
+  })
 
   const [draft, setDraft] = useState<Contact | null>(null)
   const [profileJson, setProfileJson] = useState('null')
@@ -165,10 +174,11 @@ export function ContactAdminPage() {
       if (nextLife) await api.contactLifeStates.put({ ...nextLife, contactId })
       else if (lifeState) await api.contactLifeStates.delete(contactId)
       invalidate('contactLifeStates')
-      if (nextWallet) await db.walletAccounts.put({ ...nextWallet, ownerId: contactId })
-      else await db.walletAccounts.delete(contactId)
-      await db.walletTransactions.filter((row: any) => row.fromOwnerId === contactId || row.toOwnerId === contactId).delete()
-      if (nextTransactions.length) await db.walletTransactions.bulkPut(nextTransactions)
+      if (nextWallet) await api.walletAccounts.put({ ...nextWallet, ownerId: contactId })
+      else await api.walletAccounts.delete(contactId)
+      if (transactions.length) await api.walletTransactions.bulkDelete(transactions.map((row) => row.id))
+      if (nextTransactions.length) await api.walletTransactions.bulkPut(nextTransactions)
+      invalidate('walletAccounts', 'walletTransactions')
       setStatus('已保存，下一轮聊天会使用新资料。')
       setDraft((current) => current)
     } catch (error) {

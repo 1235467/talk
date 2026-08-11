@@ -12,9 +12,6 @@ use sqlx::SqlitePool;
 /// feature migrates, its tables move from here into import_order().
 const SKIPPED_TABLES: &[&str] = &[
     "inventory",
-    "walletAccounts",
-    "walletTransactions",
-    "loans",
     "jobListings",
     "interviews",
     "adminLogs",

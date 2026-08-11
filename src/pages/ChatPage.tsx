@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { db } from '../db/unmigrated'
 import { api } from '../lib/api/resources'
 import { getOrUndef } from '../lib/api/client'
 import { invalidate, invalidateAll } from '../lib/api/keys'
@@ -511,9 +510,9 @@ export function ChatPage() {
     const amount=Math.round(Number(financeAmount)); if(!Number.isFinite(amount)||amount<=0){setToast('请输入有效金额');return}
     try {
       let finance: Message['finance']; let type: Message['type']
-      if(financeMode==='loan') { const loanId=uuid(); await db.loans.add({id:loanId,lenderId:contact.id,borrowerId:USER_WALLET_ID,principal:amount,outstanding:amount,note:financeNote,status:'pending',createdAt:Date.now()}); finance={loanId,amount,note:financeNote,status:'pending'};type='loanRequest' }
+      if(financeMode==='loan') { const loanId=uuid(); await api.loans.put({id:loanId,lenderId:contact.id,borrowerId:USER_WALLET_ID,principal:amount,outstanding:amount,note:financeNote,status:'pending',createdAt:Date.now()}); finance={loanId,amount,note:financeNote,status:'pending'};type='loanRequest' }
       else { const tx=await transferFunds({from:USER_WALLET_ID,to:contact.id,amount,kind:financeMode==='transfer'?'transfer':'red_packet',note:financeNote});finance={transactionId:tx.id,amount,note:financeNote,status:financeMode==='transfer'?'completed':'claimed'};type=financeMode }
-      await db.messages.add({id:uuid(),conversationId,role:'user',type,content:financeNote||String(amount),finance,createdAt:Date.now()});await db.conversations.update(conversationId,{updatedAt:Date.now()});setFinanceMode(null);setFinanceAmount('');setFinanceNote('');void triggerAiTurn(conversationId,contact,settings,stickers)
+      await api.messages.put({id:uuid(),conversationId,role:'user',type,content:financeNote||String(amount),finance,createdAt:Date.now()});await api.conversations.patch(conversationId,{updatedAt:Date.now()});invalidate('messages','conversations','loans');setFinanceMode(null);setFinanceAmount('');setFinanceNote('');void triggerAiTurn(conversationId,contact,settings,stickers)
     } catch(e){setToast(e instanceof Error?e.message:String(e))}
   }
 
@@ -557,8 +556,8 @@ export function ChatPage() {
     else if (isGroupConv && group) void triggerGroupAiTurn(conversationId, group, groupMembers, settings, stickers)
   }
   const handleFinanceCard = useCallback(async (message: Message) => {
-    if(message.type==='redPacket'&&message.role==='assistant'&&message.finance?.transactionId&&message.finance.status==='pending'){try{await claimRedPacket(message.finance.transactionId,USER_WALLET_ID);await db.messages.update(message.id,{finance:{...message.finance,status:'claimed'}});setToast('红包已领取')}catch(e){setToast(e instanceof Error?e.message:String(e))}}
-    if(message.type==='loanRequest'&&message.role==='assistant'&&message.finance?.loanId&&message.finance.status==='pending'&&contact){const accept=confirm(`${displayName(contact)}想借 ${message.finance.amount}，是否同意？`);if(accept){try{await transferFunds({from:USER_WALLET_ID,to:contact.id,amount:message.finance.amount,kind:'loan',note:message.finance.note,idempotencyKey:`loan:${message.finance.loanId}`});await db.loans.update(message.finance.loanId,{status:'active',resolvedAt:Date.now()});await db.messages.update(message.id,{finance:{...message.finance,status:'accepted'}})}catch(e){setToast(e instanceof Error?e.message:String(e))}}else{await db.loans.update(message.finance.loanId,{status:'rejected',resolvedAt:Date.now()});await db.messages.update(message.id,{finance:{...message.finance,status:'rejected'}})}}
+    if(message.type==='redPacket'&&message.role==='assistant'&&message.finance?.transactionId&&message.finance.status==='pending'){try{await claimRedPacket(message.finance.transactionId,USER_WALLET_ID);await api.messages.patch(message.id,{finance:{...message.finance,status:'claimed'}});invalidate('messages');setToast('红包已领取')}catch(e){setToast(e instanceof Error?e.message:String(e))}}
+    if(message.type==='loanRequest'&&message.role==='assistant'&&message.finance?.loanId&&message.finance.status==='pending'&&contact){const accept=confirm(`${displayName(contact)}想借 ${message.finance.amount}，是否同意？`);if(accept){try{await transferFunds({from:USER_WALLET_ID,to:contact.id,amount:message.finance.amount,kind:'loan',note:message.finance.note,idempotencyKey:`loan:${message.finance.loanId}`});await api.loans.patch(message.finance.loanId,{status:'active',resolvedAt:Date.now()});await api.messages.patch(message.id,{finance:{...message.finance,status:'accepted'}});invalidate('messages','loans')}catch(e){setToast(e instanceof Error?e.message:String(e))}}else{await api.loans.patch(message.finance.loanId,{status:'rejected',resolvedAt:Date.now()});await api.messages.patch(message.id,{finance:{...message.finance,status:'rejected'}});invalidate('messages','loans')}}
   }, [contact])
   const handleInternalTaskUndo = useCallback(async (message: Message) => {
     if (message.type !== 'internalTask' || !message.internalTask || message.internalTask.status !== 'active') return
@@ -593,7 +592,7 @@ export function ChatPage() {
     const targetId = message.speakerContactId ?? contact?.id
     if (targetId) void navigate(`/contact/${targetId}`)
   }, [contact?.id, navigate])
-  async function repayLoan(){if(!contact||!conversationId)return;const loan=await db.loans.filter((l: any)=>l.status==='active'&&l.borrowerId===USER_WALLET_ID&&l.lenderId===contact.id).first();if(!loan){setToast('没有需要归还的借款');return}try{const tx=await transferFunds({from:USER_WALLET_ID,to:contact.id,amount:loan.outstanding,kind:'repayment',note:'归还借款',idempotencyKey:`repay:${loan.id}`});await db.loans.update(loan.id,{status:'repaid',outstanding:0,resolvedAt:Date.now()});await db.messages.add({id:uuid(),conversationId,role:'user',type:'repayment',content:'归还借款',finance:{transactionId:tx.id,loanId:loan.id,amount:loan.outstanding,status:'repaid'},createdAt:Date.now()});void triggerAiTurn(conversationId,contact,settings,stickers)}catch(e){setToast(e instanceof Error?e.message:String(e))}}
+  async function repayLoan(){if(!contact||!conversationId)return;const loan=(await api.loans.list({status:'active'})).find((l)=>l.borrowerId===USER_WALLET_ID&&l.lenderId===contact.id);if(!loan){setToast('没有需要归还的借款');return}try{const tx=await transferFunds({from:USER_WALLET_ID,to:contact.id,amount:loan.outstanding,kind:'repayment',note:'归还借款',idempotencyKey:`repay:${loan.id}`});await api.loans.patch(loan.id,{status:'repaid',outstanding:0,resolvedAt:Date.now()});await api.messages.put({id:uuid(),conversationId,role:'user',type:'repayment',content:'归还借款',finance:{transactionId:tx.id,loanId:loan.id,amount:loan.outstanding,status:'repaid'},createdAt:Date.now()});invalidate('messages','loans');void triggerAiTurn(conversationId,contact,settings,stickers)}catch(e){setToast(e instanceof Error?e.message:String(e))}}
 
   function beginMessageSelection(initialId?: string) {
     setMenuMessageId(null)

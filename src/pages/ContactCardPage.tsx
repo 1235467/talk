@@ -1,9 +1,7 @@
 import { useState } from 'react'
-import { useLocalQuery } from '../lib/useLocalQuery'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/unmigrated'
 import { api } from '../lib/api/resources'
 import { getOrUndef } from '../lib/api/client'
 import { invalidate, invalidateAll } from '../lib/api/keys'
@@ -145,7 +143,7 @@ export function ContactCardPage() {
     }
     invalidate('groups', 'conversations', 'messages', 'mediaAssets')
   }
-  const contactWallet = useLocalQuery(() => contactId ? db.walletAccounts.get(contactId) : undefined, [contactId])
+  const { data: contactWallet } = useQuery({ queryKey: ['walletAccounts', contactId], queryFn: () => getOrUndef(api.walletAccounts.get(contactId!)), enabled: !!contactId })
   const { data: momentCount = 0 } = useQuery({
     queryKey: ['moments', 'by-contact', contactId],
     queryFn: async () => (await api.moments.list({ contactId: contactId! })).length,

@@ -17,6 +17,7 @@ import type {
   LifeEvent,
   LocationModuleState,
   LocationNode,
+  Loan,
   MediaAsset,
   Message,
   Moment,
@@ -28,6 +29,8 @@ import type {
   SimulationState,
   SocialEvent,
   Sticker,
+  WalletAccount,
+  WalletTransaction,
   WorldMapRecord,
   WorldbookCollection,
   WorldbookEntry,
@@ -98,6 +101,20 @@ export const api = {
   aiTurns: resource<AiTurnDebug>('/ai-turns'),
   aiUsageRecords: resource<AiUsageRecord>('/ai-usage-records'),
   speechCache: keyedResource<SpeechCacheRecord>('/speech-cache'),
+  walletAccounts: keyedResource<WalletAccount>('/wallet-accounts'),
+  walletTransactions: resource<WalletTransaction>('/wallet-transactions'),
+  loans: resource<Loan>('/loans'),
+
+  /** Atomic ledger operations (balance math and idempotency live server-side). */
+  finance: {
+    ensure: () => apiFetch('/finance/ensure', { method: 'POST' }),
+    transfer: (body: { from?: string; to?: string; amount: number; kind: string; note?: string; idempotencyKey?: string; status?: 'completed' | 'reserved' }) =>
+      apiFetch<WalletTransaction>('/finance/transfer', { method: 'POST', body }),
+    claimRedPacket: (transactionId: string, to: string) =>
+      apiFetch<WalletTransaction>('/finance/claim-red-packet', { method: 'POST', body: { transactionId, to } }),
+    claimDailySalaries: (date: string) =>
+      apiFetch<{ userAmount: number; contactAmount: number; contactCount: number; date: string }>('/finance/claim-daily-salaries', { method: 'POST', body: { date } }),
+  },
 
   kv: {
     list: () => apiFetch<Record<string, unknown>>('/kv'),

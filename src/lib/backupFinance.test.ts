@@ -1,6 +1,4 @@
-// @ts-nocheck — 非核心功能迁移完成前休眠（见 db/unmigrated.ts）
 import { beforeEach, describe, expect, it } from 'vitest'
-import { db } from '../db/unmigrated'
 import { resetFakeServer } from '../test/setup'
 import { useSettingsStore } from '../store/useSettingsStore'
 import type { Contact } from '../types'
@@ -22,13 +20,11 @@ const contact = (id: string): Contact => ({
 
 beforeEach(async () => {
   localStorage.clear()
-  useSettingsStore.setState({ walletBalance: 100, walletMigrated: true, userNickname: '测试用户' })
+  useSettingsStore.setState({ walletBalance: 0, walletMigrated: true, userNickname: '测试用户' })
   resetFakeServer()
-  await Promise.all([db.walletAccounts.clear(), db.walletTransactions.clear()])
 })
 
-// TODO(server-migration): 非核心功能（金融/仓库/AI测试）尚未迁移到服务器，恢复时去掉 .skip
-describe.skip('wallet backup and save slots', () => {
+describe('wallet backup', () => {
   it('never writes API credentials into a backup', async () => {
     const current = useSettingsStore.getState()
     const backup = await createBackup({
@@ -43,21 +39,19 @@ describe.skip('wallet backup and save slots', () => {
     expect(serialized).not.toContain('atlas-secret')
   })
 
-  it('round-trips server-side data through a backup without touching local wallet accounts', async () => {
-    await db.walletAccounts.put({ ownerId: USER_WALLET_ID, balance: 100, updatedAt: 1 })
-    await transferFunds({ from: USER_WALLET_ID, to: 'contact-a', amount: 35, kind: 'transfer', idempotencyKey: 'backup:transfer' })
+  it('round-trips wallets and ledger rows through a backup', async () => {
+    await api.walletAccounts.put({ ownerId: USER_WALLET_ID, balance: 100, updatedAt: 1 })
     await api.contacts.put(contact('contact-a'))
+    await transferFunds({ from: USER_WALLET_ID, to: 'contact-a', amount: 35, kind: 'transfer', idempotencyKey: 'backup:transfer' })
     const backup = restorable(await createBackup({ ...useSettingsStore.getState() }))
 
     resetFakeServer()
-    await db.walletAccounts.update(USER_WALLET_ID, { balance: 1 })
-    await db.walletTransactions.clear()
     await restoreBackup(backup)
 
     expect(await getOrUndef(api.contacts.get('contact-a'))).toMatchObject({ id: 'contact-a', name: 'contact-a' })
-    expect(await getBalance(USER_WALLET_ID)).toBe(1)
+    expect(await getBalance(USER_WALLET_ID)).toBe(65)
     expect(await getBalance('contact-a')).toBe(35)
-    expect(await db.walletTransactions.where('idempotencyKey').equals('backup:transfer').count()).toBe(0)
+    expect((await api.walletTransactions.list({ idempotencyKey: 'backup:transfer' })).length).toBe(1)
   })
 
   it('creates a user account when restoring a legacy backup without wallet tables', async () => {
@@ -69,6 +63,6 @@ describe.skip('wallet backup and save slots', () => {
     await restoreBackup(backup)
 
     expect(await getBalance(USER_WALLET_ID)).toBe(42)
-    expect(await db.walletTransactions.where('idempotencyKey').equals('legacy-wallet-migration').count()).toBe(1)
+    expect((await api.walletTransactions.list({ idempotencyKey: 'legacy-wallet-migration' })).length).toBe(1)
   })
 })

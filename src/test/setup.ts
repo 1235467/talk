@@ -57,6 +57,9 @@ const RESOURCE_PK: Record<string, string> = {
   'ai-turns': 'id',
   'ai-usage-records': 'id',
   'speech-cache': 'messageId',
+  'wallet-accounts': 'ownerId',
+  'wallet-transactions': 'id',
+  loans: 'id',
 }
 
 /** camelCase backup-table name → REST path (mirrors server import_order). */
@@ -75,6 +78,7 @@ const BACKUP_TO_PATH: Record<string, string> = {
   worldMaps: 'world-maps', locationModuleState: 'location-module-state',
   acousticEdges: 'acoustic-edges', mediaAssets: 'media-assets',
   aiTurns: 'ai-turns', aiUsageRecords: 'ai-usage-records',
+  walletAccounts: 'wallet-accounts', walletTransactions: 'wallet-transactions', loans: 'loans',
 }
 
 interface FakeDb {
@@ -202,6 +206,92 @@ async function fakeApiFetch(path: string, options: { method?: string; body?: any
     }
   }
 
+  // Finance endpoints: same semantics as the real server's routes/finance.rs.
+  if (head === 'finance') {
+    const accounts = table('wallet-accounts')
+    const txs = table('wallet-transactions')
+    const readBalance = (ownerId: string): number | undefined => accounts.get(ownerId)?.balance as number | undefined
+    const writeBalance = (ownerId: string, balance: number) => accounts.set(ownerId, { ownerId, balance, updatedAt: Date.now() })
+    const applyTransfer = (body: any): Row => {
+      const amount = Math.round(body.amount)
+      if (!Number.isFinite(amount) || amount <= 0) throw new FakeApiError(400, '金额必须是正整数')
+      if (!body.from && !body.to) throw new FakeApiError(400, '资金交易缺少账户')
+      const status = body.status ?? 'completed'
+      if (body.idempotencyKey) {
+        const existing = [...txs.values()].find((row) => row.idempotencyKey === body.idempotencyKey)
+        if (existing) {
+          const same = existing.fromOwnerId === body.from && existing.toOwnerId === body.to && existing.amount === amount && existing.kind === body.kind && existing.status === status
+          if (!same) throw new FakeApiError(409, '幂等键已用于另一笔交易')
+          return existing
+        }
+      }
+      if (body.from) {
+        const balance = readBalance(body.from)
+        if (balance === undefined || balance < amount) throw new FakeApiError(400, '余额不足')
+        writeBalance(body.from, balance - amount)
+      }
+      if (body.to) writeBalance(body.to, (readBalance(body.to) ?? 0) + amount)
+      const now = Date.now()
+      const row: Row = { id: `tx-${now}-${txs.size}`, kind: body.kind, amount, status, createdAt: now }
+      if (body.idempotencyKey) row.idempotencyKey = body.idempotencyKey
+      if (body.from) row.fromOwnerId = body.from
+      if (body.to) row.toOwnerId = body.to
+      if (body.note) row.note = body.note
+      if (status === 'completed') row.completedAt = now
+      txs.set(row.id, row)
+      return row
+    }
+
+    if (id === 'ensure' && method === 'POST') {
+      const migrated = state.kv.get('walletMigrated') === true
+      const legacyRaw = migrated ? 0 : Number(state.kv.get('walletBalance') ?? 0)
+      const legacy = Number.isFinite(legacyRaw) ? Math.max(0, Math.round(legacyRaw)) : 0
+      if (readBalance('user') === undefined) {
+        if (legacy > 0) applyTransfer({ to: 'user', amount: legacy, kind: 'migration', idempotencyKey: 'legacy-wallet-migration' })
+        else writeBalance('user', 0)
+      }
+      for (const contact of table('contacts').values()) {
+        if (!String(contact.id).startsWith('ai-test-') && readBalance(String(contact.id)) === undefined) writeBalance(String(contact.id), 0)
+      }
+      state.kv.set('walletMigrated', true)
+      return { ok: true }
+    }
+    if (id === 'transfer' && method === 'POST') return applyTransfer(options.body)
+    if (id === 'claim-red-packet' && method === 'POST') {
+      const tx = txs.get(options.body.transactionId)
+      if (!tx || tx.kind !== 'red_packet' || tx.status !== 'reserved') throw new FakeApiError(400, '红包已领取或不存在')
+      writeBalance(options.body.to, (readBalance(options.body.to) ?? 0) + tx.amount)
+      const next = { ...tx, toOwnerId: options.body.to, status: 'completed', completedAt: Date.now() }
+      txs.set(tx.id, next)
+      return next
+    }
+    if (id === 'claim-daily-salaries' && method === 'POST') {
+      const date = String(options.body.date)
+      const occupation = String(state.kv.get('userOccupation') ?? '')
+      const monthly = Number(state.kv.get('userMonthlySalary') ?? 0)
+      if (!occupation || monthly <= 0) throw new FakeApiError(400, '需要先入职才能领取工资')
+      const userAmount = Math.max(1, Math.round(monthly / 30))
+      const alreadyClaimed = [...txs.values()].some((row) => row.idempotencyKey === `salary:user:${date}`)
+      if (!alreadyClaimed) applyTransfer({ to: 'user', amount: userAmount, kind: 'salary', note: `${occupation}工资`, idempotencyKey: `salary:user:${date}` })
+      let contactAmount = 0
+      let contactCount = 0
+      for (const contact of table('contacts').values()) {
+        if (String(contact.id).startsWith('ai-test-')) continue
+        const contactOccupation = String(contact.occupation ?? '')
+        const contactMonthly = Number(contact.monthlySalary ?? 0)
+        if (!contactOccupation || contactMonthly <= 0) continue
+        const amount = Math.max(1, Math.round(contactMonthly / 30))
+        applyTransfer({ to: contact.id, amount, kind: 'salary', note: `${contactOccupation}工资`, idempotencyKey: `salary:${contact.id}:${date}` })
+        table('contacts').set(String(contact.id), { ...contact, lastSalaryDate: date })
+        contactAmount += amount
+        contactCount += 1
+      }
+      if (alreadyClaimed) throw new FakeApiError(400, '今天已经领取过工资了')
+      return { userAmount, contactAmount, contactCount, date }
+    }
+    throw new FakeApiError(404, `unknown finance endpoint ${id}`)
+  }
+
   if (head === 'batch') {
     if (id === 'delete-message') {
       const messageId = options.body.messageId
@@ -258,6 +348,10 @@ async function fakeApiFetch(path: string, options: { method?: string; body?: any
         for (const [rid, row] of table(name)) if (row.contactId === contactId) table(name).delete(rid)
       }
       table('contact-life-states').delete(contactId)
+      // Mirrors the real server: finance rows involving the contact go with it.
+      table('wallet-accounts').delete(contactId)
+      for (const [tid, tx] of table('wallet-transactions')) if (tx.fromOwnerId === contactId || tx.toOwnerId === contactId) table('wallet-transactions').delete(tid)
+      for (const [lid, loan] of table('loans')) if (loan.lenderId === contactId || loan.borrowerId === contactId) table('loans').delete(lid)
       if (!table('contacts').delete(contactId)) throw new FakeApiError(404, 'not found')
       return { ok: true }
     }

@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/unmigrated'
 import { api } from './api/resources'
 import { getOrUndef, hasAiAccess } from './api/client'
 import { invalidate } from './api/keys'
@@ -428,8 +427,8 @@ async function runAiTurn(
         ? Promise.all([
             getBalance(contact.id),
             getBalance(USER_WALLET_ID),
-            db.loans.filter((l: any) => l.status === 'active' && (l.lenderId === contact.id || l.borrowerId === contact.id)).toArray(),
-          ]).then(([contactBalance, userBalance, loans]) => `\n【经济状况】你的可用余额：${contactBalance}；对方可用余额：${userBalance}。未结清借款：${loans.map((l: any) => `${l.borrowerId === contact.id ? '你欠对方' : '对方欠你'}${l.outstanding}`).join('；') || '无'}。所有金钱动作必须量力而行，不得凭空造钱。`)
+            api.loans.list({ status: 'active' }).then((rows) => rows.filter((l) => l.lenderId === contact.id || l.borrowerId === contact.id)),
+          ]).then(([contactBalance, userBalance, loans]) => `\n【经济状况】你的可用余额：${contactBalance}；对方可用余额：${userBalance}。未结清借款：${loans.map((l) => `${l.borrowerId === contact.id ? '你欠对方' : '对方欠你'}${l.outstanding}`).join('；') || '无'}。所有金钱动作必须量力而行，不得凭空造钱。`)
         : Promise.resolve(''),
       memoryPromptOn ? socialMemoriesText(contact.id) : Promise.resolve(''),
       memoryPromptOn ? recentSharedOriginalContext([contact.id], settings.userNickname, {
@@ -772,11 +771,11 @@ function revealBubbles(
       } else if (bubble.type === 'redPacket') {
         try { const tx = await reserveRedPacket(contact.id, bubble.amount, bubble.note, `ai-red-packet:${streamId}:${i}`); finance = { transactionId: tx.id, amount: tx.amount, note: bubble.note, status: 'pending' } } catch (err) { console.warn('[finance] AI红包被拒绝', err); return }
       } else if (bubble.type === 'loanRequest') {
-        const loanId = uuid(); await db.loans.add({ id: loanId, lenderId: USER_WALLET_ID, borrowerId: contact.id, principal: bubble.amount, outstanding: bubble.amount, note: bubble.note, status: 'pending', createdAt: Date.now() }); finance = { loanId, amount: bubble.amount, note: bubble.note, status: 'pending' }
+        const loanId = uuid(); await api.loans.put({ id: loanId, lenderId: USER_WALLET_ID, borrowerId: contact.id, principal: bubble.amount, outstanding: bubble.amount, note: bubble.note, status: 'pending', createdAt: Date.now() }); finance = { loanId, amount: bubble.amount, note: bubble.note, status: 'pending' }
       } else if (bubble.type === 'loanDecision' && bubble.loanId) {
-        const loan = await db.loans.get(bubble.loanId)
+        const loan = await getOrUndef(api.loans.get(bubble.loanId))
         if (!loan || loan.status !== 'pending' || loan.borrowerId !== USER_WALLET_ID || loan.lenderId !== contact.id) return
-        if (bubble.decision === 'accept') { try { await transferFunds({ from: contact.id, to: USER_WALLET_ID, amount: loan.principal, kind: 'loan', note: loan.note, idempotencyKey: `loan:${loan.id}` }); await db.loans.update(loan.id,{status:'active',resolvedAt:Date.now()}); finance={loanId:loan.id,amount:loan.principal,note:loan.note,status:'accepted'} } catch { await db.loans.update(loan.id,{status:'rejected',resolvedAt:Date.now()}); finance={loanId:loan.id,amount:loan.principal,status:'rejected'} } } else { await db.loans.update(loan.id,{status:'rejected',resolvedAt:Date.now()}); finance={loanId:loan.id,amount:loan.principal,status:'rejected'} }
+        if (bubble.decision === 'accept') { try { await transferFunds({ from: contact.id, to: USER_WALLET_ID, amount: loan.principal, kind: 'loan', note: loan.note, idempotencyKey: `loan:${loan.id}` }); await api.loans.patch(loan.id,{status:'active',resolvedAt:Date.now()}); finance={loanId:loan.id,amount:loan.principal,note:loan.note,status:'accepted'} } catch { await api.loans.patch(loan.id,{status:'rejected',resolvedAt:Date.now()}); finance={loanId:loan.id,amount:loan.principal,status:'rejected'} } } else { await api.loans.patch(loan.id,{status:'rejected',resolvedAt:Date.now()}); finance={loanId:loan.id,amount:loan.principal,status:'rejected'} }
       } else if (bubble.type === 'giftPurchase') {
         if (!bubble.name) return
         try { const tx = await transferFunds({ from: contact.id, amount: bubble.amount, kind: 'purchase', note: `送给用户：${bubble.name}`, idempotencyKey: `ai-gift:${streamId}:${i}` }); finance = { transactionId: tx.id, amount: tx.amount, note: bubble.description, status: 'completed' } } catch (err) { console.warn('[finance] AI购买礼物被拒绝', err); return }

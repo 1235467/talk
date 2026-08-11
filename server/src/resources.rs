@@ -343,6 +343,41 @@ crud_routes!(ai_usage_records, "/ai-usage-records", Resource {
     default_order: "created_at DESC",
 });
 
+crud_routes!(wallet_accounts, "/wallet-accounts", Resource {
+    table: "wallet_accounts",
+    pk: "owner_id",
+    pk_json: "ownerId",
+    cols: &[int("balance", "balance"), int("updated_at", "updatedAt")],
+    join: None,
+    default_order: "owner_id",
+});
+
+crud_routes!(wallet_transactions, "/wallet-transactions", Resource {
+    table: "wallet_transactions",
+    pk: "id",
+    pk_json: "id",
+    cols: &[
+        text("idempotency_key", "idempotencyKey"),
+        text("kind", "kind"),
+        text("from_owner_id", "fromOwnerId"),
+        text("to_owner_id", "toOwnerId"),
+        int("amount", "amount"),
+        text("status", "status"),
+        int("created_at", "createdAt"),
+    ],
+    join: None,
+    default_order: "created_at, id",
+});
+
+crud_routes!(loans, "/loans", Resource {
+    table: "loans",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("lender_id", "lenderId"), text("borrower_id", "borrowerId"), text("status", "status"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "created_at DESC",
+});
+
 crud_routes!(speech_cache, "/speech-cache", Resource {
     table: "speech_cache",
     pk: "message_id",
@@ -381,6 +416,9 @@ macro_rules! mount {
 pub fn import_order() -> Vec<(&'static str, &'static Resource)> {
     vec![
         ("contacts", &contacts::RES),
+        ("walletAccounts", &wallet_accounts::RES),
+        ("walletTransactions", &wallet_transactions::RES),
+        ("loans", &loans::RES),
         ("conversations", &conversations::RES),
         ("groups", &groups::RES),
         ("messages", &messages::RES),
@@ -447,5 +485,8 @@ pub fn router() -> Router<crate::state::AppState> {
     let r = mount!(r, "/media-assets", media_assets);
     let r = mount!(r, "/ai-turns", ai_turns);
     let r = mount!(r, "/ai-usage-records", ai_usage_records);
+    let r = mount!(r, "/wallet-accounts", wallet_accounts);
+    let r = mount!(r, "/wallet-transactions", wallet_transactions);
+    let r = mount!(r, "/loans", loans);
     mount!(r, "/speech-cache", speech_cache)
 }

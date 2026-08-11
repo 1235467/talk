@@ -5,6 +5,7 @@ use crate::{auth, state::AppState};
 
 pub mod ai_proxy;
 pub mod batch;
+pub mod finance;
 pub mod health;
 pub mod kv;
 pub mod media;
@@ -24,6 +25,10 @@ pub fn router(state: AppState) -> Router {
         .route("/batch/delete-contact", post(batch::delete_contact))
         .route("/batch/delete-moment", post(batch::delete_moment))
         .route("/batch/delete-message", post(batch::delete_message))
+        .route("/finance/ensure", post(finance::ensure))
+        .route("/finance/transfer", post(finance::transfer))
+        .route("/finance/claim-red-packet", post(finance::claim_red_packet))
+        .route("/finance/claim-daily-salaries", post(finance::claim_daily_salaries))
         .route("/export", get(batch::export_all))
         .route("/import", post(import_backup))
         .merge(crate::resources::router())

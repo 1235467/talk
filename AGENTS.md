@@ -40,7 +40,9 @@
 
 ## 非核心功能（休眠，不是删除）
 
-shop/warehouse/inventory、finance/wallet/loans、career/jobs、scopedSaves（存档）、aiTest 框架：**代码保留**但模块在 `enabledModules` 里被禁用，数据不迁移。它们的 db 引用指向 `src/db/unmigrated.ts`（调用即抛"尚未迁移"的 stub），文件带 `@ts-nocheck`、对应测试 `describe.skip`。恢复路径：服务器补表 → api 资源 → 启用模块。迁移时金融/职业上下文在引擎里本来就受模块门控（`isModuleEnabled('career')`），禁用后自动跳过。
+shop/warehouse/inventory、career/jobs、scopedSaves（存档）、aiTest 框架：**代码保留**但模块在 `enabledModules` 里被禁用，数据不迁移。它们的 db 引用指向 `src/db/unmigrated.ts`（调用即抛"尚未迁移"的 stub），文件带 `@ts-nocheck`、对应测试 `describe.skip`。恢复路径：服务器补表 → api 资源 → 启用模块。迁移时金融/职业上下文在引擎里本来就受模块门控（`isModuleEnabled('career')`），禁用后自动跳过。
+
+**finance/wallet/loans 已迁移（2026-08）**：表 = `wallet_accounts`/`wallet_transactions`（幂等键唯一索引）/`loans`；余额变动和日薪必须走原子端点 `POST /api/finance/{ensure,transfer,claim-red-packet,claim-daily-salaries}`（`routes/finance.rs`，客户端封装在 `lib/finance.ts`），不要客户端多步读写余额。finance 不是模块——它的 UI（ChatPage 转账/红包/借款、MePage 工资）仍由 career/shop/warehouse 模块门控，随它们的迁移解锁。删联系人会级联清钱包/交易/贷款（batch）。
 
 ## 测试
 
