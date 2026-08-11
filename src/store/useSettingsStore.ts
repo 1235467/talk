@@ -26,12 +26,13 @@ export const DEVICE_ONLY_KEYS = new Set<string>([
 ])
 
 /** Pull server-kv values into the local store on launch (call after the user
- * configures serverUrl, or unconditionally — it no-ops without a server). */
-export async function hydrateSettingsFromServer(): Promise<void> {
+ * configures serverUrl, or unconditionally — it no-ops without a server).
+ * Returns the number of applied keys, or -1 when hydration did not run/failed. */
+export async function hydrateSettingsFromServer(): Promise<number> {
   try {
     const { api } = await import('../lib/api/resources')
     const { isServerConfigured } = await import('../lib/api/client')
-    if (!isServerConfigured()) return
+    if (!isServerConfigured()) return -1
     const kv = await api.kv.list()
     const patch: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(kv)) {
@@ -40,8 +41,10 @@ export async function hydrateSettingsFromServer(): Promise<void> {
     if (Object.keys(patch).length) {
       useSettingsStore.setState(patch as Partial<AppSettings>)
     }
+    return Object.keys(patch).length
   } catch (error) {
     console.warn('[kv] hydrate failed', error)
+    return -1
   }
 }
 

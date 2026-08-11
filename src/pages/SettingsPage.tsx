@@ -75,8 +75,8 @@ export function SettingsPage() {
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       setServerTestResult('✓ 连接成功，正在同步服务器设置…')
       const { hydrateSettingsFromServer } = await import('../store/useSettingsStore')
-      await hydrateSettingsFromServer()
-      setServerTestResult('✓ 连接成功，服务器设置已同步')
+      const applied = await hydrateSettingsFromServer()
+      setServerTestResult(applied >= 0 ? `✓ 连接成功，已同步 ${applied} 项设置` : '✗ 连接成功但同步失败：检查访问令牌是否填对')
     } catch (error) {
       setServerTestResult(`✗ ${error instanceof Error ? error.message : '连接失败'}`)
     }

@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core'
 import { useSettingsStore } from '../../store/useSettingsStore'
 
 export class ApiError extends Error {
@@ -15,7 +16,11 @@ export function serverBase(): string {
 }
 
 export function isServerConfigured(): boolean {
-  return serverBase().length > 0
+  if (serverBase().length > 0) return true
+  // Empty serverUrl means same-origin: legit in a browser (nginx or the vite
+  // dev proxy serves /api on the same host), broken in the Capacitor shell
+  // where origin is https://localhost and nothing listens there.
+  return !Capacitor.isNativePlatform()
 }
 
 interface RequestOptions {
