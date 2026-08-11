@@ -368,9 +368,13 @@ export function ChatPage() {
 
   async function deleteMessage(message: Message) {
     if (speechPlayingId === message.id) stopSpeechPlayback()
-    await api.batch.deleteMessage(message.id)
-    await api.speechCache.delete(message.id)
-    invalidate('speechCache')
+    try {
+      // The batch endpoint already removes the speech-cache row and file.
+      await api.batch.deleteMessage(message.id)
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : '删除失败')
+      return
+    }
     invalidateAll()
     if (replyToId === message.id) setReplyToId(null)
   }

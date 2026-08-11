@@ -38,6 +38,11 @@ export async function hydrateSettingsFromServer(): Promise<number> {
     for (const [key, value] of Object.entries(kv)) {
       if (!DEVICE_ONLY_KEYS.has(key) && value !== undefined) patch[key] = value
     }
+    // kv may carry pre-dormancy module lists; re-apply the same filter as the
+    // persist migration so disabled features never resurrect their db calls.
+    if (Array.isArray(patch.enabledModules)) {
+      patch.enabledModules = (patch.enabledModules as string[]).filter((id) => !['shop', 'warehouse', 'career', 'saveLoad'].includes(id))
+    }
     if (Object.keys(patch).length) {
       useSettingsStore.setState(patch as Partial<AppSettings>)
     }

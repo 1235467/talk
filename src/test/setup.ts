@@ -206,6 +206,8 @@ async function fakeApiFetch(path: string, options: { method?: string; body?: any
     if (id === 'delete-message') {
       const messageId = options.body.messageId
       if (!table('messages').delete(messageId)) throw new FakeApiError(404, 'not found')
+      // Mirrors the real server: speech-cache row goes with the message.
+      table('speech-cache').delete(messageId)
       return { ok: true }
     }
     if (id === 'delete-moment') {
