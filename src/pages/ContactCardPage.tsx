@@ -309,6 +309,11 @@ export function ContactCardPage() {
     } finally { setAssigningCareer(false) }
   }
   const { data: stickers = [] } = useQuery({ queryKey: ['stickers'], queryFn: () => api.stickers.list() })
+  const { data: contactPromptModules } = useQuery({
+    queryKey: ['contactPromptModules', contact?.id ?? '', contact?.presetName ?? ''],
+    enabled: adminEnabled && !!contact,
+    queryFn: () => resolveContactPromptModules(contact!, settings),
+  })
   if (contact === undefined) return null
   if (contact === null || !contactId) {
     return (
@@ -427,11 +432,6 @@ export function ContactCardPage() {
   const pendingEvents = contact.pendingEvents ?? []
   const previewActiveIntents = isModuleEnabled('intent') ? activeIntents(contact, now.getTime()) : []
   // ---- admin-mode prompt preview (two-step pipeline) ----
-  const { data: contactPromptModules } = useQuery({
-    queryKey: ['contactPromptModules', contact?.id ?? '', contact?.presetName ?? ''],
-    enabled: adminEnabled && !!contact,
-    queryFn: () => resolveContactPromptModules(contact!, settings),
-  })
   const mainModelPromptParts = adminEnabled
     ? buildRawChatPromptParts({
         name: contact.name,
