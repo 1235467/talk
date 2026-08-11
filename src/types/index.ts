@@ -833,7 +833,8 @@ export interface SpeechCacheRecord {
   signature: string
   provider: Exclude<SpeechProviderId, 'none'>
   mimeType: string
-  audio: Blob
+  /** Audio file path relative to the server media directory. */
+  filePath: string
   size: number
   durationMs?: number
   createdAt: number

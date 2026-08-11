@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router-dom'
 import { TopBar } from '../components/TopBar'
-import { db } from '../db/db'
-import { useLocalQuery } from '../lib/useLocalQuery'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../lib/api/resources'
+import { invalidate } from '../lib/api/keys'
 import { isSpeechProviderReady, SPEECH_PROVIDER_INFO, speechProviderName } from '../lib/speechProviders'
 import { stopSpeechPlayback } from '../lib/speechPlayer'
 import { useSettingsStore } from '../store/useSettingsStore'
@@ -16,16 +17,22 @@ export function SpeechProviderListPage() {
   const speechProvider = useSettingsStore((state) => state.speechProvider)
   const speechProviders = useSettingsStore((state) => state.speechProviders)
   const setSettings = useSettingsStore((state) => state.setSettings)
-  const stats = useLocalQuery(async () => {
-    const rows = await db.speechCache.toArray()
-    return { count: rows.length, bytes: rows.reduce((sum, row) => sum + row.size, 0) }
-  }, [])
+  const { data: stats, refetch: refetchStats } = useQuery({
+    queryKey: ['speechCache', 'stats'],
+    queryFn: async () => {
+      const rows = await api.speechCache.list()
+      return { count: rows.length, bytes: rows.reduce((sum, row) => sum + row.size, 0) }
+    },
+  })
   const ready = isSpeechProviderReady({ speechProvider, speechProviders })
 
   async function clearCache() {
     if (!window.confirm('清除所有已生成语音？原文字消息不会受到影响。')) return
     stopSpeechPlayback()
-    await db.speechCache.clear()
+    const rows = await api.speechCache.list()
+    await api.speechCache.bulkDelete(rows.map((row) => row.id))
+    invalidate('speechCache')
+    void refetchStats()
   }
 
   return (

@@ -343,6 +343,24 @@ crud_routes!(ai_usage_records, "/ai-usage-records", Resource {
     default_order: "created_at DESC",
 });
 
+crud_routes!(speech_cache, "/speech-cache", Resource {
+    table: "speech_cache",
+    pk: "message_id",
+    pk_json: "messageId",
+    cols: &[
+        text("mime_type", "mimeType"),
+        text("file_path", "filePath"),
+        text("signature", "signature"),
+        text("provider", "provider"),
+        int("size", "size"),
+        int("duration_ms", "durationMs"),
+        int("last_accessed_at", "lastAccessedAt"),
+        int("created_at", "createdAt"),
+    ],
+    join: None,
+    default_order: "last_accessed_at",
+});
+
 macro_rules! mount {
     ($router:expr, $path:literal, $mod:ident) => {
         $router.route(
@@ -428,5 +446,6 @@ pub fn router() -> Router<crate::state::AppState> {
     let r = mount!(r, "/acoustic-edges", acoustic_edges);
     let r = mount!(r, "/media-assets", media_assets);
     let r = mount!(r, "/ai-turns", ai_turns);
-    mount!(r, "/ai-usage-records", ai_usage_records)
+    let r = mount!(r, "/ai-usage-records", ai_usage_records);
+    mount!(r, "/speech-cache", speech_cache)
 }

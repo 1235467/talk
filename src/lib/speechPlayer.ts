@@ -1,5 +1,7 @@
 import { create } from 'zustand'
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { getOrUndef, mediaUrl } from './api/client'
+import { invalidate } from './api/keys'
 import type { SpeechCacheRecord } from '../types'
 
 interface SpeechPlayerState {
@@ -15,13 +17,10 @@ export const useSpeechPlayerStore = create<SpeechPlayerState>((set) => ({
 }))
 
 let currentAudio: HTMLAudioElement | null = null
-let currentUrl = ''
 
 function releaseCurrent() {
   currentAudio?.pause()
   currentAudio = null
-  if (currentUrl) URL.revokeObjectURL(currentUrl)
-  currentUrl = ''
 }
 
 export async function playSpeechRecord(record: SpeechCacheRecord): Promise<void> {
@@ -37,8 +36,8 @@ export async function playSpeechRecord(record: SpeechCacheRecord): Promise<void>
     return
   }
   releaseCurrent()
-  currentUrl = URL.createObjectURL(record.audio)
-  const audio = new Audio(currentUrl)
+  const url = mediaUrl(record.filePath)
+  const audio = new Audio(url)
   currentAudio = audio
   state.setState({ messageId: record.messageId, playing: true })
   audio.addEventListener('ended', () => {
@@ -49,10 +48,11 @@ export async function playSpeechRecord(record: SpeechCacheRecord): Promise<void>
   })
   audio.addEventListener('loadedmetadata', () => {
     if (Number.isFinite(audio.duration) && audio.duration > 0) {
-      void db.speechCache.update(record.id, { durationMs: Math.round(audio.duration * 1000) })
+      void api.speechCache.patch(record.id, { durationMs: Math.round(audio.duration * 1000) }).then(() => invalidate('speechCache'))
     }
   })
-  await db.speechCache.update(record.id, { lastAccessedAt: Date.now() })
+  await api.speechCache.patch(record.id, { lastAccessedAt: Date.now() })
+  invalidate('speechCache')
   try {
     await audio.play()
   } catch (error) {
@@ -62,7 +62,7 @@ export async function playSpeechRecord(record: SpeechCacheRecord): Promise<void>
 }
 
 export async function playSpeechMessage(messageId: string): Promise<void> {
-  const record = await db.speechCache.get(messageId)
+  const record = await getOrUndef(api.speechCache.get(messageId))
   if (!record) throw new Error('这条消息还没有生成语音')
   return playSpeechRecord(record)
 }

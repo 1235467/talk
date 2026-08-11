@@ -1,10 +1,21 @@
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { getOrUndef } from './api/client'
+import { invalidate } from './api/keys'
 import type { AppSettings, ContactSpeechVoice, SpeechCacheRecord } from '../types'
 import { appFetch } from './appFetch'
 import { isSpeechProviderReady } from './speechProviders'
 
 const MAX_CACHE_BYTES = 100 * 1024 * 1024
+
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  }
+  return `data:${blob.type || 'application/octet-stream'};base64,${btoa(binary)}`
+}
 
 export interface SynthesizedSpeech {
   blob: Blob
@@ -187,7 +198,7 @@ export function speechSignature(text: string, settings: Pick<AppSettings, 'speec
 }
 
 async function trimSpeechCache(): Promise<void> {
-  const rows = await db.speechCache.orderBy('lastAccessedAt').toArray()
+  const rows = (await api.speechCache.list()).sort((a, b) => a.lastAccessedAt - b.lastAccessedAt)
   let total = rows.reduce((sum, row) => sum + row.size, 0)
   const deleteIds: string[] = []
   for (const row of rows) {
@@ -195,7 +206,10 @@ async function trimSpeechCache(): Promise<void> {
     total -= row.size
     deleteIds.push(row.id)
   }
-  if (deleteIds.length > 0) await db.speechCache.bulkDelete(deleteIds)
+  if (deleteIds.length > 0) {
+    await api.speechCache.bulkDelete(deleteIds)
+    invalidate('speechCache')
+  }
 }
 
 export async function cacheSpeechForMessage(
@@ -206,33 +220,36 @@ export async function cacheSpeechForMessage(
   voice?: ContactSpeechVoice,
 ): Promise<SpeechCacheRecord> {
   const signature = speechSignature(text, settings, voice)
-  const existing = await db.speechCache.get(messageId)
+  const existing = await getOrUndef(api.speechCache.get(messageId))
   if (!force && existing?.signature === signature) {
-    await db.speechCache.update(messageId, { lastAccessedAt: Date.now() })
+    await api.speechCache.patch(messageId, { lastAccessedAt: Date.now() })
+    invalidate('speechCache')
     return { ...existing, lastAccessedAt: Date.now() }
   }
   const result = await synthesizeSpeech(text, settings, voice)
   const now = Date.now()
   const provider = settings.speechProvider
   if (provider === 'none') throw new Error('请先选择语音生成服务')
+  const { url } = await api.media.upload(await blobToDataUrl(result.blob))
   const record: SpeechCacheRecord = {
     id: messageId,
     messageId,
     signature,
     provider,
     mimeType: result.mimeType,
-    audio: result.blob,
+    filePath: url,
     size: result.blob.size,
     durationMs: result.durationMs,
     createdAt: now,
     lastAccessedAt: now,
   }
-  await db.speechCache.put(record)
+  await api.speechCache.put(record)
   await trimSpeechCache()
+  invalidate('speechCache')
   return record
 }
 
 export async function speechCacheStats(): Promise<{ count: number; bytes: number }> {
-  const rows = await db.speechCache.toArray()
+  const rows = await api.speechCache.list()
   return { count: rows.length, bytes: rows.reduce((sum, row) => sum + row.size, 0) }
 }

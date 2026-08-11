@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useLocalQuery } from '../lib/useLocalQuery'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { db } from '../db/db'
@@ -36,7 +35,7 @@ import { playSpeechMessage, playSpeechRecord, stopSpeechPlayback, useSpeechPlaye
 
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_STICKERS: Sticker[] = []
-const EMPTY_SPEECH_CACHE_ROWS: Array<SpeechCacheRecord | undefined> = []
+const EMPTY_SPEECH_CACHE_ROWS: SpeechCacheRecord[] = []
 const LONG_PRESS_HINT_KEY = 'talk-chat-long-press-hint-seen-v1'
 
 export function ChatPage() {
@@ -121,13 +120,12 @@ export function ChatPage() {
     return { items: allMessages.slice(Math.max(0, allMessages.length - visibleMessageLimit)), total: allMessages.length }
   }, [allMessages, visibleMessageLimit])
   const messages = messagePage?.items ?? EMPTY_MESSAGES
-  const textMessageIdsKey = messages.filter((message) => message.type === 'text').map((message) => message.id).join('|')
-  const speechCacheRows = useLocalQuery(
-    () => textMessageIdsKey ? db.speechCache.bulkGet(textMessageIdsKey.split('|')) : [],
-    [textMessageIdsKey],
-  ) ?? EMPTY_SPEECH_CACHE_ROWS
+  const { data: speechCacheRows = EMPTY_SPEECH_CACHE_ROWS } = useQuery({
+    queryKey: ['speechCache'],
+    queryFn: () => api.speechCache.list(),
+  })
   const speechCacheByMessage = useMemo(
-    () => new Map(speechCacheRows.filter((row) => !!row).map((row) => [row!.messageId, row!])),
+    () => new Map((speechCacheRows ?? []).map((row) => [row.messageId, row])),
     [speechCacheRows],
   )
   const latestMessageId = messages.at(-1)?.id
@@ -371,7 +369,8 @@ export function ChatPage() {
   async function deleteMessage(message: Message) {
     if (speechPlayingId === message.id) stopSpeechPlayback()
     await api.batch.deleteMessage(message.id)
-    await db.speechCache.delete(message.id)
+    await api.speechCache.delete(message.id)
+    invalidate('speechCache')
     invalidateAll()
     if (replyToId === message.id) setReplyToId(null)
   }
@@ -478,7 +477,8 @@ export function ChatPage() {
 
   async function deleteMessageSpeech(message: Message) {
     if (speechPlayingId === message.id) stopSpeechPlayback()
-    await db.speechCache.delete(message.id)
+    await api.speechCache.delete(message.id)
+    invalidate('speechCache')
     setToast('已删除语音缓存')
   }
 

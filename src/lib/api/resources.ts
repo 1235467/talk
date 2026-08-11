@@ -1,5 +1,6 @@
 import type {
   AcousticEdge,
+  SpeechCacheRecord,
   AiTurnDebug,
   AiUsageRecord,
   Contact,
@@ -57,8 +58,10 @@ function keyedResource<T>(path: string) {
     list: (params?: ListParams) => apiFetch<T[]>(path, { params }),
     get: (id: string) => apiFetch<T>(`${path}/${encodeURIComponent(id)}`),
     put: (row: T) => apiFetch<T>(path, { method: 'POST', body: row }),
+    bulkPut: (rows: T[]) => apiFetch(`${path}/bulk`, { method: 'POST', body: rows }),
     patch: (id: string, patch: Partial<T>) => apiFetch<T>(`${path}/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch }),
     delete: (id: string) => apiFetch(`${path}/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    bulkDelete: (ids: string[]) => apiFetch(`${path}/bulk-delete`, { method: 'POST', body: ids }),
   }
 }
 
@@ -94,6 +97,7 @@ export const api = {
   mediaAssets: resource<MediaAsset>('/media-assets'),
   aiTurns: resource<AiTurnDebug>('/ai-turns'),
   aiUsageRecords: resource<AiUsageRecord>('/ai-usage-records'),
+  speechCache: keyedResource<SpeechCacheRecord>('/speech-cache'),
 
   kv: {
     list: () => apiFetch<Record<string, unknown>>('/kv'),

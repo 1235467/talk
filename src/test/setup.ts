@@ -57,6 +57,7 @@ const RESOURCE_PK: Record<string, string> = {
   'media-assets': 'id',
   'ai-turns': 'id',
   'ai-usage-records': 'id',
+  'speech-cache': 'messageId',
 }
 
 /** camelCase backup-table name → REST path (mirrors server import_order). */
