@@ -17,6 +17,13 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    // Dev 也保持生产形态：/api 和 /media 同源，由 vite 代理到本机后端。
+    // 后端起不来时页面会报网络错误——先跑 talk-server serve。
+    proxy: {
+      '/api': { target: 'http://127.0.0.1:3300', changeOrigin: true },
+      '/media': { target: 'http://127.0.0.1:3300', changeOrigin: true },
+      '/health': { target: 'http://127.0.0.1:3300', changeOrigin: true },
+    },
   },
   build: {
     rollupOptions: {
