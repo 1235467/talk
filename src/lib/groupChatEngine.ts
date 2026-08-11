@@ -36,6 +36,7 @@ import { createMediaAsset, startMediaAsset } from './imageAssets'
 import { auditAndRepairRawTurn, insertToolCallsIntoRawTurn } from './responseQuality'
 import { traceTurnEvent } from './deepseek'
 import type { AppSettings, Contact, Group, GroupAiBubble, Message, Sticker } from '../types'
+import { hasAiAccess } from './api/client'
 
 /** Load recent structured memories for each speaker in parallel. */
 async function loadSpeakerMemories(speakers: Contact[]): Promise<Map<string, string>> {
@@ -250,7 +251,7 @@ export async function sendGroupMessage(
     group = { ...group, memberContactIds: members.map((member) => member.id) }
     await db.groups.update(group.id, { memberContactIds: group.memberContactIds })
   }
-  if (!settings.apiKey && members.length > 0) {
+  if (!hasAiAccess(settings) && members.length > 0) {
     useChatEngineStore.getState().patch(conversationId, { error: '还没有配置API Key 请先去"我-设置"里填写' })
     return
   }
@@ -307,7 +308,7 @@ export async function triggerGroupAiTurn(
   settings: AppSettings,
   stickers: Sticker[],
 ): Promise<void> {
-  if (!settings.apiKey) {
+  if (!hasAiAccess(settings)) {
     useChatEngineStore.getState().patch(conversationId, { error: '还没有配置 API Key，请先去“我 / 设置”里填写' })
     return
   }
@@ -326,7 +327,7 @@ export async function regenerateGroupAiTurn(
   aiTurnId: string,
   regenerationInstruction = '',
 ): Promise<void> {
-  if (!settings.apiKey) {
+  if (!hasAiAccess(settings)) {
     useChatEngineStore.getState().patch(conversationId, { error: '还没有配置 API Key，请先去“我 / 设置”里填写' })
     return
   }

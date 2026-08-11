@@ -7,6 +7,7 @@ import { chatCompletionText } from './deepseek'
 import { traceTurnEvent } from './deepseek'
 import { appFetch } from './appFetch'
 import { generateRemoteImage } from './remoteMedia'
+import { hasAiAccess } from './api/client'
 
 const active = new Set<string>()
 const identityWork = new Map<string, Promise<string>>()
@@ -34,7 +35,7 @@ function fallbackUserIdentity(settings: AppSettings): string {
 }
 
 async function generateIdentity(label: string, context: string, settings: AppSettings): Promise<string> {
-  if (!settings.apiKey.trim()) return context
+  if (!hasAiAccess(settings)) return context
   try {
     return (await chatCompletionText({
       apiKey: settings.apiKey,

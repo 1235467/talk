@@ -8,6 +8,7 @@ import { selectedWorldbookEntriesText, retrieveWorldbookContext } from './worldb
 import { uniqueRelationPairs } from './contactRelations'
 import { displayName } from './contact'
 import { isPhoneAvailable } from './schedule'
+import { hasAiAccess } from './api/client'
 
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
@@ -105,7 +106,7 @@ export async function ensureOfflineExperiences(opts: {
   const absenceContext = gap >= HOUR
     ? `【用户离线】对方距离上次回复约${durationText(gap)}。这只是你能感知到的聊天间隔，不等于故意忽视你。结合上次对话是否自然结束、你期间的生活、关系和性格决定是否自然提及；不要机械报出精确时长，也不必每次抱怨。`
     : ''
-  if (gap < HOUR || !settings.apiKey) return { absenceContext, generated: [] }
+  if (gap < HOUR || !hasAiAccess(settings)) return { absenceContext, generated: [] }
 
   const [worldbook, candidatePlan, lifeState] = await Promise.all([
     Promise.all([

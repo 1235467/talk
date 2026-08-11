@@ -28,6 +28,7 @@ import { employmentPatch } from './career'
 import { displayName } from './contact'
 import { syncContactLocationsAt } from './locations'
 import { activePromptPreset, clonePromptModules } from './promptPresets'
+import { hasAiAccess } from './api/client'
 
 const ACTIVE_STATUSES: ContactGenerationStatus[] = [
   'preparing', 'retrieving_context', 'extracting_canon', 'generating', 'validating', 'fetching_avatar', 'committing',
@@ -239,7 +240,7 @@ async function runTask(task: ContactGenerationTask, signal: AbortSignal): Promis
   task.attempt += 1
   await setStage(task, 'preparing', { attempt: task.attempt, startedAt: task.startedAt ?? Date.now(), error: undefined })
   const liveSettings = useSettingsStore.getState()
-  if (!liveSettings.apiKey.trim()) throw codedError('AUTH_MISSING', '还没有配置 API Key，请先到“我－设置”中填写', false)
+  if (!hasAiAccess(liveSettings)) throw codedError('AUTH_MISSING', '还没有配置 API Key 或服务器，请先到“我－设置”中填写', false)
   const settings = { ...liveSettings, aiProvider: task.provider, baseUrl: task.baseUrl, model: task.model, utilityModel: task.utilityModel } as AppSettings
 
   if (!task.personaDraft) {

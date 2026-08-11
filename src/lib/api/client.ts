@@ -53,3 +53,18 @@ export function mediaUrl(path: string): string {
   if (!path.startsWith('/')) return path
   return `${serverBase()}${path}`
 }
+
+/** With a server configured, AI calls go through /api/ai-proxy and no local key is needed. */
+export function hasAiAccess(settings: { serverUrl?: string; apiKey?: string }): boolean {
+  return Boolean((settings.serverUrl ?? serverBase()) || settings.apiKey?.trim())
+}
+
+/** Dexie's get() returned undefined for missing rows; the server answers 404 instead. */
+export async function getOrUndef<T>(promise: Promise<T>): Promise<T | undefined> {
+  try {
+    return await promise
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return undefined
+    throw error
+  }
+}

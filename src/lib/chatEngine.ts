@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
+import { api } from './api/resources'
+import { getOrUndef, hasAiAccess } from './api/client'
+import { invalidate } from './api/keys'
 import { chatCompletionText as chatCompletion, coalesceConsecutiveRoles, type ChatMessage } from './deepseek'
 import {
   parseJsonLoose,
@@ -71,7 +74,7 @@ export const REPLY_TIMEOUT_MESSAGE = '这轮回复等待超过 6 分钟，已自
 
 /** Equal IndexedDB index keys have no stable order, so timestamps must be monotonic per conversation. */
 export async function nextMessageTimestamp(conversationId: string, requested = Date.now()): Promise<number> {
-  const rows = await db.messages.where('conversationId').equals(conversationId).toArray()
+  const rows = await api.messages.list({ conversationId })
   const latest = rows.reduce((value, message) => Math.max(value, message.createdAt), 0)
   return Math.max(requested, latest + 1)
 }
@@ -257,7 +260,7 @@ export async function sendMessage(
   text: string,
 ): Promise<void> {
   if (!text.trim()) return
-  if (!settings.apiKey) {
+  if (!hasAiAccess(settings)) {
     useChatEngineStore.getState().patch(conversationId, { error: '还没有配置API Key 请先去"我-设置"里填写' })
     return
   }
@@ -267,7 +270,7 @@ export async function sendMessage(
   useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: displayName(contact), timedOut: false })
 
   const now = await nextMessageTimestamp(conversationId)
-  const previousUserMessages = await db.messages.where('conversationId').equals(conversationId).toArray()
+  const previousUserMessages = await api.messages.list({ conversationId })
   const previousUserAt = previousUserMessages.filter((message) => message.role === 'user').reduce((latest, message) => Math.max(latest, message.createdAt), 0)
   const msg: Message = {
     id: uuid(),
@@ -277,8 +280,9 @@ export async function sendMessage(
     content: text.trim(),
     createdAt: now,
   }
-  await db.messages.add(msg)
-  await db.conversations.update(conversationId, { updatedAt: now })
+  await api.messages.put(msg)
+  await api.conversations.patch(conversationId, { updatedAt: now })
+  invalidate('messages', 'conversations')
 
   scheduleAiTurn(conversationId, contact, settings, stickers, streamId, text.trim(), '', previousUserAt || undefined, now)
 }
@@ -312,7 +316,7 @@ export async function regenerateAiTurn(
   aiTurnId: string,
   regenerationInstruction = '',
 ): Promise<void> {
-  if (!settings.apiKey) {
+  if (!hasAiAccess(settings)) {
     useChatEngineStore.getState().patch(conversationId, { error: '还没有配置 API Key，请先去“我 / 设置”里填写' })
     return
   }
@@ -321,14 +325,11 @@ export async function regenerateAiTurn(
   turns.begin(conversationId, streamId)
   useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: displayName(contact), timedOut: false })
 
-  const turnMessages = await db.messages
-    .where('conversationId')
-    .equals(conversationId)
-    .filter((message) => message.debugAiTurnId === aiTurnId)
-    .toArray()
-  if (turnMessages.length > 0) await db.messages.bulkDelete(turnMessages.map((message) => message.id))
-  await db.aiTurns.delete(aiTurnId)
-  await db.conversations.update(conversationId, { updatedAt: Date.now() })
+  const turnMessages = (await api.messages.list({ conversationId })).filter((message) => message.debugAiTurnId === aiTurnId)
+  if (turnMessages.length > 0) await api.messages.bulkDelete(turnMessages.map((message) => message.id))
+  await api.aiTurns.delete(aiTurnId)
+  await api.conversations.patch(conversationId, { updatedAt: Date.now() })
+  invalidate('messages', 'conversations')
 
   scheduleAiTurn(conversationId, contact, settings, stickers, streamId, '', '', undefined, undefined, regenerationInstruction.trim())
 }
@@ -363,13 +364,13 @@ async function runAiTurn(
   turns.addTimer(conversationId, timeout)
   try {
     const directOutput = isModuleEnabled('directOutput')
-    const history = await db.messages.where('conversationId').equals(conversationId).sortBy('createdAt')
+    const history = await api.messages.list({ conversationId })
     let absenceContext = ''
     if (!directOutput && offlineFrom && now - offlineFrom >= 60 * 60 * 1000 && isModuleEnabled('lifeSimulation')) {
       try {
         const completed = await ensureOfflineExperiences({ contact, settings, from: offlineFrom, to: now })
         absenceContext = completed.absenceContext
-        const refreshed = await db.contacts.get(contact.id)
+        const refreshed = await getOrUndef(api.contacts.get(contact.id))
         if (refreshed) contact = refreshed
       } catch (error) {
         console.warn('[experiences] 离线经历补全失败，本轮降级继续聊天', error)
@@ -385,7 +386,7 @@ async function runAiTurn(
     if (!directOutput && featureActive(contactPromptSettings, 'relationship') && contact.warmth === undefined) {
       await evaluateInitialWarmth(contact, conversationId, settings)
       // Re-read the contact so the newly-set warmth is available below.
-      const fresh = await db.contacts.get(contact.id)
+      const fresh = await getOrUndef(api.contacts.get(contact.id))
       if (fresh) contact = fresh
     }
 
@@ -393,7 +394,7 @@ async function runAiTurn(
     // liked this contact's moment) get mentioned once then cleared, rather
     // than sitting there forever or requiring a proactive-message system.
     const pendingEvents = contact.pendingEvents ?? []
-    if (pendingEvents.length > 0) await db.contacts.update(contact.id, { pendingEvents: [] })
+    if (pendingEvents.length > 0) { await api.contacts.patch(contact.id, { pendingEvents: [] }); invalidate('contacts') }
     const socialEventsText = await recentSocialEventsText([contact.id], 4)
     const recentEventsText = [pendingEvents.join('；'), socialEventsText].filter(Boolean).join('\n')
     const injectedIntents = featureActive(contactPromptSettings, 'intent') ? activeIntents(contact, now) : []
@@ -408,13 +409,13 @@ async function runAiTurn(
       await ensureLocationsInitialized()
       if (contact.locationSource === 'unknown') {
         await reassignUnknownContactLocation(contact, settings)
-        const reassigned = await db.contacts.get(contact.id)
+        const reassigned = await getOrUndef(api.contacts.get(contact.id))
         if (reassigned) contact = reassigned
       }
       await syncContactLocationsAt(nowDate)
-      const refreshedForTask = await db.contacts.get(contact.id)
+      const refreshedForTask = await getOrUndef(api.contacts.get(contact.id))
       if (refreshedForTask) contact = refreshedForTask
-      actionLocations = await db.locations.toArray()
+      actionLocations = await api.locations.list()
       const currentLocation = actionLocations.find((location) => location.id === contact.currentLocationId)
       const leafLocations = actionLocations.filter((location) => !actionLocations.some((candidate) => candidate.parentId === location.id))
       const locationCatalog = leafLocations.map((location) => `${location.name}(${location.id})`).join('、')
@@ -437,7 +438,7 @@ async function runAiTurn(
         excludeConversationId: conversationId,
       }) : Promise.resolve(''),
       isModuleEnabled('lifeSimulation')
-        ? db.lifeEvents.where('contactId').equals(contact.id).reverse().sortBy('occurredAt').then(events => events.slice(0, 4).map((event) => event.summary).join('；'))
+        ? api.lifeEvents.list({ contactId: contact.id }).then(events => events.slice(0, 4).map((event) => event.summary).join('；'))
         : Promise.resolve(''),
       isModuleEnabled('lifeSimulation') ? buildExperiencePromptSlice(contact.id, now) : Promise.resolve(''),
       featureActive(contactPromptSettings, 'worldview') ? retrieveWorldbookTrace([
@@ -641,7 +642,7 @@ async function runAiTurn(
     }
     console.info(`[chat-perf] review-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)} repaired=no`)
     const aiTurnId = uuid()
-    await db.aiTurns.add({
+    await api.aiTurns.put({
       id: aiTurnId,
       conversationId,
       raw: finalRaw,
@@ -729,9 +730,9 @@ function revealBubbles(
         // handed — that snapshot predates this write, and stashing a stale
         // scheduleOverrides array here would silently drop the exception
         // (same staleness bug fixed in proactiveChat.ts's pendingEvents write).
-        const fresh = await db.contacts.get(contact.id)
+        const fresh = await getOrUndef(api.contacts.get(contact.id))
         const pruned = pruneExpiredOverrides(fresh?.scheduleOverrides ?? [], new Date(turnNow))
-        const location = bubble.locationId ? await db.locations.get(bubble.locationId) : undefined
+        const location = bubble.locationId ? await getOrUndef(api.locations.get(bubble.locationId)) : undefined
         // Markers carry IDs, never free-form locations.  An invalid ID is a
         // rejected execution, not an invitation for a later model to guess.
         if (bubble.locationId && !location) return
@@ -749,7 +750,8 @@ function revealBubbles(
           createdAt: turnNow,
         }
         // Multiple non-overlapping special tasks may coexist on the same day.
-        await db.contacts.update(contact.id, { scheduleOverrides: [...pruned, override] })
+        await api.contacts.patch(contact.id, { scheduleOverrides: [...pruned, override] })
+        invalidate('contacts')
         void traceTurnEvent({ turnId: streamId, conversationId, stage: 'schedule_change', output: `新建：${override.activity}｜${override.date} ${String(override.startHour).padStart(2, '0')}:00-${String(override.endHour).padStart(2, '0')}:00｜${override.location}` })
       }
       let imagePayload: Message['image']
@@ -760,8 +762,12 @@ function revealBubbles(
         : await resolveBubbleMedia(bubble, settings, stickers)
       const { remoteSticker, stickerFailed } = media
 
+      // Finance bubbles only execute while the career module is enabled (its
+      // tables are not part of the server schema yet); otherwise they render inert.
       let finance: Message['finance']
-      if (bubble.type === 'transfer') {
+      if (!isModuleEnabled('career')) {
+        // skip finance execution
+      } else if (bubble.type === 'transfer') {
         try { const tx = await transferFunds({ from: contact.id, to: USER_WALLET_ID, amount: bubble.amount, kind: 'transfer', note: bubble.note, idempotencyKey: `ai:${streamId}:${i}` }); finance = { transactionId: tx.id, amount: tx.amount, note: bubble.note, status: 'completed' } } catch (err) { console.warn('[finance] AI转账被拒绝', err); return }
       } else if (bubble.type === 'redPacket') {
         try { const tx = await reserveRedPacket(contact.id, bubble.amount, bubble.note, `ai-red-packet:${streamId}:${i}`); finance = { transactionId: tx.id, amount: tx.amount, note: bubble.note, status: 'pending' } } catch (err) { console.warn('[finance] AI红包被拒绝', err); return }
@@ -844,11 +850,12 @@ function revealBubbles(
       if (turnThought && i === bubbles.length - 1) {
         console.log(`[chat] 想法已存入消息: ${turnThought}`)
       }
-      await db.messages.add(msg)
+      await api.messages.put(msg)
       if (imageAssetId) startMediaAsset(imageAssetId)
       if (i === 0) onFirstBubble?.()
       if (remoteSticker) void trackRemoteStickerSend(remoteSticker)
-      await db.conversations.update(conversationId, { updatedAt: messageCreatedAt })
+      await api.conversations.patch(conversationId, { updatedAt: messageCreatedAt })
+      invalidate('messages', 'conversations')
 
       // Only pop a notification if the user isn't already looking at this
       // exact conversation right now.
@@ -872,8 +879,9 @@ function revealBubbles(
             internalTask: { taskId: internalTask.id, status: internalTask.status, presentation: internalTask.presentation },
             createdAt: taskCreatedAt,
           }
-          await db.messages.add(taskMessage)
-          await db.conversations.update(conversationId, { updatedAt: taskCreatedAt })
+          await api.messages.put(taskMessage)
+          await api.conversations.patch(conversationId, { updatedAt: taskCreatedAt })
+          invalidate('messages', 'conversations')
         }
         useChatEngineStore.getState().patch(conversationId, { aiTyping: false, typingLabel: undefined })
         if (injectedIntentIds.length > 0) {
@@ -881,17 +889,18 @@ function revealBubbles(
         }
         const memoryUpdate = directOutput ? null : await maybeUpdateMemory(contact.id, conversationId, settings)
         if (memoryUpdate) {
-          const turn = await db.aiTurns.get(aiTurnId)
+          const turn = await getOrUndef(api.aiTurns.get(aiTurnId))
           const parsed =
             turn?.parsed && typeof turn.parsed === 'object'
               ? { ...(turn.parsed as Record<string, unknown>), memoryUpdate }
               : { memoryUpdate }
-          await db.aiTurns.update(aiTurnId, { parsed })
+          await api.aiTurns.patch(aiTurnId, { parsed } as never)
         }
         if (turnMood) {
-          await db.contacts.update(contact.id, {
+          await api.contacts.patch(contact.id, {
             mood: { text: turnMood, expiresAt: turnNow + settings.moodExpiryMs },
           })
+          invalidate('contacts')
         }
           }
     },
