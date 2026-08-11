@@ -1,0 +1,46 @@
+# nginx reverse-proxy template for talk-server.
+# Copy into your existing nginx setup; replace talk.example.com and paths.
+# talk-server itself binds 127.0.0.1:3300 (TALK_ADDRESS_PORT).
+
+server {
+    listen 443 ssl;
+    server_name talk.example.com;
+
+    # ssl_certificate / ssl_certificate_key: managed by you.
+
+    # The React frontend build (npm run build -> dist/) is plain static files.
+    root /var/www/talk/dist;
+    index index.html;
+
+    # HashRouter app: every path serves index.html.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Generated images / TTS cache served directly from the media directory.
+    location /media/ {
+        alias /var/lib/talk/media/;
+        expires 7d;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:3300;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # SSE (turn streaming) must not be buffered.
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 600s;
+
+        # Image uploads (base64 dataURLs converted server-side, multipart later).
+        client_max_body_size 64m;
+    }
+
+    # Health endpoint is intentionally unauthenticated.
+    location = /health {
+        proxy_pass http://127.0.0.1:3300;
+    }
+}
