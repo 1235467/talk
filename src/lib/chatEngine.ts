@@ -19,7 +19,6 @@ import { resolveKnowledgeQueries } from './knowledgeBase'
 import { evaluateInitialWarmth, relationshipLine } from './relationship'
 import { displayName } from './contact'
 import { previewForMessage } from './messagePreview'
-import { reviewTurnLogic } from './turnLogicReviewer'
 import { recentSocialEventsText } from './socialEvents'
 import { recentSharedOriginalContext } from './sharedRecentContext'
 import { useChatUiStore } from '../store/useChatUiStore'
@@ -33,7 +32,7 @@ import { featureActive, promptModuleEnabled } from './promptModules'
 import { realisticReplyDelayMs } from './replyTiming'
 import { buildExperiencePromptSlice, ensureOfflineExperiences } from './experiences'
 import { ensureLocationsInitialized, reassignUnknownContactLocation, syncContactLocationsAt } from './locations'
-import { evaluateDirectSpecialTask, runActionCommittee, type ActionCommitteeDebug } from './actionCommittee'
+import { evaluateDirectSpecialTask, type ActionCommitteeDebug } from './actionCommittee'
 import type { CreateSpecialTaskResult } from './agentTasks'
 import { createScheduleInternalTask } from './internalTasks'
 import { createMediaAsset, startMediaAsset } from './imageAssets'
@@ -405,7 +404,6 @@ async function runAiTurn(
     const scheduleText = describeUpcomingScheduleText(contact, nowDate)
     let actionLocations: import('../types').LocationNode[] = []
     let locationActionContext = ''
-    let locationFactsForReview = ''
     if (isModuleEnabled('location')) {
       await ensureLocationsInitialized()
       if (contact.locationSource === 'unknown') {
@@ -420,7 +418,6 @@ async function runAiTurn(
       const currentLocation = actionLocations.find((location) => location.id === contact.currentLocationId)
       const leafLocations = actionLocations.filter((location) => !actionLocations.some((candidate) => candidate.parentId === location.id))
       const locationCatalog = leafLocations.map((location) => `${location.name}(${location.id})`).join('、')
-      locationFactsForReview = `当前地点=${currentLocation?.name ?? '未知地点'}(${contact.currentLocationId ?? '未知'})\n可执行地点=${locationCatalog}`
       locationActionContext = `【地点与特殊任务】你当前位于：${currentLocation?.name ?? '未知地点'}（${contact.currentLocationId ?? '未知'}）。你可以按照自己的人设和意愿同意或拒绝玩家的线下请求。若同意，请只用自然聊天明确说清日期、开始时间、持续多久和地点；不要输出JSON、工具名或协议标记。系统会在回复后独立判断并创建特殊任务。特殊任务一旦与某条默认任务重叠，那条默认任务会整项取消。以下列表是当前唯一可确认并执行的具体地点：${locationCatalog}。玩家提到列表外地点，或名称无法可靠对应列表时，不能假装去过、看过、知道它存在，也不能直接答应；请保持角色口吻自然询问位置或让对方进一步说明，不要提“系统”“目录”或地点ID。`
     }
     const memoryPromptOn = promptModuleEnabled(contactPromptSettings, 'memory')
@@ -578,29 +575,6 @@ async function runAiTurn(
       detectedInvalid: false,
     }
 
-    const runLogicReview = (stage: 'first_quality' | 'second_quality' | 'other', focus: string) => reviewTurnLogic({
-      settings,
-      latestUserText: _triggeringUserText,
-      draftText: rawText,
-      personaFacts: [
-        `本次审查重点=${focus}`,
-        promptModuleEnabled(contactPromptSettings, 'chat') ? `角色=${displayName(contact)}` : '',
-        promptModuleEnabled(contactPromptSettings, 'chat') ? `人设=${contact.systemPrompt.slice(0, 1400)}` : '',
-        promptModuleEnabled(contactPromptSettings, 'chat') && contact.personaConstraints ? `硬约束=${contact.personaConstraints.slice(0, 700)}` : '',
-        featureActive(contactPromptSettings, 'personalityTraits') && contact.personalityTrait ? `人格特质=${contact.personalityTrait}` : '',
-        promptModuleEnabled(contactPromptSettings, 'memory') && contact.sharedHistory ? `与用户共同过往（关系硬锚点）=${contact.sharedHistory.slice(0, 900)}` : '',
-        featureActive(contactPromptSettings, 'worldview') && worldbookText ? `本轮命中世界书=${worldbookText.slice(0, 1000)}` : '',
-        sharedOriginalContext ? `相关跨场景事实=${sharedOriginalContext.slice(-1000)}` : '',
-        contactAge === null ? '' : `当前年龄硬事实=${contactAge}岁（生日${contact.birthday}）`,
-        scheduleText ? `未来十四天日程=\n${scheduleText}` : '',
-        locationFactsForReview ? `地点硬事实=\n${locationFactsForReview}\n列表外地点不得当成已确认存在，也不得虚构去过、见过照片或了解其情况。` : '',
-        `事实来源规则=不得把用户没说、上下文没给出的片名类型、截稿日期、去过某地、看过预告或照片等细节写成既成事实。`,
-      ].filter(Boolean).join('\n'),
-      recentContext: formatRecentConversationForReview(recentHistory.slice(-4), contact),
-      signal: controller.signal,
-      trace: { turnId: streamId, stage, conversationId },
-    })
-    void runLogicReview
     knowledgeQueries = Array.from(new Set([...initiallyRequestedKnowledge, ...knowledgeQueries])).slice(0, 2)
     if (!directOutput && featureActive(contactPromptSettings, 'knowledgeBase') && knowledgeQueries.length > 0) {
       const knowledge = await resolveKnowledgeQueries(knowledgeQueries, settings)
@@ -629,13 +603,7 @@ async function runAiTurn(
       return
     }
     const directReview = directOutput ? parseDirectOutputReview(rawText) : null
-    // The mandatory audit stage above owns all semantic and format review.
-    // Keep this empty compatibility result so the legacy fallback branches
-    // below cannot issue extra hidden review calls.
-    const logicReviews: Array<{ status: 'pass' | 'reject' | 'unavailable'; reason: string }> = []
     if (!turns.isCurrent(conversationId, streamId)) return
-    const rejectedReview = logicReviews.find((review) => review.status === 'reject')
-    const unavailableReviews = logicReviews.filter((review) => review.status === 'unavailable')
     if (directOutput && directReview?.valid === false) {
       qualityCheckDebug.detectedInvalid = true
       qualityCheckDebug.reason = directReview.reason || '主模型同次自审未通过'
@@ -645,47 +613,17 @@ async function runAiTurn(
       turnThought = undefined
       finalRaw = serializePrivateTurn({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought })
       jsonRaw = finalRaw
-    } else if (rejectedReview) {
-      qualityCheckDebug.detectedInvalid = true
-      qualityCheckDebug.reason = rejectedReview.reason
-      console.warn(`[chat] 最终回复未通过三重逻辑审查，改发兜底提示 对方=${displayName(contact)} 原因=${rejectedReview.reason || '未知原因'}`)
-      bubbles = [{ type: 'text', content: '我刚才没想清楚，能让我重新想一下吗？' }]
-      knowledgeQueries = []
-      turnMood = undefined
-      turnThought = undefined
-      finalRaw = serializePrivateTurn({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought })
-      jsonRaw = finalRaw
     } else {
-      const selfReview = directOutput
+      qualityCheckDebug.reason = directOutput
         ? (directReview ? `同次自审通过：${directReview.reason || '无客观冲突'}` : '同次自审字段缺失，已仅执行本地结构校验')
-        : '主回复已通过三重逻辑审查'
-      qualityCheckDebug.reason = unavailableReviews.length
-        ? `${selfReview}；${unavailableReviews.length}/3 项审查不可用，已按其余审查放行`
-        : `${selfReview}；三重逻辑审查均通过`
+        : '主回复已通过审核模型审查'
     }
     let actionCommittee: (ActionCommitteeDebug & { toolResult?: CreateSpecialTaskResult }) | undefined
     let internalTask: InternalTask | undefined
     // Normal turns only execute explicit [schedule:...] markers parsed above.
     // The legacy committee remains limited to the experimental direct-output mode.
     if (directOutput && !qualityCheckDebug.detectedInvalid && _triggeringUserText.trim() && isModuleEnabled('location') && actionLocations.length > 0) {
-      const visibleDraft = bubbles.map((bubble) => {
-        if (bubble.type === 'text') return bubble.content
-        if (bubble.type === 'scheduleChange') return bubble.summary
-        if (bubble.type === 'image') return bubble.caption || '[图片]'
-        if (bubble.type === 'sticker') return `[表情：${bubble.name}]`
-        return ''
-      }).filter(Boolean).join('\n')
-      actionCommittee = directOutput ? evaluateDirectSpecialTask(rawText, actionLocations, now, _triggeringUserText) : await runActionCommittee({
-        contact,
-        settings,
-        locations: actionLocations,
-        playerText: _triggeringUserText,
-        draftText: visibleDraft,
-        now,
-        signal: controller.signal,
-        turnId: streamId,
-        conversationId,
-      })
+      actionCommittee = evaluateDirectSpecialTask(rawText, actionLocations, now, _triggeringUserText)
       if (!turns.isCurrent(conversationId, streamId)) return
       if (actionCommittee.approved && actionCommittee.task) {
         const toolResult = await createScheduleInternalTask(contact.id, conversationId, { ...actionCommittee.task, sourceConversationId: conversationId }, now)

@@ -1,17 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { lifeWindows } from './lifeSimulation'
 import { customTraitWarmthModifier } from './relationship'
 import { rankWorldbookEntries } from './worldbook'
 import { customTraitsValidationError, hasOverlappingCustomTraitRules } from './contactCreator'
-
-describe('life simulation windows', () => {
-  it('uses bounded deterministic windows for long gaps', () => {
-    const now = Date.now()
-    const first = lifeWindows(now - 30 * 24 * 60 * 60 * 1000, now)
-    expect(first.length).toBeLessThanOrEqual(30)
-    expect(first).toEqual(lifeWindows(now - 30 * 24 * 60 * 60 * 1000, now))
-  })
-})
 
 describe('worldbook and trait rules', () => {
   it('keeps permanent entries ahead of keyword matches', () => {

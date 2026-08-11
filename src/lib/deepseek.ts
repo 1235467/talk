@@ -363,6 +363,22 @@ async function readStreamingCompletion(body: ReadableStream<Uint8Array>): Promis
   return { choices: [{ message: { content, reasoning_content: reasoning || undefined }, finish_reason: finishReason }], usage }
 }
 
+/**
+ * When a talk server is configured, chat completions go through its
+ * /api/ai-proxy endpoint — the provider key lives only on the server
+ * (TALK_AI_KEY) and devices just need the server token. Otherwise the
+ * legacy direct-to-provider path runs with the locally stored apiKey.
+ */
+function resolveAiEndpoint(opts: ChatCompletionOptions, provider: AiProviderId): { endpoint: string; key: string } {
+  const { serverUrl, serverToken } = useSettingsStore.getState()
+  if (serverUrl) {
+    return { endpoint: `${serverUrl.replace(/\/+$/, '')}/api/ai-proxy`, key: serverToken }
+  }
+  const key = requireApiKey(opts.apiKey, 'AI')
+  requireHttpUrl(opts.baseUrl || AI_PROVIDERS[provider].defaultBaseUrl, 'Base URL')
+  return { endpoint: resolveChatCompletionsUrl(opts.baseUrl, provider), key }
+}
+
 export async function chatCompletion(opts: ChatCompletionOptions): Promise<ChatCompletionResult> {
   const purpose = opts.purpose ?? 'other'
   const automatic = opts.automatic ?? false
@@ -372,9 +388,7 @@ export async function chatCompletion(opts: ChatCompletionOptions): Promise<ChatC
   const inputTokens = messages.reduce((sum, message) => sum + estimateTokens(message.content), 0)
   const startedAt = Date.now()
   try {
-  const key = requireApiKey(opts.apiKey, 'AI')
-  requireHttpUrl(opts.baseUrl || AI_PROVIDERS[provider].defaultBaseUrl, 'Base URL')
-  const endpoint = resolveChatCompletionsUrl(opts.baseUrl, provider)
+  const { endpoint, key } = resolveAiEndpoint(opts, provider)
   let result: ChatCompletionResult | undefined
   let retryMode: { disableJson?: boolean; alternateToken?: boolean; emptyRetry?: boolean } = {}
   const maxAttempts = opts.singleRequest ? 1 : EMPTY_COMPLETION_MAX_ATTEMPTS
@@ -451,10 +465,10 @@ export async function chatCompletionStream(opts: ChatCompletionOptions & { onDel
   const purpose = opts.purpose ?? 'other'
   const messages = opts.messages
   const inputTokens = messages.reduce((sum, message) => sum + estimateTokens(message.content), 0)
-  const key = requireApiKey(opts.apiKey, 'AI')
   const provider = opts.provider ?? useSettingsStore.getState().aiProvider ?? 'deepseek'
+  const { endpoint, key } = resolveAiEndpoint(opts, provider)
   const startedAt = Date.now()
-  const res = await appFetch(resolveChatCompletionsUrl(opts.baseUrl, provider), { method: 'POST', signal: opts.signal, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...requestBody(opts, messages, provider), stream: true }) })
+  const res = await appFetch(endpoint, { method: 'POST', signal: opts.signal, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...requestBody(opts, messages, provider), stream: true }) })
   if (!res.ok || !res.body) {
     const text = await res.text()
     let payload: unknown = text

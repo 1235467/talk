@@ -4,7 +4,6 @@ import { useParams } from 'react-router-dom'
 import { TopBar } from '../components/TopBar'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { db } from '../db/db'
-import { DEFAULT_JSON_CONVERSION_PROMPT, validateJsonConversionPrompt } from '../lib/prompt'
 import { PROMPT_MODULE_DEFINITIONS, unknownPromptPlaceholders } from '../lib/promptModules'
 import { clonePromptModules, promptModulesForContact } from '../lib/promptPresets'
 import { suggestContactAdminEdit, type ContactAdminSuggestion } from '../lib/contactAdminAssistant'
@@ -55,7 +54,6 @@ export function ContactAdminPage() {
 
   const [draft, setDraft] = useState<Contact | null>(null)
   const [promptDraft, setPromptDraft] = useState<PromptModuleSettings | null>(null)
-  const [jsonProtocol, setJsonProtocol] = useState(DEFAULT_JSON_CONVERSION_PROMPT)
   const [profileJson, setProfileJson] = useState('null')
   const [moodJson, setMoodJson] = useState('null')
   const [intentJson, setIntentJson] = useState('[]')
@@ -79,7 +77,6 @@ export function ContactAdminPage() {
     if (!contact || initializedId === contact.id) return
     setDraft(structuredClone(contact))
     setPromptDraft(clonePromptModules(promptModulesForContact(contact, settings)))
-    setJsonProtocol(contact.jsonProtocolOverride || DEFAULT_JSON_CONVERSION_PROMPT)
     setProfileJson(pretty(contact.personaProfile))
     setMoodJson(pretty(contact.mood))
     setIntentJson(pretty(contact.intentQueue ?? []))
@@ -112,8 +109,6 @@ export function ContactAdminPage() {
     try {
       if (!draft.name.trim()) throw new Error('联系人名称不能为空')
       if (draft.birthday && !/^\d{4}-\d{2}-\d{2}$/.test(draft.birthday)) throw new Error('生日必须使用 YYYY-MM-DD')
-      const protocolMissing = validateJsonConversionPrompt(jsonProtocol)
-      if (protocolMissing.length) throw new Error(`JSON 协议缺少必要标记：${protocolMissing.join('、')}`)
       validatePromptModules(promptDraft)
       const nextMemories = parseArray<ContactMemory>('AI记忆', memoryJson).map((row) => ({ ...row, contactId }))
       const personaProfile = parseObject<Contact['personaProfile']>('结构化人设', profileJson)
@@ -132,7 +127,7 @@ export function ContactAdminPage() {
       const nextExperienceIds = new Set(nextExperiences.map((row) => row.id))
 
       await db.transaction('rw', [db.contacts, db.contactMemories, db.contactRelations, db.contactExperiences, db.socialEvents, db.contactLifeStates, db.walletAccounts, db.walletTransactions], async () => {
-        await db.contacts.put({ ...draft, id: contact.id, createdAt: contact.createdAt, personaProfile: personaProfile ?? undefined, mood: mood ?? undefined, intentQueue, schedule, scheduleOverrides, customPersonalityTraits, promptModulesSnapshot: clonePromptModules(promptDraft), jsonProtocolOverride: jsonProtocol === DEFAULT_JSON_CONVERSION_PROMPT ? undefined : jsonProtocol, promptPresetSourceName: '联系人单独修改', promptSnapshotUpdatedAt: Date.now() })
+        await db.contacts.put({ ...draft, id: contact.id, createdAt: contact.createdAt, personaProfile: personaProfile ?? undefined, mood: mood ?? undefined, intentQueue, schedule, scheduleOverrides, customPersonalityTraits, promptModulesSnapshot: clonePromptModules(promptDraft), promptPresetSourceName: '联系人单独修改', promptSnapshotUpdatedAt: Date.now() })
         await db.contactMemories.where('contactId').equals(contactId).delete()
         if (nextMemories.length) await db.contactMemories.bulkPut(nextMemories)
         await db.contactRelations.filter((row) => row.fromContactId === contactId || row.toContactId === contactId).delete()
@@ -152,7 +147,7 @@ export function ContactAdminPage() {
         if (nextTransactions.length) await db.walletTransactions.bulkPut(nextTransactions)
       })
       setStatus('已保存，下一轮聊天会使用新资料。')
-      setDraft((current) => current ? { ...current, promptModulesSnapshot: clonePromptModules(promptDraft), jsonProtocolOverride: jsonProtocol === DEFAULT_JSON_CONVERSION_PROMPT ? undefined : jsonProtocol, promptSnapshotUpdatedAt: Date.now() } : current)
+      setDraft((current) => current ? { ...current, promptModulesSnapshot: clonePromptModules(promptDraft), promptSnapshotUpdatedAt: Date.now() } : current)
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error))
     }
@@ -189,7 +184,6 @@ export function ContactAdminPage() {
       }
       setPromptDraft(next)
     }
-    if (suggestion.jsonProtocolOverride) setJsonProtocol(suggestion.jsonProtocolOverride)
     if (suggestion.experiencePatches?.length) {
       const patches = new Map(suggestion.experiencePatches.map((row) => [row.id, row]))
       const rows = parseArray<ContactExperience>('经历', experienceJson).map((row) => ({ ...row, ...(patches.get(row.id) ?? {}), id: row.id }))
@@ -213,7 +207,7 @@ export function ContactAdminPage() {
 
       <section className="mt-3 bg-white px-4 py-4"><h2 className="text-sm font-medium text-gray-900">当前联系人固定提示词</h2><p className="mt-1 text-[11px] text-gray-400">这里只修改当前联系人，不会反向修改全局存档。</p><div className="mt-3 space-y-3">{definitions.map((definition) => { const config = promptDraft[definition.id]; if (!config) return null; return <details key={definition.id} className="rounded-xl border border-gray-200 p-3"><summary className="flex cursor-pointer list-none items-center gap-3"><span className="min-w-0 flex-1 text-sm font-medium text-gray-800">{definition.name}</span><ToggleSwitch checked={config.enabled} onChange={(enabled) => setPromptDraft((current) => current ? { ...current, [definition.id]: { ...current[definition.id], enabled } } : current)} ariaLabel={`切换${definition.name}`} /></summary><div className="mt-3 space-y-3">{definition.templates.map((template) => <Area key={template.id} label={template.name} value={config.templates[template.id] ?? ''} onChange={(value) => setPromptDraft((current) => current ? { ...current, [definition.id]: { ...current[definition.id], templates: { ...current[definition.id].templates, [template.id]: value } } } : current)} rows={8} mono note={template.placeholders.length ? `可用占位符：${template.placeholders.map((key) => `{{${key}}}`).join('、')}` : undefined} />)}</div></details> })}</div></section>
 
-      <section className="mt-3 bg-white px-4 py-4"><h2 className="text-sm font-medium text-gray-900">当前联系人 JSON 协议</h2><Area label="主模型原始文字转换协议" value={jsonProtocol} onChange={setJsonProtocol} rows={18} mono note="必须保留 {{rawText}}、messages、type、mood、thought、knowledgeQueries。全局存档不包含这一项。" /><button type="button" onClick={() => setJsonProtocol(DEFAULT_JSON_CONVERSION_PROMPT)} className="mt-2 text-xs text-gray-500 underline">恢复程序默认协议</button></section>
+
 
       <section className="mt-3 space-y-4 bg-white px-4 py-4"><h2 className="text-sm font-medium text-gray-900">真实后台数据</h2><p className="text-[11px] leading-relaxed text-amber-600">以下内容直接对应数据库。多人共享经历和双向关系的修改会影响其他参与角色；删除数组项也会同步删除或解除关联。</p><Area label="AI 结构化记忆" value={memoryJson} onChange={setMemoryJson} rows={12} mono /><Area label="AI 之间的关系" value={relationJson} onChange={setRelationJson} rows={12} mono /><Area label="经历（含共享经历）" value={experienceJson} onChange={setExperienceJson} rows={14} mono /><Area label="最近社交动态" value={socialJson} onChange={setSocialJson} rows={12} mono /><Area label="生活状态" value={lifeJson} onChange={setLifeJson} rows={9} mono /><Area label="联系人钱包" value={walletJson} onChange={setWalletJson} rows={6} mono /><Area label="联系人相关交易" value={transactionJson} onChange={setTransactionJson} rows={12} mono /></section>
     </div>

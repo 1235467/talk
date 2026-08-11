@@ -33,26 +33,6 @@ export function parseAiResponse(raw: string): ParsedAiTurn {
   return { bubbles: fallbackBubbles, knowledgeQueries: [], mood: undefined }
 }
 
-/**
- * Reads only a complete structured chat reply. Unlike parseAiResponse(), this
- * never falls back to treating arbitrary lines as user-visible text. It is
- * used for providers that sometimes ignore the raw-text draft instruction and
- * return the final messages JSON directly.
- */
-export function parseStructuredAiResponse(raw: string): ParsedAiTurn | null {
-  const trimmedRaw = raw.trim()
-  return trimmedRaw ? tryParseJson(trimmedRaw) : null
-}
-
-/** True when a reply looks like an attempted final chat protocol payload. */
-export function looksLikeStructuredAiResponse(raw: string): boolean {
-  if (parseStructuredAiResponse(raw)) return true
-  // Keep malformed payloads behind the custom-provider safety gate too. The
-  // leading prose is intentional: some compatible services prepend a short
-  // explanation before the JSON object.
-  return /\{[\s\S]{0,240}["']messages["']\s*:/.test(raw)
-}
-
 export function parseKnowledgeQueriesField(raw: unknown): string[] {
   if (!Array.isArray(raw)) return []
   const result: string[] = []
@@ -63,34 +43,6 @@ export function parseKnowledgeQueriesField(raw: unknown): string[] {
   return result
 }
 
-function parseFinanceMarker(line: string): AiBubble | null {
-  let match = line.match(/^\[transfer:(\d+):([^\]]+)\]$/i)
-  if (match) return { type: 'transfer', amount: Number(match[1]), note: match[2].trim().slice(0, 80) }
-  match = line.match(/^\[redPacket:(\d+):([^\]]+)\]$/i)
-  if (match) return { type: 'redPacket', amount: Number(match[1]), note: match[2].trim().slice(0, 80) }
-  match = line.match(/^\[loanRequest:(\d+):([^\]]+)\]$/i)
-  if (match) return { type: 'loanRequest', amount: Number(match[1]), note: match[2].trim().slice(0, 80) }
-  match = line.match(/^\[loanDecision:([^:\]]+):(accept|reject):(\d+)\]$/i)
-  if (match) {
-    return {
-      type: 'loanDecision',
-      loanId: match[1].trim(),
-      decision: match[2].toLowerCase() as 'accept' | 'reject',
-      amount: Number(match[3]),
-    }
-  }
-  match = line.match(/^\[giftPurchase:(\d+):([^:\]]+):([^:\]]+):([^\]]+)\]$/i)
-  if (match) {
-    return {
-      type: 'giftPurchase',
-      amount: Number(match[1]),
-      name: match[2].trim().slice(0, 30),
-      icon: match[3].trim().slice(0, 8),
-      description: match[4].trim().slice(0, 80),
-    }
-  }
-  return null
-}
 
 /** Mechanical only: this parser never infers missing appointment fields. */
 export function parseScheduleMarker(line: string): Extract<AiBubble, { type: 'scheduleChange' }> | null {
@@ -108,79 +60,6 @@ export function parseScheduleMarker(line: string): Extract<AiBubble, { type: 'sc
     || (phoneAccess !== 'available' && phoneAccess !== 'unavailable') || !fields.locationId || !fields.activity || !fields.summary) return null
   // location is resolved from the local map before the record is persisted.
   return { type: 'scheduleChange', date: fields.date, startHour, endHour, phoneAccess, location: fields.locationId, locationId: fields.locationId, activity: fields.activity.slice(0, 16), summary: fields.summary.slice(0, 40) }
-}
-
-/**
- * Fast path for the main model's line-oriented draft. Ordinary text and the
- * explicit protocol markers are mechanical, so converting them locally avoids
- * a second model request while preserving the main model's exact wording.
- */
-export function parseRawPrivateDraft(raw: string, fallbackMood?: string): ParsedAiTurn {
-  const bubbles: AiBubble[] = []
-  const knowledgeQueries: string[] = []
-  let turnThought: string | undefined
-  let turnMood: string | undefined
-
-  for (const sourceLine of raw.split(/\r?\n/)) {
-    const line = sourceLine.trim()
-    if (!line) continue
-    // Private and group drafts share per-line thought/mood metadata. Private
-    // chat omits only the speaker-name prefix.
-    const match = line.match(/^（([^（）]+)）\[([^\[\]]+)\]“([\s\S]+)”$/)
-    if (!match) continue
-    const thought = match[1].trim().slice(0, 100)
-    const mood = match[2].trim().slice(0, 10)
-    const content = match[3].trim()
-    if (!thought || !mood || !content) continue
-    if (!turnThought) turnThought = thought
-    if (!turnMood) turnMood = normalizeMood(mood)
-
-    const knowledge = content.match(/^\[knowledge:([^\]]+)\]$/i)
-    if (knowledge) {
-      if (knowledgeQueries.length < 2) knowledgeQueries.push(knowledge[1].trim())
-      continue
-    }
-    const sticker = content.match(/^\[sticker:([^\]]+)\]$/i)
-    if (sticker) {
-      bubbles.push({ type: 'sticker', name: sticker[1].trim() })
-      continue
-    }
-    const image = content.match(/^\[image:([^:\]]+):([^\]]*)\]$/i)
-    if (image) {
-      bubbles.push({
-        type: 'image',
-        query: image[1].trim().slice(0, 2_000),
-        caption: image[2].trim().slice(0, 200) || undefined,
-      })
-      continue
-    }
-    const finance = parseFinanceMarker(content)
-    if (finance) {
-      bubbles.push(finance)
-      continue
-    }
-    const schedule = parseScheduleMarker(content)
-    if (schedule) {
-      bubbles.push(schedule)
-      continue
-    }
-    bubbles.push({ type: 'text', content })
-  }
-
-  const mood = turnMood
-    ? turnMood
-    : fallbackMood
-      ? normalizeMood(fallbackMood)
-      : undefined
-  return { bubbles, knowledgeQueries, mood, thought: turnThought }
-}
-
-/** Use the utility model only when the draft did not follow the local format. */
-export function rawPrivateDraftNeedsUtility(raw: string, parsed: ParsedAiTurn): boolean {
-  if (parsed.bubbles.length === 0) return true
-  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-  if (lines.length === 0 || lines.some((line) => !/^（[^（）]+）\[[^\[\]]+\]“[\s\S]+”$/.test(line))) return true
-  return parsed.bubbles.some((bubble) => bubble.type === 'text' && /^\[[A-Za-z]+:/.test(bubble.content))
 }
 
 export function serializePrivateTurn(parsed: ParsedAiTurn): string {

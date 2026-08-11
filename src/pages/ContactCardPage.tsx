@@ -17,7 +17,7 @@ import { removeContactFromAllGroups } from '../lib/groupChat'
 import { describeCurrentSchedule, describeUpcomingScheduleText, isPhoneAvailable, scheduleOccurrencesForDate } from '../lib/schedule'
 import { normalizeMood } from '../lib/mood'
 import { describeCurrentTime } from '../lib/time'
-import { RELATIONSHIP_OPTIONS, formatSpeechSamplesForScene, buildRawChatPromptParts, buildJsonConversionPrompt } from '../lib/prompt'
+import { RELATIONSHIP_OPTIONS, formatSpeechSamplesForScene, buildRawChatPromptParts } from '../lib/prompt'
 import { useModuleEnabled, isModuleEnabled } from '../features'
 import { personalityIntimacyStage, warmthLabel, relationshipLine } from '../lib/relationship'
 import { buildUserProfileText } from '../lib/chatEngine'
@@ -34,7 +34,7 @@ import { switchContactWorldview } from '../lib/scopedSaves'
 import { promptModulesForContact } from '../lib/promptPresets'
 import { contactSpeechVoice, isSpeechProviderReady, speechProviderName, speechVoiceOptions } from '../lib/speechProviders'
 import { synthesizeSpeech } from '../lib/speechSynthesis'
-import { ArrowDownToLine, ArrowUpFromLine, ChevronLeft, ChevronRight, ClipboardList, Phone, PhoneOff } from 'lucide-react'
+import { ArrowUpFromLine, ChevronLeft, ChevronRight, ClipboardList, Phone, PhoneOff } from 'lucide-react'
 
 const CALENDAR_HOUR_HEIGHT = 22
 
@@ -418,9 +418,6 @@ export function ContactCardPage() {
         sharedHistory: contact.sharedHistory,
       })
     : null
-  const conversionPrompt = adminEnabled
-    ? buildJsonConversionPrompt('【AI的原始回复文字会放在这里】', contact.jsonProtocolOverride)
-    : ''
 
   return (
     <div className="relative flex h-[var(--app-height)] flex-col overflow-hidden bg-[#f4f4f6]">
@@ -734,18 +731,6 @@ export function ContactCardPage() {
               </div>
             </div>
 
-            {/* Step 2: utility model */}
-            <div className="rounded-lg border-2 border-gray-800">
-              <div className="border-b border-gray-200 bg-gray-100 px-3 py-1.5">
-                <span className="flex items-center gap-1.5 text-xs font-bold text-gray-800"><ArrowDownToLine size={14} />{`发给多功能模型（${settings.utilityModel}）`}</span>
-                <span className="ml-2 text-[10px] text-gray-400">原始文字 → JSON（提取mood/thought/表情包）</span>
-              </div>
-              <div className="p-3">
-                <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-gray-700">
-                  {conversionPrompt}
-                </pre>
-              </div>
-            </div>
           </div>
         </section>
       )}

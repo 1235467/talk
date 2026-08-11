@@ -531,34 +531,3 @@ export function buildRawChatPromptParts(opts: {
   }
 }
 
-/**
- * Step 2: Prompt the utility model to convert raw chat text into JSON.
- */
-export const DEFAULT_JSON_CONVERSION_PROMPT = `将以下聊天回复解析为JSON。消息正文只做机械提取，不要修改原文；mood/thought是内部元数据。
-这是逐行翻译，不是重新生成：原文是唯一事实来源。不得把原文简单按换行当作最终消息，也不得合并、拆分、重排、润色、总结、补写或删改任何一行。
-
-{{rawText}}
-
-规则:
-- 这是纯翻译步骤：不得依据语义补写、猜测或删改内容；尤其不得自己创建日程、地点、时间、承诺或图片提示词。
-- 每行只机械读取：（想法）[emoji]“消息内容”。将引号内内容转为消息正文；thought 取括号内容，mood 取 emoji。任何一项缺失都不得猜测补写。
-- 每一行非空原文必须对应一个messages元素并保持顺序；普通text的content必须逐字等于引号内内容，只去除外层协议，不能根据语义改写。
-- 如果原文有[sticker:名字]则输出sticker类型
-- 将[image:英文图片请求词:配文]转换为 image，并填写 query、scene、caption、kind（selfie/portrait/group/scene/object）和 participants（self/user数组）。本人入镜用self，用户入镜用user，纯场景或物品用空数组。标记不能留在text正文
-- 将[schedule:date=...;startHour=...;endHour=...;locationId=...;activity=...;phoneAccess=...;summary=...]仅机械转换为 scheduleChange 的同名字段；不得补全、改写或创建任何字段。
-- 将所有[knowledge:关键词]从正文删除，并把关键词放进顶层knowledgeQueries数组，最多2个；没有标记则输出空数组
-- 图片、日程、资金、表情和知识标记必须逐个机械转换，不能漏掉、变成普通text或用自然语言替代；所有字段只能取自原文，不能补造。
-- 必须将资金标记转换为结构化消息，绝不能当作text或丢弃：[transfer:金额:备注]→{"type":"transfer","amount":金额,"note":"备注"}；[redPacket:金额:备注]→redPacket；[loanRequest:金额:理由]→loanRequest；[loanDecision:loanId:accept或reject:金额]→loanDecision；[giftPurchase:价格:礼物名:emoji:描述]→{"type":"giftPurchase","amount":价格,"name":"礼物名","icon":"emoji","description":"描述"}。标记本身不能出现在text正文
-- thought取原文第一行括号内的想法；mood取原文第一行的 emoji；若缺失则转换失败，绝不根据语境推断。
-- messages允许的完整类型示例：{"messages":[{"type":"text","content":"..."},{"type":"image","query":"casual selfie by a window","scene":"casual selfie by a window","kind":"selfie","participants":["self"],"caption":"你看这个"},{"type":"transfer","amount":100,"note":"拿去买奶茶"},{"type":"giftPurchase","amount":299,"name":"围巾","icon":"🧣","description":"给你挑的"}],"mood":"...","thought":"...","knowledgeQueries":[]}。只输出JSON对象`
-
-const REQUIRED_JSON_PROTOCOL_MARKERS = ['{{rawText}}', 'messages', 'type', 'mood', 'thought', 'knowledgeQueries']
-
-export function validateJsonConversionPrompt(template: string): string[] {
-  return REQUIRED_JSON_PROTOCOL_MARKERS.filter((marker) => !template.includes(marker))
-}
-
-export function buildJsonConversionPrompt(rawText: string, override?: string): string {
-  const template = override?.trim() && validateJsonConversionPrompt(override).length === 0 ? override : DEFAULT_JSON_CONVERSION_PROMPT
-  return template.replaceAll('{{rawText}}', rawText)
-}

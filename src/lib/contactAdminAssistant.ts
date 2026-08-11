@@ -6,7 +6,6 @@ export interface ContactAdminSuggestion {
   summary: string
   contactPatch?: Partial<Contact>
   promptModulePatches?: Partial<PromptModuleSettings>
-  jsonProtocolOverride?: string
   experiencePatches?: Array<Partial<ContactExperience> & { id: string }>
 }
 
@@ -23,7 +22,7 @@ export async function suggestContactAdminEdit(input: {
     model: input.settings.utilityModel || input.settings.model,
     provider: input.settings.aiProvider,
     messages: [{ role: 'system', content: `你是联系人设定二次编辑助手。根据管理员的明确要求提出最小修改，不得擅自改变未被要求的身份、共同经历、关系、职业或世界观。只输出JSON：
-{"summary":"修改说明","contactPatch":{},"promptModulePatches":{},"jsonProtocolOverride":"可省略","experiencePatches":[{"id":"原经历ID","summary":"修改后内容"}]}
+{"summary":"修改说明","contactPatch":{},"promptModulePatches":{},"experiencePatches":[{"id":"原经历ID","summary":"修改后内容"}]}
 contactPatch只放需要改变的Contact字段；不得修改id、createdAt、记忆游标或后台时间戳。promptModulePatches只放需要改变的模块和模板。经历只能引用输入中已有ID，不能凭空新增事实。` }, { role: 'user', content: `管理员要求：${input.instruction}
 
 当前联系人：

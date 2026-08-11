@@ -19,7 +19,6 @@ import { describeCurrentTime } from './time'
 import { displayName } from './contact'
 import { previewForMessage } from './messagePreview'
 import { buildUserProfileText, nextMessageTimestamp, REPLY_TIMEOUT_MESSAGE, useChatEngineStore } from './chatEngine'
-import { reviewTurnLogic } from './turnLogicReviewer'
 import { buildDirectGroupOutputInstruction, parseDirectOutputReview } from './directOutput'
 import { trackRemoteStickerSend } from './remoteMedia'
 import { resolveBubbleMedia } from './bubbleMedia'
@@ -96,14 +95,13 @@ function parseGroupTurnDebugPayload(
   knowledgeQueries: string[],
   turnSummary: string,
   groupVibe: string,
-  storyOutline?: string,
 ): unknown {
   const parsed = parseJsonLoose(finalRaw)
   if (parsed && typeof parsed === 'object') {
-    return { ...(parsed as Record<string, unknown>), mainPrompt, rawText, draftFeedback, jsonRaw, finalRaw, parsedBubbles: bubbles, storyOutline, promptTrace: { sections: [{ label: '群聊主提示词', content: mainPrompt }] } }
+    return { ...(parsed as Record<string, unknown>), mainPrompt, rawText, draftFeedback, jsonRaw, finalRaw, parsedBubbles: bubbles, promptTrace: { sections: [{ label: '群聊主提示词', content: mainPrompt }] } }
   }
   if (parsed !== null) return parsed
-  return { mainPrompt, rawText, draftFeedback, jsonRaw, finalRaw, parsedBubbles: bubbles, knowledgeQueries, turnSummary, groupVibe, storyOutline, promptTrace: { sections: [{ label: '群聊主提示词', content: mainPrompt }] } }
+  return { mainPrompt, rawText, draftFeedback, jsonRaw, finalRaw, parsedBubbles: bubbles, knowledgeQueries, turnSummary, groupVibe, promptTrace: { sections: [{ label: '群聊主提示词', content: mainPrompt }] } }
 }
 
 /** Admin-only safe stop for a group generation and its queued bubbles. */
@@ -451,10 +449,6 @@ async function runGroupAiTurn(
     const controller = new AbortController()
     turns.setAbortController(conversationId, controller)
 
-    // ChatSLG retired per-turn pre-draft outlines because they add a complete
-    // serial model request before every group reply. The main prompt already
-    // contains the same planning, persona, pacing, and topic contracts.
-    const storyOutline = ''
     // Group history needs an explicit "who said this" label per line — unlike
     // 1:1 chat where the single assistant persona is implicit from the system
     // prompt, a group turn's assistant block can contain several different
@@ -520,77 +514,10 @@ async function runGroupAiTurn(
     let { bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = parsedTurn
     const initiallyRequestedKnowledge = [...knowledgeQueries]
     let reviewFailure = draftFeedback
-    const runLogicReview = (stage: 'first_quality' | 'second_quality') => reviewTurnLogic({
-      settings,
-      latestUserText: latestUserMessage?.content ?? '',
-      draftText: rawText,
-      personaFacts: [
-        ...speakers.map((speaker) => `${displayName(speaker)}：${speaker.systemPrompt.slice(0, 700)}${speaker.personaConstraints ? `；硬约束=${speaker.personaConstraints.slice(0, 350)}` : ''}${featureActive(settings, 'personalityTraits') && speaker.personalityTrait ? `；人格特质=${speaker.personalityTrait}` : ''}${promptModuleEnabled(settings, 'memory') && speaker.sharedHistory ? `；共同过往锚点=${speaker.sharedHistory.slice(0, 500)}` : ''}`),
-        `群聊设置：热闹程度=${group.energyLevel ?? 'normal'}；AI互聊=${group.allowAiChatter === false ? '关闭' : '开启'}`,
-        targetContext ? `本轮定向上下文=${targetContext.slice(0, 600)}` : '',
-        featureActive(settings, 'worldview') && worldbookText ? `命中世界书=${worldbookText.slice(0, 800)}` : '',
-      ].filter(Boolean).join('\n'),
-      recentContext: recentHistory
-        .slice(-4)
-        .map((message) => formatGroupHistoryMessage(message, contactById, messageById, settings.userNickname).content)
-        .join('\n'),
-      signal: controller.signal,
-      trace: { turnId: streamId, stage, conversationId },
-    })
-    void runLogicReview
     const directReview = directOutput ? parseDirectOutputReview(rawText) : null
-    // Semantic/format review is the mandatory second stage above.  Do not
-    // issue legacy extra reviewer calls after JSON translation.
-    let logicReview: { status: 'pass' | 'reject' | 'unavailable'; reason: string } | undefined = (() => undefined as { status: 'pass' | 'reject' | 'unavailable'; reason: string } | undefined)()
     if (!turns.isCurrent(conversationId, streamId)) return
-    if (logicReview?.status === 'unavailable') {
-      draftFeedback = `审查降级：${logicReview.reason}`
-      console.warn(`[group] 逻辑审查不可用，放行已解析回复 群=${group.name} 原因=${logicReview.reason}`)
-    }
     if (directReview?.valid === false) {
       throw new Error(`群聊同次自审未通过：${directReview.reason || '未知原因'}`)
-    }
-    if (!directOutput && logicReview?.status === 'reject') {
-      reviewFailure = logicReview.reason || '群聊回复存在客观逻辑问题'
-      draftFeedback = reviewFailure
-      console.warn(`[group] 逻辑自检要求主模型重写 群=${group.name} 原因=${reviewFailure}`)
-      rawText = await chatCompletion({
-        apiKey: settings.apiKey,
-        baseUrl: settings.baseUrl,
-        model: settings.model,
-        messages: coalesceConsecutiveRoles([
-          ...chatMessages,
-          { role: 'assistant', content: rawText },
-          {
-            role: 'user',
-            content: `上一版群聊回复存在客观逻辑错误：${reviewFailure}
-请依据原始上下文重写完整群聊自然文本。不要解释，不要输出JSON、Markdown或标题。`,
-          },
-        ]),
-        signal: controller.signal,
-        purpose: 'chat',
-        thinking: 'disabled',
-        temperature: regenerationInstruction ? 0.55 : 0.75,
-        maxTokens: 1000,
-        trace: { turnId: streamId, stage: 'second_chat', conversationId },
-      })
-      if (!turns.isCurrent(conversationId, streamId)) return
-      const convertedTooled = await insertToolCallsIntoRawTurn({ settings, rawDraft: rawText, recentContext: recentHistory.slice(-4).map((message) => formatGroupHistoryMessage(message, contactById, messageById, settings.userNickname).content).join('\n'), scene: 'group', imageGenerationEnabled, signal: controller.signal, trace: { turnId: streamId, conversationId } })
-      rawText = convertedTooled.raw
-      const audited = await auditAndRepairRawTurn({ settings, masterPrompt: chatMessages[0]?.content ?? systemPrompt, rawDraft: rawText, scene: 'group', regenerationInstruction, signal: controller.signal, trace: { turnId: streamId, conversationId } })
-      rawText = audited.raw
-      const converted = parseGroupAiResponse(rawText, speakers.length)
-      if (converted.bubbles.length === 0) throw new Error('主模型重写后的审核模型没有产出有效JSON')
-      jsonRaw = rawText
-      ;({ bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = converted)
-      finalRaw = jsonRaw
-      logicReview = (() => undefined as { status: 'pass' | 'reject' | 'unavailable'; reason: string } | undefined)()
-      if (logicReview?.status === 'unavailable') {
-        draftFeedback = `二次审查降级：${logicReview.reason}`
-        console.warn(`[group] 二次逻辑审查不可用，放行重写回复 群=${group.name} 原因=${logicReview.reason}`)
-      } else if (logicReview?.status === 'reject') {
-        throw new Error(`主模型重写后仍未通过群聊逻辑自检：${logicReview.reason || '未知原因'}`)
-      }
     }
     knowledgeQueries = Array.from(new Set([...initiallyRequestedKnowledge, ...knowledgeQueries])).slice(0, 2)
     if (!directOutput && featureActive(settings, 'knowledgeBase') && knowledgeQueries.length > 0) {
@@ -620,7 +547,7 @@ async function runGroupAiTurn(
       id: aiTurnId,
       conversationId,
       raw: finalRaw,
-      parsed: parseGroupTurnDebugPayload(systemPrompt, rawText, draftFeedback, jsonRaw, finalRaw, bubbles, knowledgeQueries, turnSummary, groupVibe, storyOutline),
+      parsed: parseGroupTurnDebugPayload(systemPrompt, rawText, draftFeedback, jsonRaw, finalRaw, bubbles, knowledgeQueries, turnSummary, groupVibe),
       knowledgeQueries,
       createdAt: Date.now(),
     })

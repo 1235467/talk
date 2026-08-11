@@ -85,7 +85,7 @@ export interface Contact {
   promptPresetSourceId?: string
   promptPresetSourceName?: string
   promptSnapshotUpdatedAt?: number
-  /** Admin-only per-contact override for the step-two JSON conversion protocol. */
+  /** @deprecated Legacy rows may still carry this; the audit prompt in responseQuality.ts owns the protocol now and nothing reads this field. */
   jsonProtocolOverride?: string
 }
 

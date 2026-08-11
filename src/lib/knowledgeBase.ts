@@ -124,18 +124,6 @@ async function searchAndStore(topics: { query: string }[], settings: AppSettings
   return entries.map((e) => ({ ...e, sourceQuery: resolveSourceQuery(e.sourceQuery, queries) }))
 }
 
-/**
- * Reactive, one-shot knowledge gathering: called whenever a chat turn (1:1
- * or group) flags `knowledgeQueries` in its JSON response — see
- * aiProtocol.ts/groupChat.ts. Per the user's spec this is deliberately NOT
- * iterative — once a topic is covered (even loosely, see
- * hasKnowledgeForQuery), it's never re-searched, unlike the old fixed
- * 3-query/15-day periodic refresh this replaced entirely.
- */
-export async function processKnowledgeQueries(queries: string[], settings: AppSettings): Promise<void> {
-  await resolveKnowledgeQueries(queries, settings)
-}
-
 export interface KnowledgeResolution { text: string; keywords: string[]; searched: boolean }
 /** Resolve query keywords from cache first, search missing ones, persist them, and return model-ready evidence. */
 export async function resolveKnowledgeQueries(queries: string[], settings: AppSettings): Promise<KnowledgeResolution> {
