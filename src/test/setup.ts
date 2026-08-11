@@ -96,16 +96,23 @@ interface FakeDb {
   tables: Map<string, Map<string, Row>>
   kv: Map<string, unknown>
   presets: Map<string, Row>
+  /** When true the mocked isServerConfigured() reports a configured server. */
+  configured: boolean
 }
 
 function freshDb(): FakeDb {
-  return { tables: new Map(), kv: new Map(), presets: new Map() }
+  return { tables: new Map(), kv: new Map(), presets: new Map(), configured: false }
 }
 
 let state = freshDb()
 
 export function resetFakeServer() {
   state = freshDb()
+}
+
+/** Tests that exercise hydrateSettingsFromServer need the client to believe a server is configured. */
+export function setFakeServerConfigured(configured: boolean) {
+  state.configured = configured
 }
 
 function table(name: string): Map<string, Row> {
@@ -547,7 +554,7 @@ vi.mock('../lib/api/client', async (importOriginal) => {
     ...original,
     apiFetch: fakeApiFetch,
     serverBase: () => '',
-    isServerConfigured: () => false,
+    isServerConfigured: () => state.configured,
     // Provider calls hit the (mocked) fetch directly in tests.
     outboundFetch: (url: string, init?: RequestInit) => fetch(url, init),
   }

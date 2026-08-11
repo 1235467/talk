@@ -44,6 +44,14 @@ export async function hydrateSettingsFromServer(): Promise<number> {
     if (Array.isArray(patch.enabledModules)) {
       patch.enabledModules = filterDormantModules(patch.enabledModules as string[])
     }
+    // kv written by older builds may lack newer nested fields (e.g. a new
+    // provider block) — normalize structured settings exactly like the
+    // persist migration does, or render code reading the new fields crashes.
+    if (patch.stickerProviders) patch.stickerProviders = normalizeStickerProviders(patch.stickerProviders)
+    if (patch.imageProviders) patch.imageProviders = normalizeImageProviders(patch.imageProviders)
+    if (patch.speechProviders) patch.speechProviders = normalizeSpeechProviders(patch.speechProviders)
+    if (patch.promptModules) patch.promptModules = normalizePromptModules(patch.promptModules as Parameters<typeof normalizePromptModules>[0], (patch.globalSystemPrompt as string | undefined) ?? useSettingsStore.getState().globalSystemPrompt)
+    if (patch.uiTheme) patch.uiTheme = normalizeUiTheme(patch.uiTheme)
     if (Object.keys(patch).length) {
       useSettingsStore.setState(patch as Partial<AppSettings>)
     }
@@ -234,7 +242,7 @@ export const useSettingsStore = create<SettingsState>()(
           }
         }
         if (!['none', 'giphy', 'klipy', 'tenor', 'custom'].includes(String(next.stickerProvider))) next.stickerProvider = 'none'
-        if (!['none', 'atlas', 'novelai', 'comfyui', 'stable-diffusion', 'custom'].includes(String(next.imageProvider))) next.imageProvider = 'none'
+        if (!['none', 'atlas', 'volcano', 'novelai', 'comfyui', 'stable-diffusion', 'custom'].includes(String(next.imageProvider))) next.imageProvider = 'none'
         if (!['none', 'doubao', 'mimo'].includes(String(next.speechProvider))) next.speechProvider = 'none'
         if (Array.isArray(next.enabledModules)) next.enabledModules = next.enabledModules.filter((id) => id !== 'mood')
         if (Array.isArray(next.enabledModules)) next.enabledModules = next.enabledModules.filter((id) => !['selfIteration', 'aiReplyAssist', 'promptModuleEditor'].includes(id))
