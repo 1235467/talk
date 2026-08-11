@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
-import Dexie from 'dexie'
+import { useLocalQuery } from '../lib/useLocalQuery'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { db } from '../db/db'
+import { api } from '../lib/api/resources'
+import { getOrUndef } from '../lib/api/client'
+import { invalidate, invalidateAll } from '../lib/api/keys'
 import { TopBar } from '../components/TopBar'
 import { MessageBubble } from '../components/MessageBubble'
 import { SearchOverlay } from '../components/SearchOverlay'
@@ -54,56 +57,72 @@ export function ChatPage() {
     if (hiddenTestConversation) void navigate('/ai-test-cards', { replace: true })
   }, [hiddenTestConversation, navigate])
 
-  const conversation = useLiveQuery(
-    () => (conversationId ? db.conversations.get(conversationId) : undefined),
-    [conversationId],
-  )
+  const { data: conversationData, isPending: conversationPending } = useQuery({
+    queryKey: ['conversations', conversationId],
+    queryFn: () => getOrUndef(api.conversations.get(conversationId!)),
+    enabled: !!conversationId,
+  })
+  const conversation = conversationPending ? undefined : (conversationData ?? null)
   const isGroupConv = !!conversation?.groupId
-  const contact = useLiveQuery(
-    () => (conversation && !conversation.groupId ? db.contacts.get(conversation.contactId!) : undefined),
-    [conversation],
-  )
-  const group = useLiveQuery(
-    () => (conversation?.groupId ? db.groups.get(conversation.groupId) : undefined),
-    [conversation],
-  )
-  const groupLocation = useLiveQuery(
-    () => (group?.kind === 'location' && group.locationId ? db.locations.get(group.locationId) : undefined),
-    [group],
-  )
+  const chatContactId = conversation && !conversation.groupId ? conversation.contactId : undefined
+  const { data: contactData, isPending: contactPending } = useQuery({
+    queryKey: ['contacts', chatContactId],
+    queryFn: () => getOrUndef(api.contacts.get(chatContactId!)),
+    enabled: !!chatContactId,
+  })
+  const contact = !chatContactId ? undefined : contactPending ? undefined : (contactData ?? null)
+  const groupId = conversation?.groupId
+  const { data: groupData, isPending: groupPending } = useQuery({
+    queryKey: ['groups', groupId],
+    queryFn: () => getOrUndef(api.groups.get(groupId!)),
+    enabled: !!groupId,
+  })
+  const group = !groupId ? undefined : groupPending ? undefined : (groupData ?? null)
+  const groupLocationId = group?.kind === 'location' && group.locationId ? group.locationId : undefined
+  const { data: groupLocation } = useQuery({
+    queryKey: ['locations', groupLocationId],
+    queryFn: () => getOrUndef(api.locations.get(groupLocationId!)),
+    enabled: !!groupLocationId,
+  })
   useEffect(() => {
     if (group?.kind !== 'location' || !group.locationId) return
     let cancelled = false
     void (async () => {
       await syncContactLocationsAt(new Date())
       const participants = await resolveLocationParticipants(group.locationId!)
-      if (!cancelled) await db.groups.update(group.id, { memberContactIds: participants.activeMembers.filter((contact) => (contact.worldviewId || settings.defaultWorldviewId) === (group.worldviewId || settings.defaultWorldviewId)).map((contact) => contact.id) })
+      if (!cancelled) {
+        await api.groups.patch(group.id, { memberContactIds: participants.activeMembers.filter((contact) => (contact.worldviewId || settings.defaultWorldviewId) === (group.worldviewId || settings.defaultWorldviewId)).map((contact) => contact.id) })
+        invalidate('groups')
+      }
     })()
     return () => { cancelled = true }
   }, [group?.id, group?.kind, group?.locationId, group?.worldviewId, settings.defaultWorldviewId])
-  const groupMembersRaw = useLiveQuery(
-    () => (group ? db.contacts.bulkGet(group.memberContactIds) : []),
-    [group],
-  )
+  const { data: groupMembersRaw = [] } = useQuery({
+    queryKey: ['contacts', 'group-members', group?.id ?? ''],
+    enabled: !!group,
+    queryFn: async () => {
+      const all = await api.contacts.list()
+      const byId = new Map(all.map((c) => [c.id, c]))
+      return group!.memberContactIds.map((id) => byId.get(id))
+    },
+  })
   const groupMembers = useMemo(() => (groupMembersRaw ?? []).filter((c): c is Contact => !!c), [groupMembersRaw])
   const memberById = useMemo(() => new Map(groupMembers.map((c) => [c.id, c])), [groupMembers])
 
   const [visibleMessageLimit, setVisibleMessageLimit] = useState(chatPageSize)
   useEffect(() => setVisibleMessageLimit(chatPageSize), [conversationId, chatPageSize])
-  const messagePage = useLiveQuery(async () => {
-    if (!conversationId) return { items: EMPTY_MESSAGES, total: 0 }
-    const range = () => db.messages
-      .where('[conversationId+createdAt]')
-      .between([conversationId, Dexie.minKey], [conversationId, Dexie.maxKey], true, true)
-    const [newestFirst, total] = await Promise.all([
-      range().reverse().limit(visibleMessageLimit).toArray(),
-      range().count(),
-    ])
-    return { items: newestFirst.reverse(), total }
-  }, [conversationId, visibleMessageLimit])
+  const { data: allMessages } = useQuery({
+    queryKey: ['messages', conversationId],
+    queryFn: () => api.messages.list({ conversationId: conversationId! }),
+    enabled: !!conversationId,
+  })
+  const messagePage = useMemo(() => {
+    if (!allMessages) return undefined
+    return { items: allMessages.slice(Math.max(0, allMessages.length - visibleMessageLimit)), total: allMessages.length }
+  }, [allMessages, visibleMessageLimit])
   const messages = messagePage?.items ?? EMPTY_MESSAGES
   const textMessageIdsKey = messages.filter((message) => message.type === 'text').map((message) => message.id).join('|')
-  const speechCacheRows = useLiveQuery(
+  const speechCacheRows = useLocalQuery(
     () => textMessageIdsKey ? db.speechCache.bulkGet(textMessageIdsKey.split('|')) : [],
     [textMessageIdsKey],
   ) ?? EMPTY_SPEECH_CACHE_ROWS
@@ -113,7 +132,7 @@ export function ChatPage() {
   )
   const latestMessageId = messages.at(-1)?.id
   const hasOlderMessages = messages.length < (messagePage?.total ?? 0)
-  const stickers = useLiveQuery(() => db.stickers.toArray(), []) ?? EMPTY_STICKERS
+  const { data: stickers = EMPTY_STICKERS } = useQuery({ queryKey: ['stickers'], queryFn: () => api.stickers.list() })
   const stickerByName = useMemo(() => new Map(stickers.map((s) => [s.name, s.dataUrl])), [stickers])
   const [statusLine, setStatusLine] = useState('')
   useEffect(() => {
@@ -225,14 +244,17 @@ export function ChatPage() {
   // while the user is still looking at it (keeps it cleared in real time).
   useEffect(() => {
     if (!conversationId || messages.length === 0) return
-    void db.conversations.update(conversationId, { lastReadAt: Date.now() })
+    void (async () => {
+      await api.conversations.patch(conversationId, { lastReadAt: Date.now() })
+      invalidate('conversations')
+    })()
   }, [conversationId, messages.length])
 
   // useLayoutEffect (not useEffect) so the jump-to-bottom happens before the
   // browser paints — otherwise opening a long conversation briefly flashes
   // the middle/top of the history before snapping to the bottom. `contact`
   // and `group` are in the deps deliberately: `messages` resolves from its
-  // own independent useLiveQuery and can settle *before* contact/group does,
+  // own independent query subscription and can settle *before* contact/group does,
   // and the scroll container only actually mounts (guards passed) once
   // contact/group resolves too — without these in the deps, that final
   // unlocking render doesn't re-fire the effect (messages.length already
@@ -258,10 +280,10 @@ export function ChatPage() {
   useEffect(() => {
     if (!highlightId || !conversationId) return
     if (!messageById.has(highlightId)) {
-      void db.messages.get(highlightId).then(async (target) => {
+      void getOrUndef(api.messages.get(highlightId)).then(async (target) => {
         if (!target || target.conversationId !== conversationId) return
-        const newer = await db.messages.where('[conversationId+createdAt]')
-          .above([conversationId, target.createdAt]).count()
+        const newer = (await api.messages.list({ conversationId }))
+          .filter((message) => message.createdAt > target.createdAt).length
         setVisibleMessageLimit((value) => Math.max(value, newer + 1))
       })
       return
@@ -348,11 +370,9 @@ export function ChatPage() {
 
   async function deleteMessage(message: Message) {
     if (speechPlayingId === message.id) stopSpeechPlayback()
-    await db.transaction('rw', db.messages, db.speechCache, db.mediaAssets, async () => {
-      await db.messages.delete(message.id)
-      await db.speechCache.delete(message.id)
-      if (message.image?.assetId) await db.mediaAssets.delete(message.image.assetId)
-    })
+    await api.batch.deleteMessage(message.id)
+    await db.speechCache.delete(message.id)
+    invalidateAll()
     if (replyToId === message.id) setReplyToId(null)
   }
 
@@ -396,7 +416,7 @@ export function ChatPage() {
       void navigate('/settings/speech-generation')
       return
     }
-    const conversationMessages = (await db.messages.where('conversationId').equals(conversationId).toArray())
+    const conversationMessages = (await api.messages.list({ conversationId }))
       .sort((a, b) => a.createdAt - b.createdAt)
     let roundMessages = anchor.debugAiTurnId
       ? conversationMessages.filter((message) => message.debugAiTurnId === anchor.debugAiTurnId)
@@ -515,7 +535,7 @@ export function ChatPage() {
   async function sendRemoteSticker(result: RemoteStickerResult) {
     if (!conversationId) return
     const name = result.name?.trim() || stickerQuery.trim() || '远程表情'
-    await db.messages.add({
+    await api.messages.put({
       id: uuid(),
       conversationId,
       role: 'user',
@@ -524,7 +544,8 @@ export function ChatPage() {
       sticker: { url: result.url, provider: result.provider },
       createdAt: Date.now(),
     })
-    await db.conversations.update(conversationId, { updatedAt: Date.now() })
+    await api.conversations.patch(conversationId, { updatedAt: Date.now() })
+    invalidate('messages', 'conversations')
     void trackRemoteStickerSend(result)
     setStickerPickerOpen(false)
     setStickerResults([])
@@ -540,7 +561,8 @@ export function ChatPage() {
     if (!window.confirm('撤销这次安排？特殊日程将删除，原先被覆盖的安排会恢复。')) return
     try {
       const task = await revertInternalTask(message.internalTask.taskId)
-      await db.messages.update(message.id, { internalTask: { ...message.internalTask, status: task.status } })
+      await api.messages.patch(message.id, { internalTask: { ...message.internalTask, status: task.status } })
+      invalidate('messages')
       setToast('安排已撤销，原日程已恢复')
     } catch (error) {
       setToast(error instanceof Error ? error.message : String(error))

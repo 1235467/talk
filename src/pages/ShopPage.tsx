@@ -5,7 +5,7 @@ import { useSettingsStore } from '../store/useSettingsStore'
 import { chatCompletionText as chatCompletion } from '../lib/deepseek'
 import { buildShopPrompt, parseShopProducts, type GeneratedProduct } from '../lib/shop'
 import { formatCurrency } from '../lib/wallet'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useLocalQuery } from '../lib/useLocalQuery'
 import { USER_WALLET_ID } from '../lib/finance'
 import { purchaseInventoryProduct } from '../lib/inventory'
 import type { ShopPurchaseHistory } from '../types'
@@ -19,8 +19,8 @@ export function ShopPage() {
   const [toast, setToast] = useState('')
   const [repurchaseOpen, setRepurchaseOpen] = useState(false)
   const [buyingKey, setBuyingKey] = useState('')
-  const wallet = useLiveQuery(() => db.walletAccounts.get(USER_WALLET_ID), [])
-  const purchaseHistory = useLiveQuery(() => db.shopPurchaseHistory.orderBy('lastPurchasedAt').reverse().toArray(), []) ?? []
+  const wallet = useLocalQuery(() => db.walletAccounts.get(USER_WALLET_ID), [])
+  const purchaseHistory = useLocalQuery(() => db.shopPurchaseHistory.orderBy('lastPurchasedAt').reverse().toArray(), []) ?? []
 
   useEffect(() => {
     if (!toast) return

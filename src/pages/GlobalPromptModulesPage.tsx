@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { v4 as uuid } from 'uuid'
 import { TopBar } from '../components/TopBar'
 import { ToggleSwitch } from '../components/ToggleSwitch'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
+import { invalidate } from '../lib/api/keys'
 import { PROMPT_MODULE_DEFINITIONS, unknownPromptPlaceholders } from '../lib/promptModules'
 import { clonePromptModules, normalizePromptPresets, SYSTEM_DEFAULT_PROMPT_PRESET_ID } from '../lib/promptPresets'
 import { displayName } from '../lib/contact'
@@ -13,7 +14,7 @@ import type { PromptModuleId, PromptModuleSettings, PromptPreset } from '../type
 export function GlobalPromptModulesPage() {
   const settings = useSettingsStore()
   const presets = normalizePromptPresets(settings.promptPresets, settings.promptModules)
-  const contacts = useLiveQuery(() => db.contacts.orderBy('createdAt').toArray(), []) ?? []
+  const { data: contacts = [] } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
   const [selectedId, setSelectedId] = useState(settings.activePromptPresetId || SYSTEM_DEFAULT_PROMPT_PRESET_ID)
   const selected = presets.find((preset) => preset.id === selectedId) ?? presets[0]
   const [draft, setDraft] = useState<PromptModuleSettings>(() => clonePromptModules(selected.modules))
@@ -80,14 +81,15 @@ export function GlobalPromptModulesPage() {
     if (!applyingPreset || selectedContactIds.length === 0) return
     if (!window.confirm(`用“${applyingPreset.name}”覆盖 ${selectedContactIds.length} 个联系人的固定提示词？联系人现有的单独修改会被替换。`)) return
     const now = Date.now()
-    await db.transaction('rw', db.contacts, async () => {
-      for (const contactId of selectedContactIds) await db.contacts.update(contactId, {
+    for (const contactId of selectedContactIds) {
+      await api.contacts.patch(contactId, {
         promptModulesSnapshot: clonePromptModules(applyingPreset.modules),
         promptPresetSourceId: applyingPreset.id,
         promptPresetSourceName: applyingPreset.name,
         promptSnapshotUpdatedAt: now,
       })
-    })
+    }
+    invalidate('contacts')
     setApplyingPreset(null)
     setSelectedContactIds([])
   }

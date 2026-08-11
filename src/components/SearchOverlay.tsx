@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
 import { isAiTestId } from '../lib/aiTestIsolation'
 import { Avatar } from './Avatar'
 import { excerptAround, highlightSegments, truncateName } from '../lib/search'
@@ -23,16 +23,18 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
   const q = query.trim()
   const lowerQ = q.toLowerCase()
 
-  const contacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_ARRAY).filter((item) => !isAiTestId(item.id))
-  const groups = (useLiveQuery(() => db.groups.toArray(), []) ?? EMPTY_ARRAY).filter((item) => !isAiTestId(item.id))
-  const conversations = (useLiveQuery(() => db.conversations.toArray(), []) ?? EMPTY_ARRAY).filter((item) => !isAiTestId(item.id))
-  // Only scan the (potentially large) messages table while actively searching, and let Dexie do the
-  // content filter so we never pull the whole table into memory just because the overlay is open.
-  const messages =
-    useLiveQuery(
-      () => (lowerQ ? db.messages.filter((m) => !isAiTestId(m.conversationId) && m.content.toLowerCase().includes(lowerQ)).toArray() : Promise.resolve(EMPTY_MESSAGES)),
-      [lowerQ],
-    ) ?? EMPTY_MESSAGES
+  const { data: contactsRaw = EMPTY_ARRAY } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const contacts = contactsRaw.filter((item) => !isAiTestId(item.id))
+  const { data: groupsRaw = EMPTY_ARRAY } = useQuery({ queryKey: ['groups'], queryFn: () => api.groups.list() })
+  const groups = groupsRaw.filter((item) => !isAiTestId(item.id))
+  const { data: conversationsRaw = EMPTY_ARRAY } = useQuery({ queryKey: ['conversations'], queryFn: () => api.conversations.list() })
+  const conversations = conversationsRaw.filter((item) => !isAiTestId(item.id))
+  // Only scan the (potentially large) messages table while actively searching.
+  const { data: messages = EMPTY_MESSAGES } = useQuery({
+    queryKey: ['messages', 'search', lowerQ],
+    queryFn: async () => (await api.messages.list()).filter((m) => !isAiTestId(m.conversationId) && m.content.toLowerCase().includes(lowerQ)),
+    enabled: !!lowerQ,
+  })
 
   const matchedContacts = useMemo(() => {
     if (!q) return []
@@ -57,7 +59,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
     const convById = new Map(conversations.map((c) => [c.id, c]))
     const contactById = new Map(contacts.map((c) => [c.id, c]))
     const groupById = new Map(groups.map((g) => [g.id, g]))
-    // `messages` is already content-filtered by the Dexie query above.
+    // `messages` is already content-filtered by the query above.
     return messages
       .map((m) => {
         const conv = convById.get(m.conversationId)

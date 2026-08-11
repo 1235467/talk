@@ -11,10 +11,13 @@ import { apiKeyFingerprint, testPexelsConnection } from '../lib/photoSearch'
 import { friendlyConnectionError } from '../lib/connectionError'
 import { isImageProviderReady } from '../lib/mediaProviders'
 import { db } from '../db/db'
+import { useLocalQuery } from '../lib/useLocalQuery'
+import { api } from '../lib/api/resources'
+import { invalidateAll } from '../lib/api/keys'
 import { assertTalkBackup, backupFileName, createBackup, mergeSettingsPreservingSecrets, restoreBackup } from '../lib/backup'
 import { resumeMediaAssets } from '../lib/imageAssets'
 import type { AppSettings } from '../types'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { USER_WALLET_ID, setUserBalance } from '../lib/finance'
 import { formatCurrency } from '../lib/wallet'
 import { CHAT_PAGE_SIZE_OPTIONS, normalizeChatPageSize } from '../lib/chatPagination'
@@ -52,13 +55,13 @@ export function SettingsPage() {
   const [backupStatus, setBackupStatus] = useState('')
   const [restoringBackup, setRestoringBackup] = useState(false)
   const [backgroundCropSrc, setBackgroundCropSrc] = useState('')
-  const wallet = useLiveQuery(() => db.walletAccounts.get(USER_WALLET_ID), [])
-  const usage = useLiveQuery(async () => {
+  const wallet = useLocalQuery(() => db.walletAccounts.get(USER_WALLET_ID), [])
+  const { data: usageRecords = [] } = useQuery({ queryKey: ['aiUsageRecords'], queryFn: () => api.aiUsageRecords.list() })
+  const usage = (() => {
     const now = Date.now(); const today = new Date(now).toDateString()
-    const records = await db.aiUsageRecords.toArray()
-    const recent = records.filter((r) => now - r.createdAt <= 30 * 24 * 60 * 60 * 1000)
-    return { today: records.filter((r) => new Date(r.createdAt).toDateString() === today), recent }
-  }, [])
+    const recent = usageRecords.filter((r) => now - r.createdAt <= 30 * 24 * 60 * 60 * 1000)
+    return { today: usageRecords.filter((r) => new Date(r.createdAt).toDateString() === today), recent }
+  })()
   const [adminBalance, setAdminBalance] = useState('')
   const [serverTestResult, setServerTestResult] = useState('')
   const backupInputRef = useRef<HTMLInputElement | null>(null)
@@ -78,7 +81,31 @@ export function SettingsPage() {
 
   async function handleWipeContacts() {
     await cancelAllContactGenerationTasks()
-    await Promise.all([db.messages.clear(), db.conversations.clear(), db.contacts.clear(), db.groups.clear(), db.moments.clear(), db.momentComments.clear(), db.momentLikes.clear(), db.contactRelations.clear(), db.contactMemories.clear(), db.socialEvents.clear(), db.groupPlans.clear(), db.contactLifeStates.clear(), db.lifeEvents.clear(), db.contactExperiences.clear(), db.simulationState.clear(), db.aiUsageRecords.clear(), db.aiTurns.clear(), db.aiTestSuites.clear(), db.adminLogs.clear(), db.adminAiTraces.clear(), db.contactGenerationTasks.clear(), db.mediaAssets.clear()])
+    const wipeRows = async (list: () => Promise<{ id: string }[]>, bulkDelete: (ids: string[]) => Promise<unknown>) => {
+      const rows = await list()
+      if (rows.length) await bulkDelete(rows.map((row) => row.id))
+    }
+    await wipeRows(() => api.messages.list(), (ids) => api.messages.bulkDelete(ids))
+    await wipeRows(() => api.momentComments.list(), (ids) => api.momentComments.bulkDelete(ids))
+    await wipeRows(() => api.momentLikes.list(), (ids) => api.momentLikes.bulkDelete(ids))
+    await wipeRows(() => api.moments.list(), (ids) => api.moments.bulkDelete(ids))
+    await wipeRows(() => api.contactRelations.list(), (ids) => api.contactRelations.bulkDelete(ids))
+    await wipeRows(() => api.contactMemories.list(), (ids) => api.contactMemories.bulkDelete(ids))
+    await wipeRows(() => api.socialEvents.list(), (ids) => api.socialEvents.bulkDelete(ids))
+    await wipeRows(() => api.groupPlans.list(), (ids) => api.groupPlans.bulkDelete(ids))
+    await wipeRows(() => api.lifeEvents.list(), (ids) => api.lifeEvents.bulkDelete(ids))
+    await wipeRows(() => api.contactExperiences.list(), (ids) => api.contactExperiences.bulkDelete(ids))
+    await wipeRows(() => api.mediaAssets.list(), (ids) => api.mediaAssets.bulkDelete(ids))
+    await wipeRows(() => api.aiUsageRecords.list(), (ids) => api.aiUsageRecords.bulkDelete(ids))
+    await wipeRows(() => api.aiTurns.list(), (ids) => api.aiTurns.bulkDelete(ids))
+    await wipeRows(() => api.contactGenerationTasks.list(), (ids) => api.contactGenerationTasks.bulkDelete(ids))
+    await wipeRows(() => api.conversations.list(), (ids) => api.conversations.bulkDelete(ids))
+    await wipeRows(() => api.groups.list(), (ids) => api.groups.bulkDelete(ids))
+    for (const row of await api.contactLifeStates.list()) await api.contactLifeStates.delete(row.contactId)
+    for (const row of await api.simulationState.list()) await api.simulationState.delete(row.id)
+    await wipeRows(() => api.contacts.list(), (ids) => api.contacts.bulkDelete(ids))
+    await Promise.all([db.aiTestSuites.clear(), db.adminLogs.clear(), db.adminAiTraces.clear()])
+    invalidateAll()
     void navigate('/contacts')
   }
 

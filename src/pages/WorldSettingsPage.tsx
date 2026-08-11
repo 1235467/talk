@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
+import { invalidate } from '../lib/api/keys'
 import { TopBar } from '../components/TopBar'
 import { estimateWorldbookTokens, formatEstimatedTokens } from '../lib/worldbookTokens'
 import { useSettingsStore } from '../store/useSettingsStore'
@@ -12,8 +13,8 @@ const EMPTY_LIST: never[] = []
 export function WorldSettingsPage() {
   const navigate = useNavigate()
   const settings = useSettingsStore()
-  const collections = useLiveQuery(() => db.worldbookCollections.orderBy('updatedAt').reverse().toArray(), []) ?? EMPTY_LIST
-  const entries = useLiveQuery(() => db.worldbookEntries.toArray(), []) ?? EMPTY_LIST
+  const { data: collections = EMPTY_LIST } = useQuery({ queryKey: ['worldbookCollections'], queryFn: () => api.worldbookCollections.list() })
+  const { data: entries = EMPTY_LIST } = useQuery({ queryKey: ['worldbookEntries'], queryFn: () => api.worldbookEntries.list() })
   const [createOpen, setCreateOpen] = useState(false)
   const [newWorldName, setNewWorldName] = useState('新的世界')
   const [createError, setCreateError] = useState('')
@@ -33,7 +34,8 @@ export function WorldSettingsPage() {
       return
     }
     const now = Date.now(); const id = uuid()
-    await db.worldbookCollections.add({ id, name, enabled: true, sourceType: 'manual', createdAt: now, updatedAt: now })
+    await api.worldbookCollections.put({ id, name, enabled: true, sourceType: 'manual', createdAt: now, updatedAt: now })
+    invalidate('worldbookCollections')
     if (!settings.defaultWorldviewId) settings.setSettings({ defaultWorldviewId: id })
     setCreateOpen(false)
     void navigate(`/world-settings/${id}`)

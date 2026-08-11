@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
+import { invalidate } from '../lib/api/keys'
 import { isAiTestId } from '../lib/aiTestIsolation'
 import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
@@ -16,8 +17,9 @@ const MIN_MEMBERS = 2
 
 export function GroupAddPage() {
   const navigate = useNavigate()
-  const contacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? []).filter((item) => !isAiTestId(item.id))
-  const worldviews = useLiveQuery(() => db.worldbookCollections.toArray(), []) ?? []
+  const { data: contactsRaw = [] } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const contacts = contactsRaw.filter((item) => !isAiTestId(item.id))
+  const { data: worldviews = [] } = useQuery({ queryKey: ['worldbookCollections'], queryFn: () => api.worldbookCollections.list() })
   const defaultWorldviewId = useSettingsStore((state) => state.defaultWorldviewId)
 
   const [name, setName] = useState('')
@@ -45,7 +47,7 @@ export function GroupAddPage() {
       const now = Date.now()
       const groupId = uuid()
       const firstMember = contacts.find((contact) => contact.id === selected[0])
-      await db.groups.add({
+      await api.groups.put({
         id: groupId,
         name: trimmedName,
         avatar,
@@ -56,7 +58,8 @@ export function GroupAddPage() {
         memoryMessageCursor: 0,
       })
       const conversationId = uuid()
-      await db.conversations.add({ id: conversationId, groupId, pinned: false, createdAt: now, updatedAt: now })
+      await api.conversations.put({ id: conversationId, groupId, pinned: false, createdAt: now, updatedAt: now })
+      invalidate('groups', 'conversations')
       void navigate(`/chat/${conversationId}`, { replace: true })
     } finally {
       setCreating(false)

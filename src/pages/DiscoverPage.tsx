@@ -1,13 +1,13 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../lib/api/resources'
 import { TopBar } from '../components/TopBar'
 import { SearchOverlay } from '../components/SearchOverlay'
 import { UnreadBadge } from '../components/UnreadBadge'
 import { UiIcon } from '../components/UiIcon'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { ALL_MODULES } from '../features'
-import { db } from '../db/db'
 import { momentsUnreadCount } from '../lib/momentsUnread'
 
 // Only 朋友圈 is always present — everything else is a toggleable module.
@@ -23,8 +23,8 @@ export function DiscoverPage() {
   const enabledModules = useSettingsStore((s) => s.enabledModules)
   const adminModeEnabled = useSettingsStore((s) => s.adminModeEnabled)
   const momentsLastReadAt = useSettingsStore((s) => s.momentsLastReadAt)
-  const moments = useLiveQuery(() => db.moments.toArray(), []) ?? []
-  const socialEvents = useLiveQuery(() => db.socialEvents.toArray(), []) ?? []
+  const { data: moments = [] } = useQuery({ queryKey: ['moments'], queryFn: () => api.moments.list() })
+  const { data: socialEvents = [] } = useQuery({ queryKey: ['socialEvents'], queryFn: () => api.socialEvents.list() })
   const momentsUnread = momentsUnreadCount({ lastReadAt: momentsLastReadAt, moments, socialEvents })
 
   const moduleEntries = useMemo(() => {

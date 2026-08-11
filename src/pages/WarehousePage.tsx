@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
+import { useLocalQuery } from '../lib/useLocalQuery'
+import { api } from '../lib/api/resources'
+import { invalidate } from '../lib/api/keys'
 import { isAiTestId } from '../lib/aiTestIsolation'
 import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
@@ -16,9 +19,10 @@ import type { InventoryItem } from '../types'
 
 export function WarehousePage() {
   const navigate = useNavigate()
-  const items = useLiveQuery(() => db.inventory.orderBy('acquiredAt').reverse().toArray(), []) ?? []
-  const contacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? []).filter((item) => !isAiTestId(item.id))
-  const stickers = useLiveQuery(() => db.stickers.toArray(), []) ?? []
+  const items = useLocalQuery(() => db.inventory.orderBy('acquiredAt').reverse().toArray(), []) ?? []
+  const { data: contactsRaw = [] } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const contacts = contactsRaw.filter((item) => !isAiTestId(item.id))
+  const { data: stickers = [] } = useQuery({ queryKey: ['stickers'], queryFn: () => api.stickers.list() })
   const settings = useSettingsStore()
   const shopEnabled = useModuleEnabled('shop')
   const [gifting, setGifting] = useState<InventoryItem | null>(null)
@@ -33,24 +37,21 @@ export function WarehousePage() {
   async function handleGift(contactId: string) {
     if (!gifting) return
     const contact = contacts.find((c) => c.id === contactId)
-    const conv = await db.conversations.where('contactId').equals(contactId).first()
-    const consumed = await db.transaction('rw', db.inventory, db.messages, db.conversations, async () => {
-      const didConsume = await consumeInventoryItem(gifting.id)
-      if (!didConsume) return false
-      if (conv) {
-        await db.messages.add({
-          id: uuid(),
-          conversationId: conv.id,
-          role: 'user',
-          type: 'gift',
-          content: gifting.name,
-          gift: { name: gifting.name, icon: gifting.icon, description: gifting.description },
-          createdAt: Date.now(),
-        })
-        await db.conversations.update(conv.id, { updatedAt: Date.now() })
-      }
-      return true
-    })
+    const conv = (await api.conversations.list({ contactId }))[0]
+    const consumed = await consumeInventoryItem(gifting.id)
+    if (consumed && conv) {
+      await api.messages.put({
+        id: uuid(),
+        conversationId: conv.id,
+        role: 'user',
+        type: 'gift',
+        content: gifting.name,
+        gift: { name: gifting.name, icon: gifting.icon, description: gifting.description },
+        createdAt: Date.now(),
+      })
+      await api.conversations.patch(conv.id, { updatedAt: Date.now() })
+      invalidate('messages', 'conversations')
+    }
     if (!consumed) {
       setGifting(null)
       setToast('这件物品已经用完了')

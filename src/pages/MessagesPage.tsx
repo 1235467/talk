@@ -1,7 +1,8 @@
 import { memo, useCallback, useMemo, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
+import { invalidate } from '../lib/api/keys'
 import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
 import { UnreadBadge } from '../components/UnreadBadge'
@@ -24,10 +25,10 @@ export function MessagesPage() {
   const navigate = useNavigate()
   const locationEnabled = useSettingsStore((state) => state.enabledModules.includes('location'))
 
-  const conversations = useLiveQuery(() => db.conversations.toArray(), []) ?? EMPTY_ARRAY
-  const contacts = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_ARRAY
-  const groups = useLiveQuery(() => db.groups.toArray(), []) ?? EMPTY_ARRAY
-  const locations = useLiveQuery(() => db.locations.toArray(), []) ?? EMPTY_ARRAY
+  const { data: conversations = EMPTY_ARRAY } = useQuery({ queryKey: ['conversations'], queryFn: () => api.conversations.list() })
+  const { data: contacts = EMPTY_ARRAY } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const { data: groups = EMPTY_ARRAY } = useQuery({ queryKey: ['groups'], queryFn: () => api.groups.list() })
+  const { data: locations = EMPTY_ARRAY } = useQuery({ queryKey: ['locations'], queryFn: () => api.locations.list() })
   const unreadByConversation = useUnreadByConversation()
   const lastMessageByConversation = useLastMessageByConversation()
 
@@ -140,7 +141,10 @@ export function MessagesPage() {
           options={[
             {
               label: menuConv.pinned ? '取消置顶' : '置顶会话',
-              onSelect: () => db.conversations.update(menuConv.id, { pinned: !menuConv.pinned }),
+              onSelect: async () => {
+                await api.conversations.patch(menuConv.id, { pinned: !menuConv.pinned })
+                invalidate('conversations')
+              },
             },
           ]}
         />

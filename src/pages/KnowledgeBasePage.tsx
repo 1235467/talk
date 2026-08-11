@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../db/db'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../lib/api/resources'
+import { invalidate } from '../lib/api/keys'
 import { TopBar } from '../components/TopBar'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { searchKnowledgeTopic } from '../lib/knowledgeBase'
@@ -18,7 +19,7 @@ const EMPTY_ITEMS: never[] = []
 export function KnowledgeBasePage() {
   const settings = useSettingsStore()
   const fileRef = useRef<HTMLInputElement>(null)
-  const items = useLiveQuery(() => db.libraryItems.toArray(), []) ?? EMPTY_ITEMS
+  const { data: items = EMPTY_ITEMS } = useQuery({ queryKey: ['libraryItems'], queryFn: () => api.libraryItems.list() })
   const [query, setQuery] = useState('')
   const [source, setSource] = useState<LibrarySourceType | 'all'>('all')
   const [webQuery, setWebQuery] = useState('')
@@ -76,7 +77,8 @@ export function KnowledgeBasePage() {
     setManualError('')
     try {
       const now = Date.now()
-      await db.libraryItems.add({ id: uuid(), sourceType: 'manual', title, content, keywords: [...new Set(manualKeywords.split(/[、,，\n]+/).map((value) => value.trim()).filter(Boolean))], sourceLabel: '用户手写', createdAt: now, updatedAt: now })
+      await api.libraryItems.put({ id: uuid(), sourceType: 'manual', title, content, keywords: [...new Set(manualKeywords.split(/[、,，\n]+/).map((value) => value.trim()).filter(Boolean))], sourceLabel: '用户手写', createdAt: now, updatedAt: now })
+      invalidate('libraryItems')
       setMessage('已添加手写资料')
       setManualOpen(false)
     } catch (error) {
@@ -114,7 +116,7 @@ export function KnowledgeBasePage() {
       <div className="space-y-2">{visible.map((item) => <article key={item.id} className="rounded-xl bg-white p-4">
         <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-medium text-gray-900">{item.title}</p><p className="mt-1 line-clamp-3 text-sm leading-relaxed text-gray-500">{item.content || '（资料包）'}</p></div>{'matchPercent' in item && query.trim() && <span className="shrink-0 rounded-full bg-green-50 px-2 py-1 text-[10px] text-green-700">{Number(item.matchPercent)}%匹配</span>}</div>
         <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]"><span className="rounded-full bg-gray-100 px-2 py-1 text-gray-500">{SOURCE_LABELS[item.sourceType]}</span>{item.keywords.slice(0, 4).map((keyword) => <span key={keyword} className="rounded-full bg-blue-50 px-2 py-1 text-blue-600">{keyword}</span>)}{item.sourceFileName && <span className="truncate rounded-full bg-gray-50 px-2 py-1 text-gray-400">{item.sourceFileName}</span>}</div>
-        <button type="button" onClick={() => void db.libraryItems.delete(item.id)} className="mt-3 text-xs text-red-500">删除资料</button>
+        <button type="button" onClick={() => void api.libraryItems.delete(item.id).then(() => invalidate('libraryItems'))} className="mt-3 text-xs text-red-500">删除资料</button>
       </article>)}{visible.length === 0 && <p className="py-12 text-center text-sm text-gray-400">没有符合条件的资料</p>}</div>
     </div>
     {manualOpen && <div className="absolute inset-0 z-40 flex items-end bg-black/30 p-4 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="manual-library-title" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingManual) setManualOpen(false) }}>

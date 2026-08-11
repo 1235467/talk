@@ -1,9 +1,12 @@
 import { useState, type ReactNode } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, Clock3, Database, Map, RotateCcw, Trash2 } from 'lucide-react'
 import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
 import { db } from '../db/db'
+import { api } from '../lib/api/resources'
+import { getOrUndef } from '../lib/api/client'
+import { useLocalQuery } from '../lib/useLocalQuery'
 import {
   createContactSave, createMapSave, createWorldbookSave, deleteScopedSave,
   restoreContactSave, restoreMapSave, restoreWorldbookSave,
@@ -24,13 +27,14 @@ function SnapshotActions({ busy, onRestore, onDelete }: { busy: boolean; onResto
 }
 
 export function SaveLoadPage() {
-  const contacts = useLiveQuery(() => db.contacts.orderBy('createdAt').reverse().toArray(), []) ?? []
-  const storylines = useLiveQuery(() => db.contactStorylines.toArray(), []) ?? []
-  const contactSnapshots = useLiveQuery(() => db.contactSaveSnapshots.orderBy('createdAt').reverse().toArray(), []) ?? []
-  const globalSnapshots = useLiveQuery(() => db.globalSaveSnapshots.orderBy('createdAt').reverse().toArray(), []) ?? []
-  const worlds = useLiveQuery(() => db.worldbookCollections.orderBy('updatedAt').reverse().toArray(), []) ?? []
-  const map = useLiveQuery(() => db.worldMaps.get('active'), [])
-  const locations = useLiveQuery(() => db.locations.toArray(), []) ?? []
+  const { data: contactsRaw = [] } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const contacts = [...contactsRaw].sort((a, b) => b.createdAt - a.createdAt)
+  const storylines = useLocalQuery(() => db.contactStorylines.toArray(), []) ?? []
+  const contactSnapshots = useLocalQuery(() => db.contactSaveSnapshots.orderBy('createdAt').reverse().toArray(), []) ?? []
+  const globalSnapshots = useLocalQuery(() => db.globalSaveSnapshots.orderBy('createdAt').reverse().toArray(), []) ?? []
+  const { data: worlds = [] } = useQuery({ queryKey: ['worldbookCollections'], queryFn: () => api.worldbookCollections.list() })
+  const { data: map } = useQuery({ queryKey: ['worldMaps', 'active'], queryFn: () => getOrUndef(api.worldMaps.get('active')) })
+  const { data: locations = [] } = useQuery({ queryKey: ['locations'], queryFn: () => api.locations.list() })
   const [tab, setTab] = useState<Tab>('contacts')
   const [detail, setDetail] = useState<Detail>(null)
   const [busy, setBusy] = useState<string | null>(null)

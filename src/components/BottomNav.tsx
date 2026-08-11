@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { NavLink } from 'react-router-dom'
-import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../db/db'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../lib/api/resources'
 import { UnreadBadge } from './UnreadBadge'
 import { useTotalUnread } from '../lib/unread'
 import { momentsUnreadCount } from '../lib/momentsUnread'
@@ -17,8 +17,8 @@ const TABS = [
 const EMPTY_ARRAY: never[] = []
 
 export function BottomNav() {
-  const moments = useLiveQuery(() => db.moments.toArray(), []) ?? EMPTY_ARRAY
-  const socialEvents = useLiveQuery(() => db.socialEvents.toArray(), []) ?? EMPTY_ARRAY
+  const { data: moments = EMPTY_ARRAY } = useQuery({ queryKey: ['moments'], queryFn: () => api.moments.list() })
+  const { data: socialEvents = EMPTY_ARRAY } = useQuery({ queryKey: ['socialEvents'], queryFn: () => api.socialEvents.list() })
   const momentsLastReadAt = useSettingsStore((s) => s.momentsLastReadAt)
 
   const totalUnread = useTotalUnread()

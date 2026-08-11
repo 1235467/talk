@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
+import { invalidate } from '../lib/api/keys'
 import { TopBar } from '../components/TopBar'
 import { Globe } from 'lucide-react'
 import { ActionSheet } from '../components/ActionSheet'
@@ -13,7 +14,8 @@ import type { Sticker } from '../types'
 
 export function StickersPage() {
   const navigate = useNavigate()
-  const stickers = useLiveQuery(() => db.stickers.orderBy('createdAt').reverse().toArray(), []) ?? []
+  const { data: stickersRaw = [] } = useQuery({ queryKey: ['stickers'], queryFn: () => api.stickers.list() })
+  const stickers = [...stickersRaw].sort((a, b) => b.createdAt - a.createdAt)
   const stickerProvider = useSettingsStore((state) => state.stickerProvider)
   const stickerProviders = useSettingsStore((state) => state.stickerProviders)
   const remoteReady = isStickerProviderReady({ stickerProvider, stickerProviders })
@@ -40,12 +42,12 @@ export function StickersPage() {
   async function handleSave() {
     const name = nameDraft.trim()
     if (!name || !pendingImage) return
-    const exists = await db.stickers.where('name').equals(name).count()
-    if (exists > 0) {
+    if (stickers.some((sticker) => sticker.name === name)) {
       setError('这个名字已经被使用了 换一个吧')
       return
     }
-    await db.stickers.add({ id: uuid(), name, dataUrl: pendingImage, createdAt: Date.now() })
+    await api.stickers.put({ id: uuid(), name, dataUrl: pendingImage, createdAt: Date.now() })
+    invalidate('stickers')
     setPendingImage(null)
     setNameDraft('')
     setError('')
@@ -56,14 +58,12 @@ export function StickersPage() {
     if (!renaming) return
     const name = renameDraft.trim()
     if (!name) return
-    if (name !== renaming.name) {
-      const exists = await db.stickers.where('name').equals(name).count()
-      if (exists > 0) {
-        setRenameError('这个名字已经被使用了 换一个吧')
-        return
-      }
+    if (name !== renaming.name && stickers.some((sticker) => sticker.name === name)) {
+      setRenameError('这个名字已经被使用了 换一个吧')
+      return
     }
-    await db.stickers.update(renaming.id, { name })
+    await api.stickers.patch(renaming.id, { name })
+    invalidate('stickers')
     setRenaming(null)
     setRenameError('')
   }
@@ -175,7 +175,7 @@ export function StickersPage() {
           options={[
             {
               label: `确认删除表情包"${deleting.name}"`,
-              onSelect: () => db.stickers.delete(deleting.id),
+              onSelect: async () => { await api.stickers.delete(deleting.id); invalidate('stickers') },
               danger: true,
             },
           ]}

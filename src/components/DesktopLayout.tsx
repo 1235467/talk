@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
 import { Avatar } from './Avatar'
 import { UnreadBadge } from './UnreadBadge'
 import { DesktopTitleBar } from './DesktopTitleBar'
@@ -15,7 +15,8 @@ import { ALL_MODULES, useModuleEnabled } from '../features'
 import { uiThemeName } from '../lib/uiTheme'
 import { UiIcon } from './UiIcon'
 import { isAiTestId } from '../lib/aiTestIsolation'
-import { claimDailySalaries, localDateKey } from '../lib/finance'
+import { claimDailySalaries, hasClaimedDailySalary, localDateKey } from '../lib/finance'
+import { invalidate } from '../lib/api/keys'
 import { formatCurrency } from '../lib/wallet'
 import { checkForUpdate } from '../lib/updateCheck'
 
@@ -52,8 +53,8 @@ export function DesktopLayout({ children }: { children: ReactNode }) {
 function DesktopRail({ section, onNavigate }: { section: DesktopSection; onNavigate: ReturnType<typeof useNavigate> }) {
   const settings = useSettingsStore()
   const totalUnread = useTotalUnread()
-  const moments = useLiveQuery(() => db.moments.toArray(), []) ?? EMPTY
-  const socialEvents = useLiveQuery(() => db.socialEvents.toArray(), []) ?? EMPTY
+  const { data: moments = EMPTY } = useQuery({ queryKey: ['moments'], queryFn: () => api.moments.list() })
+  const { data: socialEvents = EMPTY } = useQuery({ queryKey: ['socialEvents'], queryFn: () => api.socialEvents.list() })
   const momentsUnread = momentsUnreadCount({ lastReadAt: settings.momentsLastReadAt, moments, socialEvents })
   const items: Array<{ section: DesktopSection; to: string; label: string; badge?: number }> = [
     { section: 'messages', to: '/', label: '消息', badge: totalUnread },
@@ -143,9 +144,9 @@ function DesktopSidebar({ section }: { section: DesktopSection }) {
 function ConversationList({ query }: { query: string }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const conversations = useLiveQuery(() => db.conversations.toArray(), []) ?? EMPTY
-  const contacts = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY
-  const groups = useLiveQuery(() => db.groups.toArray(), []) ?? EMPTY
+  const { data: conversations = EMPTY } = useQuery({ queryKey: ['conversations'], queryFn: () => api.conversations.list() })
+  const { data: contacts = EMPTY } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const { data: groups = EMPTY } = useQuery({ queryKey: ['groups'], queryFn: () => api.groups.list() })
   const unread = useUnreadByConversation()
   const lastMessages = useLastMessageByConversation()
   const rows = useMemo(() => {
@@ -179,8 +180,10 @@ function ConversationList({ query }: { query: string }) {
 function ContactList({ query }: { query: string }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const contacts = useLiveQuery(() => db.contacts.orderBy('createdAt').reverse().toArray(), []) ?? EMPTY
-  const generationTasks = useLiveQuery(() => db.contactGenerationTasks.orderBy('createdAt').reverse().toArray(), []) ?? EMPTY
+  const { data: contactsRaw = EMPTY } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const { data: generationTasksRaw = EMPTY } = useQuery({ queryKey: ['contactGenerationTasks'], queryFn: () => api.contactGenerationTasks.list() })
+  const contacts = useMemo(() => [...contactsRaw].sort((a, b) => b.createdAt - a.createdAt), [contactsRaw])
+  const generationTasks = useMemo(() => [...generationTasksRaw].sort((a, b) => b.createdAt - a.createdAt), [generationTasksRaw])
   const activeTasks = generationTasks.filter((task) => !['cancelled', 'completed'].includes(task.status))
   const filtered = contacts.filter((contact) => !isAiTestId(contact.id) && displayName(contact).toLowerCase().includes(query.trim().toLowerCase()))
   return <>
@@ -218,7 +221,8 @@ function SettingsList({ query }: { query: string }) {
   const settings = useSettingsStore()
   const careerEnabled = useModuleEnabled('career')
   const saveLoadEnabled = useModuleEnabled('saveLoad')
-  const salaryClaim = useLiveQuery(() => db.walletTransactions.where('idempotencyKey').equals(`salary:user:${localDateKey()}`).first(), [])
+  const salaryDateKey = localDateKey()
+  const { data: salaryClaim = false } = useQuery({ queryKey: ['salaryClaim', salaryDateKey], queryFn: () => hasClaimedDailySalary(salaryDateKey) })
   const [claimingSalary, setClaimingSalary] = useState(false)
   const [salaryMessage, setSalaryMessage] = useState('')
   const [checkingUpdate, setCheckingUpdate] = useState(false)
@@ -235,6 +239,7 @@ function SettingsList({ query }: { query: string }) {
       setSalaryMessage(error instanceof Error ? error.message : String(error))
     } finally {
       setClaimingSalary(false)
+      invalidate('salaryClaim')
     }
   }
 

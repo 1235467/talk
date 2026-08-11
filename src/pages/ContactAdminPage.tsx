@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useLocalQuery } from '../lib/useLocalQuery'
+import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
 import { TopBar } from '../components/TopBar'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { db } from '../db/db'
+import { api } from '../lib/api/resources'
+import { getOrUndef } from '../lib/api/client'
+import { invalidate } from '../lib/api/keys'
 import { PROMPT_MODULE_DEFINITIONS, unknownPromptPlaceholders } from '../lib/promptModules'
 import { clonePromptModules, promptModulesForContact } from '../lib/promptPresets'
 import { suggestContactAdminEdit, type ContactAdminSuggestion } from '../lib/contactAdminAssistant'
@@ -43,14 +47,38 @@ function Area({ label, value, onChange, rows = 5, mono = false, note }: { label:
 export function ContactAdminPage() {
   const { contactId } = useParams()
   const settings = useSettingsStore()
-  const contact = useLiveQuery(() => contactId ? db.contacts.get(contactId) : undefined, [contactId])
-  const memories = useLiveQuery(() => contactId ? db.contactMemories.where('contactId').equals(contactId).toArray() : EMPTY_MEMORIES, [contactId]) ?? EMPTY_MEMORIES
-  const relations = useLiveQuery(() => contactId ? db.contactRelations.filter((row) => row.fromContactId === contactId || row.toContactId === contactId).toArray() : EMPTY_RELATIONS, [contactId]) ?? EMPTY_RELATIONS
-  const experiences = useLiveQuery(() => contactId ? db.contactExperiences.where('contactIds').equals(contactId).toArray() : EMPTY_EXPERIENCES, [contactId]) ?? EMPTY_EXPERIENCES
-  const socialEvents = useLiveQuery(async () => contactId ? (await db.socialEvents.toArray()).filter((row) => row.actorId === contactId || row.targetId === contactId || row.relatedContactIds.includes(contactId)) : EMPTY_SOCIAL_EVENTS, [contactId]) ?? EMPTY_SOCIAL_EVENTS
-  const lifeState = useLiveQuery(() => contactId ? db.contactLifeStates.get(contactId) : undefined, [contactId])
-  const wallet = useLiveQuery(() => contactId ? db.walletAccounts.get(contactId) : undefined, [contactId])
-  const transactions = useLiveQuery(() => contactId ? db.walletTransactions.filter((row) => row.fromOwnerId === contactId || row.toOwnerId === contactId).toArray() : EMPTY_TRANSACTIONS, [contactId]) ?? EMPTY_TRANSACTIONS
+  const { data: contact } = useQuery({
+    queryKey: ['contacts', contactId],
+    queryFn: () => getOrUndef(api.contacts.get(contactId!)),
+    enabled: !!contactId,
+  })
+  const { data: memories = EMPTY_MEMORIES } = useQuery({
+    queryKey: ['contactMemories', contactId],
+    queryFn: () => api.contactMemories.list({ contactId: contactId! }),
+    enabled: !!contactId,
+  })
+  const { data: relations = EMPTY_RELATIONS } = useQuery({
+    queryKey: ['contactRelations', 'by-contact', contactId],
+    queryFn: async () => (await api.contactRelations.list()).filter((row) => row.fromContactId === contactId || row.toContactId === contactId),
+    enabled: !!contactId,
+  })
+  const { data: experiences = EMPTY_EXPERIENCES } = useQuery({
+    queryKey: ['contactExperiences', 'by-contact', contactId],
+    queryFn: () => api.contactExperiences.list({ contactIds_contains: contactId! }),
+    enabled: !!contactId,
+  })
+  const { data: socialEvents = EMPTY_SOCIAL_EVENTS } = useQuery({
+    queryKey: ['socialEvents', 'by-contact', contactId],
+    queryFn: async () => (await api.socialEvents.list()).filter((row) => row.actorId === contactId || row.targetId === contactId || row.relatedContactIds.includes(contactId!)),
+    enabled: !!contactId,
+  })
+  const { data: lifeState } = useQuery({
+    queryKey: ['contactLifeStates', contactId],
+    queryFn: () => getOrUndef(api.contactLifeStates.get(contactId!)),
+    enabled: !!contactId,
+  })
+  const wallet = useLocalQuery(() => contactId ? db.walletAccounts.get(contactId) : undefined, [contactId])
+  const transactions = useLocalQuery(() => contactId ? db.walletTransactions.filter((row) => row.fromOwnerId === contactId || row.toOwnerId === contactId).toArray() : EMPTY_TRANSACTIONS, [contactId]) ?? EMPTY_TRANSACTIONS
 
   const [draft, setDraft] = useState<Contact | null>(null)
   const [promptDraft, setPromptDraft] = useState<PromptModuleSettings | null>(null)
@@ -126,26 +154,33 @@ export function ContactAdminPage() {
       const oldExperienceIds = new Set(experiences.map((row) => row.id))
       const nextExperienceIds = new Set(nextExperiences.map((row) => row.id))
 
-      await db.transaction('rw', [db.contacts, db.contactMemories, db.contactRelations, db.contactExperiences, db.socialEvents, db.contactLifeStates, db.walletAccounts, db.walletTransactions], async () => {
-        await db.contacts.put({ ...draft, id: contact.id, createdAt: contact.createdAt, personaProfile: personaProfile ?? undefined, mood: mood ?? undefined, intentQueue, schedule, scheduleOverrides, customPersonalityTraits, promptModulesSnapshot: clonePromptModules(promptDraft), promptPresetSourceName: '联系人单独修改', promptSnapshotUpdatedAt: Date.now() })
-        await db.contactMemories.where('contactId').equals(contactId).delete()
-        if (nextMemories.length) await db.contactMemories.bulkPut(nextMemories)
-        await db.contactRelations.filter((row) => row.fromContactId === contactId || row.toContactId === contactId).delete()
-        if (nextRelations.length) await db.contactRelations.bulkPut(nextRelations)
-        for (const old of experiences) if (oldExperienceIds.has(old.id) && !nextExperienceIds.has(old.id)) {
-          if (old.contactIds.length > 1) await db.contactExperiences.update(old.id, { contactIds: old.contactIds.filter((id) => id !== contactId) })
-          else await db.contactExperiences.delete(old.id)
-        }
-        if (nextExperiences.length) await db.contactExperiences.bulkPut(nextExperiences)
-        await db.socialEvents.filter((row) => row.actorId === contactId || row.targetId === contactId || row.relatedContactIds.includes(contactId)).delete()
-        if (nextSocial.length) await db.socialEvents.bulkPut(nextSocial)
-        if (nextLife) await db.contactLifeStates.put({ ...nextLife, contactId })
-        else await db.contactLifeStates.delete(contactId)
-        if (nextWallet) await db.walletAccounts.put({ ...nextWallet, ownerId: contactId })
-        else await db.walletAccounts.delete(contactId)
-        await db.walletTransactions.filter((row) => row.fromOwnerId === contactId || row.toOwnerId === contactId).delete()
-        if (nextTransactions.length) await db.walletTransactions.bulkPut(nextTransactions)
-      })
+      await api.contacts.put({ ...draft, id: contact.id, createdAt: contact.createdAt, personaProfile: personaProfile ?? undefined, mood: mood ?? undefined, intentQueue, schedule, scheduleOverrides, customPersonalityTraits, promptModulesSnapshot: clonePromptModules(promptDraft), promptPresetSourceName: '联系人单独修改', promptSnapshotUpdatedAt: Date.now() })
+      invalidate('contacts')
+      const oldMemories = await api.contactMemories.list({ contactId })
+      if (oldMemories.length) await api.contactMemories.bulkDelete(oldMemories.map((row) => row.id))
+      if (nextMemories.length) await api.contactMemories.bulkPut(nextMemories)
+      invalidate('contactMemories')
+      const oldRelations = (await api.contactRelations.list()).filter((row) => row.fromContactId === contactId || row.toContactId === contactId)
+      if (oldRelations.length) await api.contactRelations.bulkDelete(oldRelations.map((row) => row.id))
+      if (nextRelations.length) await api.contactRelations.bulkPut(nextRelations)
+      invalidate('contactRelations')
+      for (const old of experiences) if (oldExperienceIds.has(old.id) && !nextExperienceIds.has(old.id)) {
+        if (old.contactIds.length > 1) await api.contactExperiences.patch(old.id, { contactIds: old.contactIds.filter((id) => id !== contactId) })
+        else await api.contactExperiences.delete(old.id)
+      }
+      if (nextExperiences.length) await api.contactExperiences.bulkPut(nextExperiences)
+      invalidate('contactExperiences')
+      const oldSocial = (await api.socialEvents.list()).filter((row) => row.actorId === contactId || row.targetId === contactId || row.relatedContactIds.includes(contactId))
+      if (oldSocial.length) await api.socialEvents.bulkDelete(oldSocial.map((row) => row.id))
+      if (nextSocial.length) await api.socialEvents.bulkPut(nextSocial)
+      invalidate('socialEvents')
+      if (nextLife) await api.contactLifeStates.put({ ...nextLife, contactId })
+      else if (lifeState) await api.contactLifeStates.delete(contactId)
+      invalidate('contactLifeStates')
+      if (nextWallet) await db.walletAccounts.put({ ...nextWallet, ownerId: contactId })
+      else await db.walletAccounts.delete(contactId)
+      await db.walletTransactions.filter((row) => row.fromOwnerId === contactId || row.toOwnerId === contactId).delete()
+      if (nextTransactions.length) await db.walletTransactions.bulkPut(nextTransactions)
       setStatus('已保存，下一轮聊天会使用新资料。')
       setDraft((current) => current ? { ...current, promptModulesSnapshot: clonePromptModules(promptDraft), promptSnapshotUpdatedAt: Date.now() } : current)
     } catch (error) {

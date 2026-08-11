@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
+import { getOrUndef } from '../lib/api/client'
+import { invalidate } from '../lib/api/keys'
 import { isAiTestId } from '../lib/aiTestIsolation'
 import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
@@ -32,12 +34,15 @@ function latestUsedIntents(contact: Contact) {
 }
 
 function LatestGroupAiTurnJson({ groupId }: { groupId: string }) {
-  const latestTurn = useLiveQuery(async () => {
-    const conv = await db.conversations.where('groupId').equals(groupId).first()
-    if (!conv) return null
-    const turns = await db.aiTurns.where('conversationId').equals(conv.id).reverse().sortBy('createdAt')
-    return turns[0] ?? null
-  }, [groupId])
+  const { data: latestTurn } = useQuery({
+    queryKey: ['aiTurns', 'group-latest', groupId],
+    queryFn: async () => {
+      const conv = (await api.conversations.list({ groupId }))[0]
+      if (!conv) return null
+      const turns = await api.aiTurns.list({ conversationId: conv.id })
+      return turns[0] ?? null
+    },
+  })
 
   if (!latestTurn?.raw) return <p className="text-sm text-gray-400">暂无群聊原始 JSON</p>
 
@@ -120,21 +125,39 @@ export function GroupInfoPage() {
   const [nameDraft, setNameDraft] = useState('')
   const [selectedToAdd, setSelectedToAdd] = useState<string[]>([])
 
-  const group = useLiveQuery(() => (groupId ? db.groups.get(groupId) : undefined), [groupId])
-  const groupLocation = useLiveQuery(() => (group?.kind === 'location' && group.locationId ? db.locations.get(group.locationId) : undefined), [group])
+  const { data: group, isPending: groupLoading } = useQuery({
+    queryKey: ['groups', groupId],
+    queryFn: () => getOrUndef(api.groups.get(groupId!)),
+    enabled: !!groupId,
+  })
+  const { data: groupLocation } = useQuery({
+    queryKey: ['locations', group?.locationId],
+    queryFn: () => getOrUndef(api.locations.get(group!.locationId!)),
+    enabled: group?.kind === 'location' && !!group.locationId,
+  })
   useEffect(() => {
     if (group?.kind === 'location') void syncContactLocationsAt(new Date())
   }, [group?.kind, group?.locationId])
-  const locationParticipants = useLiveQuery(
-    () => group?.kind === 'location' && group.locationId ? resolveLocationParticipants(group.locationId) : undefined,
-    [group?.kind, group?.locationId],
-  )
-  const groupPlans = useLiveQuery(() => (groupId ? db.groupPlans.where('groupId').equals(groupId).reverse().sortBy('createdAt') : []), [groupId]) ?? []
-  const allContacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_CONTACTS).filter((item) => !isAiTestId(item.id))
-  const membersRaw = useLiveQuery(() => (group ? db.contacts.bulkGet(group.memberContactIds) : []), [group])
-  const stickers = useLiveQuery(() => db.stickers.toArray(), []) ?? []
-  const groupWorldview = useLiveQuery(() => group?.worldviewId ? db.worldbookCollections.get(group.worldviewId) : undefined, [group?.worldviewId])
-  const members = useMemo(() => locationParticipants?.activeMembers.filter((contact) => (contact.worldviewId || settings.defaultWorldviewId) === (group?.worldviewId || settings.defaultWorldviewId)) ?? (membersRaw ?? []).filter((c): c is Contact => !!c), [group?.worldviewId, locationParticipants, membersRaw, settings.defaultWorldviewId])
+  const { data: locationParticipants } = useQuery({
+    queryKey: ['locationParticipants', group?.locationId],
+    queryFn: () => resolveLocationParticipants(group!.locationId!),
+    enabled: group?.kind === 'location' && !!group.locationId,
+  })
+  const { data: groupPlans = [] } = useQuery({
+    queryKey: ['groupPlans', groupId],
+    queryFn: () => api.groupPlans.list({ groupId: groupId! }),
+    enabled: !!groupId,
+  })
+  const { data: allContactsRaw = EMPTY_CONTACTS } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const allContacts = allContactsRaw.filter((item) => !isAiTestId(item.id))
+  const membersRaw = useMemo(() => (group ? group.memberContactIds.map((id) => allContactsRaw.find((contact) => contact.id === id)) : []), [group, allContactsRaw])
+  const { data: stickers = [] } = useQuery({ queryKey: ['stickers'], queryFn: () => api.stickers.list() })
+  const { data: groupWorldview } = useQuery({
+    queryKey: ['worldbookCollections', group?.worldviewId],
+    queryFn: () => getOrUndef(api.worldbookCollections.get(group!.worldviewId!)),
+    enabled: !!group?.worldviewId,
+  })
+  const members = useMemo(() => locationParticipants?.activeMembers.filter((contact) => (contact.worldviewId || settings.defaultWorldviewId) === (group?.worldviewId || settings.defaultWorldviewId)) ?? membersRaw.filter((c): c is Contact => !!c), [group?.worldviewId, locationParticipants, membersRaw, settings.defaultWorldviewId])
 
   const addableContacts = useMemo(() => {
     if (!group) return []
@@ -188,7 +211,8 @@ export function GroupInfoPage() {
 
   async function updateGroup(patch: Partial<Group>) {
     if (!group) return
-    await db.groups.update(group.id, patch)
+    await api.groups.patch(group.id, patch)
+    invalidate('groups')
   }
 
   function openNameEditor() {
@@ -207,7 +231,8 @@ export function GroupInfoPage() {
   async function handleAddMembers() {
     if (!group || selectedToAdd.length === 0) return
     const next = Array.from(new Set([...group.memberContactIds, ...selectedToAdd]))
-    await db.groups.update(group.id, { memberContactIds: next })
+    await api.groups.patch(group.id, { memberContactIds: next })
+    invalidate('groups')
     setSelectedToAdd([])
   }
 
@@ -215,23 +240,27 @@ export function GroupInfoPage() {
     if (!group || group.memberContactIds.length <= 1) return
     const remaining = group.memberContactIds.filter((id) => id !== contactId)
     if (remaining.length <= 1) { await handleDisband(); return }
-    await db.groups.update(group.id, { memberContactIds: remaining })
+    await api.groups.patch(group.id, { memberContactIds: remaining })
+    invalidate('groups')
   }
 
   async function handleDisband() {
     if (!group) return
-    const conv = await db.conversations.where('groupId').equals(group.id).first()
+    const conv = (await api.conversations.list({ groupId: group.id }))[0]
     if (conv) {
-      await db.messages.where('conversationId').equals(conv.id).delete()
-      await db.mediaAssets.where('conversationId').equals(conv.id).delete()
-      await db.conversations.delete(conv.id)
+      const messages = await api.messages.list({ conversationId: conv.id })
+      if (messages.length) await api.messages.bulkDelete(messages.map((message) => message.id))
+      const assets = await api.mediaAssets.list({ conversationId: conv.id })
+      if (assets.length) await api.mediaAssets.bulkDelete(assets.map((asset) => asset.id))
+      await api.conversations.delete(conv.id)
     }
-    await db.groups.delete(group.id)
+    await api.groups.delete(group.id)
+    invalidate('groups', 'conversations', 'messages', 'mediaAssets')
     void navigate('/', { replace: true })
   }
 
-  if (group === undefined) return null
-  if (group === null || !groupId) {
+  if (groupLoading) return null
+  if (!group || !groupId) {
     return (
       <div className="flex h-[var(--app-height)] flex-col overflow-hidden bg-[#f4f4f6]">
         <TopBar title="群聊" showBack />

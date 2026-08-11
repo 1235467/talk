@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
 import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
 import { displayName } from '../lib/contact'
@@ -14,8 +14,8 @@ const EMPTY_ARRAY: never[] = []
 
 export function RelationshipsPage() {
   const navigate = useNavigate()
-  const contactsRaw = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_ARRAY
-  const relationRows = useLiveQuery(() => db.contactRelations.toArray(), []) ?? EMPTY_ARRAY
+  const { data: contactsRaw = EMPTY_ARRAY } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const { data: relationRows = EMPTY_ARRAY } = useQuery({ queryKey: ['contactRelations'], queryFn: () => api.contactRelations.list() })
   const relations = useMemo(() => uniqueRelationPairs(relationRows), [relationRows])
   const [expandedId, setExpandedId] = useState<string | null>(null)
 

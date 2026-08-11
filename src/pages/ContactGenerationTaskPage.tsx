@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
+import { getOrUndef } from '../lib/api/client'
 import { TopBar } from '../components/TopBar'
 import type { ContactGenerationTask } from '../types'
 import type { PersonaGenerationResult } from '../lib/prompt'
@@ -20,7 +21,11 @@ const FIELD_LABELS: Record<string, string> = {
 export function ContactGenerationTaskPage() {
   const { taskId = '' } = useParams()
   const navigate = useNavigate()
-  const task = useLiveQuery(async () => (await db.contactGenerationTasks.get(taskId)) ?? null, [taskId])
+  const { data: task } = useQuery({
+    queryKey: ['contactGenerationTasks', taskId],
+    queryFn: async () => (await getOrUndef(api.contactGenerationTasks.get(taskId))) ?? null,
+    refetchInterval: 2000,
+  })
   const [draft, setDraft] = useState<PersonaGenerationResult | null>(null)
   const [copyStatus, setCopyStatus] = useState('')
 

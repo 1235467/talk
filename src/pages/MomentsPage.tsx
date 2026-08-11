@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
+import { invalidate } from '../lib/api/keys'
 import { isAiTestId } from '../lib/aiTestIsolation'
 import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
@@ -24,12 +25,13 @@ export function MomentsPage() {
   const focusMomentId = searchParams.get('focus')
   const filterContactId = searchParams.get('contact')
   const settings = useSettingsStore()
-  const moments = useLiveQuery(() => db.moments.orderBy('createdAt').reverse().toArray(), []) ?? EMPTY_ARRAY
-  const contacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_ARRAY).filter((item) => !isAiTestId(item.id))
-  const likes = useLiveQuery(() => db.momentLikes.toArray(), []) ?? EMPTY_ARRAY
-  const comments = useLiveQuery(() => db.momentComments.toArray(), []) ?? EMPTY_ARRAY
-  const stickers = useLiveQuery(() => db.stickers.toArray(), []) ?? EMPTY_ARRAY
-  const mediaAssets = useLiveQuery(() => db.mediaAssets.where('origin').equals('moment').toArray(), []) ?? EMPTY_ARRAY
+  const { data: moments = EMPTY_ARRAY } = useQuery({ queryKey: ['moments'], queryFn: () => api.moments.list() })
+  const { data: contactsRaw = EMPTY_ARRAY } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const contacts = contactsRaw.filter((item) => !isAiTestId(item.id))
+  const { data: likes = EMPTY_ARRAY } = useQuery({ queryKey: ['momentLikes'], queryFn: () => api.momentLikes.list() })
+  const { data: comments = EMPTY_ARRAY } = useQuery({ queryKey: ['momentComments'], queryFn: () => api.momentComments.list() })
+  const { data: stickers = EMPTY_ARRAY } = useQuery({ queryKey: ['stickers'], queryFn: () => api.stickers.list() })
+  const { data: mediaAssets = EMPTY_ARRAY } = useQuery({ queryKey: ['mediaAssets', { origin: 'moment' }], queryFn: () => api.mediaAssets.list({ origin: 'moment' }) })
   const mediaAssetById = useMemo(() => new Map(mediaAssets.map((asset) => [asset.id, asset])), [mediaAssets])
   const [refreshing, setRefreshing] = useState(false)
   const [message, setMessage] = useState('')
@@ -91,8 +93,8 @@ export function MomentsPage() {
       arr.push(c)
       map.set(c.momentId, arr)
     }
-    // db.momentComments.toArray() orders by the random uuid primary key, not
-    // insertion time — sort explicitly so the thread reads chronologically
+    // The server does not guarantee comment ordering — sort explicitly so the
+    // thread reads chronologically
     // (this matters a lot now that "A回复B" needs to visibly follow A's comment).
     for (const arr of map.values()) arr.sort((a, b) => a.createdAt - b.createdAt)
     return map
@@ -116,7 +118,7 @@ export function MomentsPage() {
     const text = commentDraft.trim()
     if (!text) return
     const newId = uuid()
-    await db.momentComments.add({
+    await api.momentComments.put({
       id: newId,
       momentId,
       authorContactId: 'user',
@@ -124,6 +126,7 @@ export function MomentsPage() {
       createdAt: Date.now(),
       replyToCommentId: replyTarget?.commentId,
     })
+    invalidate('momentComments')
     if (posterContactId) {
       const poster = contactById.get(posterContactId)
       await recordSocialEvent({
@@ -185,10 +188,12 @@ export function MomentsPage() {
   async function toggleUserLike(momentId: string, posterContactId?: string) {
     const existing = likesByMoment.get(momentId)?.find((l) => l.likerId === 'user')
     if (existing) {
-      await db.momentLikes.delete(existing.id)
+      await api.momentLikes.delete(existing.id)
+      invalidate('momentLikes')
       return
     }
-    await db.momentLikes.add({ id: uuid(), momentId, likerId: 'user', createdAt: Date.now() })
+    await api.momentLikes.put({ id: uuid(), momentId, likerId: 'user', createdAt: Date.now() })
+    invalidate('momentLikes')
     const contact = posterContactId ? contactById.get(posterContactId) : undefined
     if (contact) {
       await recordSocialEvent({

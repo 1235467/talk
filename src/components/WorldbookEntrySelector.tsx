@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../db/db'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../lib/api/resources'
 import { searchLibraryItems } from '../lib/library'
 import { estimateTokens } from '../lib/aiUsage'
 import { formatEstimatedTokens } from '../lib/worldbookTokens'
@@ -10,7 +10,7 @@ const EMPTY_ITEMS: never[] = []
 
 /** Kept under the legacy component name to avoid breaking persisted creator tasks. */
 export function WorldbookEntrySelector({ open, selectedIds, onChange, onClose }: Props) {
-  const items = useLiveQuery(() => db.libraryItems.toArray(), []) ?? EMPTY_ITEMS
+  const { data: items = EMPTY_ITEMS } = useQuery({ queryKey: ['libraryItems'], queryFn: () => api.libraryItems.list() })
   const [query, setQuery] = useState('')
   const selected = useMemo(() => new Set(selectedIds), [selectedIds])
   const visible = useMemo(() => searchLibraryItems(items, query), [items, query])

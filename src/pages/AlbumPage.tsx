@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Download, Trash2, X } from 'lucide-react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { TopBar } from '../components/TopBar'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
 import { useSettingsStore } from '../store/useSettingsStore'
 
 type AlbumSource = '动漫图库' | 'Pexels 实拍图' | '生图系统'
@@ -29,10 +29,10 @@ export function AlbumPage() {
   const hiddenUrls = useSettingsStore((state) => state.hiddenAlbumUrls ?? [])
   const savedImages = useSettingsStore((state) => state.albumSavedImages ?? [])
   const setSettings = useSettingsStore((state) => state.setSettings)
-  const contacts = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_LIST
-  const moments = useLiveQuery(() => db.moments.toArray(), []) ?? EMPTY_LIST
-  const messages = useLiveQuery(() => db.messages.toArray(), []) ?? EMPTY_LIST
-  const mediaAssets = useLiveQuery(() => db.mediaAssets.where('status').equals('completed').toArray(), []) ?? EMPTY_LIST
+  const { data: contacts = EMPTY_LIST } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const { data: moments = EMPTY_LIST } = useQuery({ queryKey: ['moments'], queryFn: () => api.moments.list() })
+  const { data: messages = EMPTY_LIST } = useQuery({ queryKey: ['messages'], queryFn: () => api.messages.list() })
+  const { data: mediaAssets = EMPTY_LIST } = useQuery({ queryKey: ['mediaAssets', { status: 'completed' }], queryFn: () => api.mediaAssets.list({ status: 'completed' }) })
   const [selected, setSelected] = useState<AlbumImage | null>(null)
 
   const images = (() => {

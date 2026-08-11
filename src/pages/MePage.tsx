@@ -7,9 +7,9 @@ import { Avatar } from '../components/Avatar'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { formatCurrency } from '../lib/wallet'
 import { checkForUpdate } from '../lib/updateCheck'
-import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../db/db'
-import { claimDailySalaries, localDateKey, USER_WALLET_ID } from '../lib/finance'
+import { useQuery } from '@tanstack/react-query'
+import { invalidate } from '../lib/api/keys'
+import { claimDailySalaries, getBalance, hasClaimedDailySalary, localDateKey, USER_WALLET_ID } from '../lib/finance'
 import { useModuleEnabled } from '../features'
 import { uiThemeName } from '../lib/uiTheme'
 
@@ -31,7 +31,7 @@ export function MePage() {
   const navigate = useNavigate()
   const settings = useSettingsStore()
   const { userAvatar, userNickname } = settings
-  const wallet = useLiveQuery(() => db.walletAccounts.get(USER_WALLET_ID), [])
+  const { data: walletBalance = 0 } = useQuery({ queryKey: ['walletBalance'], queryFn: () => getBalance(USER_WALLET_ID) })
   const [checking, setChecking] = useState(false)
   const [updateMessage, setUpdateMessage] = useState('')
   const [updateUrl, setUpdateUrl] = useState('')
@@ -41,7 +41,8 @@ export function MePage() {
   const [fullscreenError, setFullscreenError] = useState('')
   const saveLoadEnabled = useModuleEnabled('saveLoad')
   const careerEnabled = useModuleEnabled('career')
-  const salaryClaim = useLiveQuery(() => db.walletTransactions.where('idempotencyKey').equals(`salary:user:${localDateKey()}`).first(), [])
+  const salaryDateKey = localDateKey()
+  const { data: salaryClaim = false } = useQuery({ queryKey: ['salaryClaim', salaryDateKey], queryFn: () => hasClaimedDailySalary(salaryDateKey) })
   const [claimingSalary, setClaimingSalary] = useState(false)
   const [salaryMessage, setSalaryMessage] = useState('')
 
@@ -55,6 +56,7 @@ export function MePage() {
       setSalaryMessage(error instanceof Error ? error.message : String(error))
     } finally {
       setClaimingSalary(false)
+      invalidate('salaryClaim', 'walletBalance')
     }
   }
 
@@ -120,7 +122,7 @@ export function MePage() {
         <Avatar avatar={userAvatar} size={60} />
         <div className="flex flex-col items-end gap-1">
           <span className="text-[16px] font-medium text-gray-900">{userNickname}</span>
-          <span className="text-xs text-gray-400">{formatCurrency(wallet?.balance ?? 0, settings)}</span>
+          <span className="text-xs text-gray-400">{formatCurrency(walletBalance, settings)}</span>
         </div>
       </button>
 

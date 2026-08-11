@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
 import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
 import { SearchOverlay } from '../components/SearchOverlay'
@@ -13,8 +13,9 @@ const EMPTY_ARRAY: never[] = []
 export function ContactsPage() {
   const [searching, setSearching] = useState(false)
   const navigate = useNavigate()
-  const contactsRaw = useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_ARRAY
-  const generationTasks = useLiveQuery(() => db.contactGenerationTasks.orderBy('createdAt').toArray(), []) ?? EMPTY_ARRAY
+  const { data: contactsRaw = EMPTY_ARRAY } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const { data: generationTasksRaw = EMPTY_ARRAY } = useQuery({ queryKey: ['contactGenerationTasks'], queryFn: () => api.contactGenerationTasks.list() })
+  const generationTasks = useMemo(() => [...generationTasksRaw].sort((a, b) => a.createdAt - b.createdAt), [generationTasksRaw])
   const contacts = useMemo(
     () => contactsRaw.filter((contact) => !isAiTestId(contact.id)).sort((a, b) => displayName(a).localeCompare(displayName(b), 'zh')),
     [contactsRaw],

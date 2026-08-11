@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { v4 as uuid } from 'uuid'
 import { ChevronLeft, ChevronRight, Phone, PhoneOff } from 'lucide-react'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
+import { invalidate } from '../lib/api/keys'
 import { chatCompletionText } from '../lib/deepseek'
 import { syncContactLocationAt } from '../lib/locations'
 import { defaultTasksOverlappingRange, normalizeScheduleBlock, scheduleOccurrencesForDate, specialTaskRange } from '../lib/schedule'
@@ -29,7 +30,7 @@ export function SchedulePlanner({ contact, settings, memories }: { contact: Cont
   const [error, setError] = useState('')
   const [optimizing, setOptimizing] = useState(false)
   const [candidate, setCandidate] = useState<ScheduleBlock[] | null>(null)
-  const locations = useLiveQuery(() => db.locations.toArray(), []) ?? EMPTY_LOCATIONS
+  const { data: locations = EMPTY_LOCATIONS } = useQuery({ queryKey: ['locations'], queryFn: () => api.locations.list() })
   const leafLocations = useMemo(() => locations.filter((location) => !locations.some((candidate) => candidate.parentId === location.id)), [locations])
 
   useEffect(() => { const timer = window.setInterval(() => setNow(new Date()), 60_000); return () => window.clearInterval(timer) }, [])
@@ -54,7 +55,7 @@ export function SchedulePlanner({ contact, settings, memories }: { contact: Cont
       setCandidate(optimized)
     } catch (cause) { setError(cause instanceof Error ? cause.message : '日程优化失败') } finally { setOptimizing(false) }
   }
-  async function applyCandidate() { if (!candidate) return; await db.contacts.update(contact.id, { schedule: candidate }); await syncContactLocationAt(contact.id); setCandidate(null) }
+  async function applyCandidate() { if (!candidate) return; await api.contacts.patch(contact.id, { schedule: candidate }); invalidate('contacts'); await syncContactLocationAt(contact.id); setCandidate(null) }
 
   return <section className="mt-3 bg-white px-4 py-4">
     <div className="mb-2 flex items-center justify-between gap-2"><div className="flex items-center gap-2"><h3 className="text-xs font-medium text-gray-400">日程表</h3><button type="button" onClick={() => void optimize()} disabled={optimizing} className="rounded-lg bg-gray-100 px-2 py-1 text-[11px] text-gray-700 disabled:opacity-50">{optimizing ? '优化中…' : 'AI 优化'}</button></div><div className="flex items-center gap-1 text-xs text-gray-600"><button type="button" aria-label="上一周" onClick={() => setWeekStart((value) => new Date(value.getFullYear(), value.getMonth(), value.getDate() - 7))} className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200"><ChevronLeft size={16} /></button><span className="min-w-20 text-center font-medium">{title}</span><button type="button" aria-label="下一周" onClick={() => setWeekStart((value) => new Date(value.getFullYear(), value.getMonth(), value.getDate() + 7))} className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200"><ChevronRight size={16} /></button></div></div>
@@ -90,7 +91,8 @@ function Editor({ contact, target, locations, onClose }: { contact: Contact; tar
       const next: ScheduleOverride = { ...specialTask, date: dateInputValue(startAt), startHour: new Date(startAt).getHours(), endHour: new Date(endAt).getHours() || 24, startsAt: startAt, endsAt: endAt, activity: activity.trim().slice(0, 16), location: location.name, locationId: location.id, phoneAccess, summary: activity.trim().slice(0, 40), cancelledDefaultTaskIds: defaultTasksOverlappingRange(contact, startAt, endAt).map((item) => item.id) }
       if (!next.activity) { setError('请填写活动'); return }
       const retained = (contact.scheduleOverrides ?? []).filter((item) => { const range = specialTaskRange(item); return item.status === 'cancelled' || range.endsAt <= startAt || range.startsAt >= endAt })
-      await db.contacts.update(contact.id, { scheduleOverrides: [...retained, next] })
+      await api.contacts.patch(contact.id, { scheduleOverrides: [...retained, next] })
+      invalidate('contacts')
       await syncContactLocationAt(contact.id); onClose(); return
     }
     if (special) {
@@ -98,15 +100,16 @@ function Editor({ contact, target, locations, onClose }: { contact: Contact; tar
       if (!Number.isFinite(startAt) || !Number.isFinite(endAt) || endAt <= startAt || endAt - startAt > 24 * 60 * 60 * 1000) { setError('结束时间需要晚于开始时间，且不超过 24 小时'); return }
       const next: ScheduleOverride = { ...specialTask, date: dateInputValue(startAt), startHour: new Date(startAt).getHours(), endHour: new Date(endAt).getHours() || 24, startsAt: startAt, endsAt: endAt, activity: activity.trim().slice(0, 16), location: location.name, locationId: location.id, phoneAccess, summary: activity.trim().slice(0, 40) }
       if (!next.activity) { setError('请填写活动'); return }
-      await db.contacts.update(contact.id, { scheduleOverrides: (contact.scheduleOverrides ?? []).map((item) => item.id === task.id ? next : item) })
+      await api.contacts.patch(contact.id, { scheduleOverrides: (contact.scheduleOverrides ?? []).map((item) => item.id === task.id ? next : item) })
     } else {
       const next = normalizeScheduleBlock({ dayOfWeek: Number(day), startHour: Number(start), endHour: Number(end), activity, location: location.name, locationId: location.id, phoneAccess }, task.id)
       if (!next) { setError('请检查时间和活动'); return }
-      await db.contacts.update(contact.id, { schedule: (contact.schedule ?? []).map((item) => item.id === task.id ? next : item) })
+      await api.contacts.patch(contact.id, { schedule: (contact.schedule ?? []).map((item) => item.id === task.id ? next : item) })
     }
+    invalidate('contacts')
     await syncContactLocationAt(contact.id); onClose()
   }
-  async function remove() { if (!special) return; await db.contacts.update(contact.id, { scheduleOverrides: (contact.scheduleOverrides ?? []).filter((item) => item.id !== task.id) }); await syncContactLocationAt(contact.id); onClose() }
+  async function remove() { if (!special) return; await api.contacts.patch(contact.id, { scheduleOverrides: (contact.scheduleOverrides ?? []).filter((item) => item.id !== task.id) }); invalidate('contacts'); await syncContactLocationAt(contact.id); onClose() }
   return <div className="absolute inset-0 z-40 flex items-end bg-black/40" onClick={onClose}><div className="max-h-[88%] w-full overflow-y-auto rounded-t-2xl bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]" onClick={(event) => event.stopPropagation()}><h3 className="text-base font-medium text-gray-900">编辑{special ? '特殊安排' : '固定日程'}</h3><div className="mt-3 space-y-3 text-sm"><label className="block">活动<input value={activity} maxLength={16} onChange={(event) => setActivity(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2" /></label><label className="block">地点<select value={locationId} onChange={(event) => setLocationId(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2"><option value="">请选择地图地点</option>{locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>{special ? <><label className="block">开始<input type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2" /></label><label className="block">结束<input type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2" /></label></> : <div className="grid grid-cols-3 gap-2"><label>星期<select value={day} onChange={(event) => setDay(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-2 py-2">{['周日','周一','周二','周三','周四','周五','周六'].map((name, index) => <option key={name} value={index}>{name}</option>)}</select></label><label>开始<select value={start} onChange={(event) => setStart(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-2 py-2">{Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select></label><label>结束<select value={end} onChange={(event) => setEnd(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-2 py-2">{Array.from({ length: 24 }, (_, index) => index + 1).map((hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select></label></div>}<label className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">可以接电话<select value={phoneAccess} onChange={(event) => setPhoneAccess(event.target.value as 'available' | 'unavailable')} className="bg-transparent text-sm"><option value="available">可以</option><option value="unavailable">不方便</option></select></label>{error && <p className="text-xs text-red-500">{error}</p>}<div className="flex gap-2"><button type="button" onClick={onClose} className="flex-1 rounded-xl bg-gray-100 py-2.5 text-sm text-gray-700">取消</button>{special && <button type="button" onClick={() => void remove()} className="rounded-xl bg-red-50 px-3 py-2.5 text-sm text-red-500">删除</button>}<button type="button" onClick={() => void save()} className="flex-1 rounded-xl bg-gray-900 py-2.5 text-sm text-white">保存</button></div></div></div></div>
 }
 

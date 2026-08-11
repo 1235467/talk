@@ -1,7 +1,9 @@
 /** @ui standard */
 import { useEffect, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { db } from '../db/db'
+import { useLocalQuery } from '../lib/useLocalQuery'
+import { api } from '../lib/api/resources'
 import { TopBar } from '../components/TopBar'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { cleanupResidualAiTestData } from '../lib/aiTestCards'
@@ -148,9 +150,11 @@ function exportSuite(suite: AiTestSuiteRecord) {
 }
 
 export function AiTestCardsPage() {
-  const contacts = useLiveQuery(() => db.contacts.filter((item) => !item.id.startsWith('ai-test-')).sortBy('createdAt'), []) ?? []
-  const groups = useLiveQuery(() => db.groups.filter((item) => !item.id.startsWith('ai-test-')).sortBy('createdAt'), []) ?? []
-  const suites = useLiveQuery(() => db.aiTestSuites.orderBy('createdAt').reverse().toArray(), []) ?? []
+  const { data: contactsRaw = [] } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const contacts = contactsRaw.filter((item) => !item.id.startsWith('ai-test-'))
+  const { data: groupsRaw = [] } = useQuery({ queryKey: ['groups'], queryFn: () => api.groups.list() })
+  const groups = groupsRaw.filter((item) => !item.id.startsWith('ai-test-'))
+  const suites = useLocalQuery(() => db.aiTestSuites.orderBy('createdAt').reverse().toArray(), []) ?? []
   const settings = useSettingsStore()
   const [kind, setKind] = useState<AiTestKind>('conversation')
   const [contactId, setContactId] = useState('')
@@ -173,7 +177,7 @@ export function AiTestCardsPage() {
     setNotice('AI 正在生成测试用例…')
     try {
       let members: Contact[] | undefined
-      if (kind === 'group' && selectedGroup) members = (await db.contacts.bulkGet(selectedGroup.memberContactIds)).filter((item): item is Contact => !!item && !item.id.startsWith('ai-test-'))
+      if (kind === 'group' && selectedGroup) members = selectedGroup.memberContactIds.map((id) => contacts.find((item) => item.id === id)).filter((item): item is Contact => !!item)
       const suite = await createAiTestSuite({
         kind,
         count,

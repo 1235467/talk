@@ -6,8 +6,9 @@ import { displayName } from '../lib/contact'
 import type { Contact, Message } from '../types'
 import { Check } from 'lucide-react'
 import { UiIcon } from './UiIcon'
-import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../db/db'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../lib/api/resources'
+import { getOrUndef } from '../lib/api/client'
 import { retryMediaAsset } from '../lib/imageAssets'
 
 interface MessageBubbleProps {
@@ -69,11 +70,13 @@ export const MessageBubble = memo(function MessageBubble({
   showName = false,
 }: MessageBubbleProps) {
   const isUser = message.role === 'user'
-  const imageAsset = useLiveQuery(
-    () => message.image?.assetId ? db.mediaAssets.get(message.image.assetId) : undefined,
-    [message.image?.assetId],
-    null,
-  )
+  const imageAssetId = message.image?.assetId
+  const { data: imageAssetData, isLoading: imageAssetLoading } = useQuery({
+    queryKey: ['mediaAssets', imageAssetId],
+    queryFn: () => getOrUndef(api.mediaAssets.get(imageAssetId!)),
+    enabled: !!imageAssetId,
+  })
+  const imageAsset = imageAssetId ? (imageAssetLoading ? null : imageAssetData) : undefined
   const longPress = useLongPress(() => onLongPress?.(message.id))
   const mentionNames = useMemo(
     () =>

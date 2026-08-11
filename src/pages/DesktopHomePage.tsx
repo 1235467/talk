@@ -1,12 +1,16 @@
-import { useEffect } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useEffect, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
 import { isAiTestId } from '../lib/aiTestIsolation'
 
 export function DesktopHomePage() {
   const navigate = useNavigate()
-  const newestConversation = useLiveQuery(() => db.conversations.orderBy('updatedAt').reverse().filter((item) => !isAiTestId(item.id)).first(), [])
+  const { data: conversations = [] } = useQuery({ queryKey: ['conversations'], queryFn: () => api.conversations.list() })
+  const newestConversation = useMemo(
+    () => conversations.filter((item) => !isAiTestId(item.id)).sort((a, b) => b.updatedAt - a.updatedAt)[0],
+    [conversations],
+  )
   useEffect(() => {
     if (newestConversation) void navigate(`/chat/${newestConversation.id}`, { replace: true })
   }, [navigate, newestConversation])

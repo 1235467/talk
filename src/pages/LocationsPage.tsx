@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { MapPinned, Plus, RotateCcw, Upload, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
+import { getOrUndef } from '../lib/api/client'
+import { invalidate } from '../lib/api/keys'
 import { isAiTestId } from '../lib/aiTestIsolation'
 import { TopBar } from '../components/TopBar'
 import { LocationMapCanvas } from '../components/LocationMapCanvas'
@@ -65,11 +67,13 @@ export function LocationsPage() {
     return () => window.clearInterval(timer)
   }, [])
 
-  const map = useLiveQuery(() => db.worldMaps.get('active'), [])
-  const locations = useLiveQuery(() => db.locations.orderBy('sortOrder').toArray(), []) ?? EMPTY_LOCATIONS
-  const state = useLiveQuery(() => db.locationModuleState.get('active'), [])
-  const acousticEdges = useLiveQuery(() => db.acousticEdges.toArray(), []) ?? []
-  const contacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? EMPTY_CONTACTS).filter((item) => !isAiTestId(item.id))
+  const { data: map } = useQuery({ queryKey: ['worldMaps', 'active'], queryFn: () => getOrUndef(api.worldMaps.get('active')) })
+  const { data: locationsRaw = EMPTY_LOCATIONS } = useQuery({ queryKey: ['locations'], queryFn: () => api.locations.list() })
+  const locations = useMemo(() => [...locationsRaw].sort((a, b) => a.sortOrder - b.sortOrder), [locationsRaw])
+  const { data: state } = useQuery({ queryKey: ['locationModuleState', 'active'], queryFn: () => getOrUndef(api.locationModuleState.get('active')) })
+  const { data: acousticEdges = [] } = useQuery({ queryKey: ['acousticEdges'], queryFn: () => api.acousticEdges.list() })
+  const { data: contactsRaw = EMPTY_CONTACTS } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const contacts = contactsRaw.filter((item) => !isAiTestId(item.id))
   const active = locations.find((item) => item.id === state?.currentLocationId)
   const selected = locations.find((item) => item.id === selectedId)
   const children = useMemo(() => selected ? childLocations(selected.id, locations) : [], [locations, selected])
@@ -124,7 +128,8 @@ export function LocationsPage() {
       if (!location?.mapBinding) return
       if (hasNearbyLocation(point, location.id)) { setError('距离其他地点太近，请至少间隔一格'); return }
       if (!isLocationPlacementAvailable(point, locations, map, location.id, location.mapBinding.allowedTerrains)) { setError('这个地点不能放在当前地形上'); return }
-      await db.locations.update(location.id, { mapBinding: { ...location.mapBinding, x: point.x, y: point.y }, updatedAt: Date.now() })
+      await api.locations.patch(location.id, { mapBinding: { ...location.mapBinding, x: point.x, y: point.y }, updatedAt: Date.now() })
+      invalidate('locations')
       setMovingId(undefined); setSelectedId(location.id); return
     }
     if (hasNearbyLocation(point)) { setDraftPoint(undefined); setError('这个区域距离已有地点太近，不能放置新地点'); return }
@@ -143,14 +148,16 @@ export function LocationsPage() {
       if (formMode === 'new') {
         if (!draftPoint || hasNearbyLocation(draftPoint)) { setError('这个区域距离已有地点太近，不能放置新地点'); return }
         const nowAt = Date.now(), icon = getLocationIcon(form.iconId)
-        await db.locations.add({
+        await api.locations.put({
           id: crypto.randomUUID(), name: form.name.trim(), kind: 'custom', description: form.description.trim() || '用户创建的地点。', note: form.note.trim() || undefined, access: form.access,
           mapBinding: { x: draftPoint.x, y: draftPoint.y, allowedTerrains: ALL_TERRAINS, buildingCategory: icon.id, iconId: icon.id, customIconDataUrl: form.customIconDataUrl },
           userCreated: true, sortOrder: Math.max(100, ...locations.map((item) => item.sortOrder)) + 10, createdAt: nowAt, updatedAt: nowAt,
         })
+        invalidate('locations')
       } else if (selected?.mapBinding) {
         const icon = getLocationIcon(form.iconId)
-        await db.locations.update(selected.id, { name: form.name.trim(), description: form.description.trim(), note: form.note.trim() || undefined, access: form.access, mapBinding: { ...selected.mapBinding, buildingCategory: icon.id, iconId: icon.id, customIconDataUrl: form.customIconDataUrl }, updatedAt: Date.now() })
+        await api.locations.patch(selected.id, { name: form.name.trim(), description: form.description.trim(), note: form.note.trim() || undefined, access: form.access, mapBinding: { ...selected.mapBinding, buildingCategory: icon.id, iconId: icon.id, customIconDataUrl: form.customIconDataUrl }, updatedAt: Date.now() })
+        invalidate('locations')
       }
       setFormMode(undefined); setDraftPoint(undefined)
     } catch (reason) { setError(reason instanceof Error && reason.name === 'ConstraintError' ? '地点名称不能重复' : reason instanceof Error ? reason.message : String(reason)) }
@@ -172,7 +179,8 @@ export function LocationsPage() {
   async function setAudibility(firstId: string, secondId: string, audibility: LocationAudibility) {
     const existing = acousticEdges.find((edge) => (edge.fromLocationId === firstId && edge.toLocationId === secondId) || (edge.bidirectional && edge.fromLocationId === secondId && edge.toLocationId === firstId))
     const [fromLocationId, toLocationId] = [firstId, secondId].sort()
-    await db.acousticEdges.put({ id: existing?.id ?? `custom-acoustic:${fromLocationId}:${toLocationId}`, fromLocationId, toLocationId, audibility, bidirectional: true })
+    await api.acousticEdges.put({ id: existing?.id ?? `custom-acoustic:${fromLocationId}:${toLocationId}`, fromLocationId, toLocationId, audibility, bidirectional: true })
+    invalidate('acousticEdges')
   }
 
   async function importIcon(event: ChangeEvent<HTMLInputElement>) {
@@ -185,8 +193,9 @@ export function LocationsPage() {
   async function saveChild() {
     if (!selected || !childForm?.name.trim()) { setError('请填写子地点名称'); return }
     const nowAt = Date.now()
-    if (editingChildId) await db.locations.update(editingChildId, { name: childForm.name.trim(), description: childForm.description.trim() || '用户创建的子地点。', access: childForm.access, updatedAt: nowAt })
-    else await db.locations.add({ id: crypto.randomUUID(), parentId: selected.id, name: childForm.name.trim(), kind: 'custom-subplace', description: childForm.description.trim() || '用户创建的子地点。', access: childForm.access, userCreated: true, sortOrder: Math.max(selected.sortOrder, ...locations.map((item) => item.sortOrder)) + 1, createdAt: nowAt, updatedAt: nowAt })
+    if (editingChildId) { await api.locations.patch(editingChildId, { name: childForm.name.trim(), description: childForm.description.trim() || '用户创建的子地点。', access: childForm.access, updatedAt: nowAt }) }
+    else { await api.locations.put({ id: crypto.randomUUID(), parentId: selected.id, name: childForm.name.trim(), kind: 'custom-subplace', description: childForm.description.trim() || '用户创建的子地点。', access: childForm.access, userCreated: true, sortOrder: Math.max(selected.sortOrder, ...locations.map((item) => item.sortOrder)) + 1, createdAt: nowAt, updatedAt: nowAt }) }
+    invalidate('locations')
     setChildForm(undefined); setEditingChildId(undefined)
   }
 

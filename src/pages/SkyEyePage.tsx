@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { TopBar } from '../components/TopBar'
 import { useConsoleCaptureStore } from '../lib/consoleCapture'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
 import { formatBubbleTime } from '../lib/time'
 import { useChatEngineStore, stopAiTurn } from '../lib/chatEngine'
 import { stopGroupAiTurn } from '../lib/groupChatEngine'
@@ -54,8 +54,13 @@ export function SkyEyePage() {
   const clearLogs = useConsoleCaptureStore((s) => s.clear)
   const states = useChatEngineStore((s) => s.states)
   const [logPage, setLogPage] = useState(0); const [turnPage, setTurnPage] = useState(0); const [level, setLevel] = useState('all'); const [query, setQuery] = useState(''); const [open, setOpen] = useState<string | null>(null)
-  const conversations = (useLiveQuery(() => db.conversations.toArray(), []) ?? []).filter((item) => !isAiTestId(item.id))
-  const traces = (useLiveQuery(() => db.adminAiTraces.orderBy('createdAt').reverse().toArray(), []) ?? EMPTY_TRACES).filter((item) => !isAiTestId(item.conversationId))
+  const { data: conversationsRaw = [] } = useQuery({ queryKey: ['conversations'], queryFn: () => api.conversations.list() })
+  const conversations = conversationsRaw.filter((item) => !isAiTestId(item.id))
+  const { data: tracesRaw = EMPTY_TRACES } = useQuery({
+    queryKey: ['aiTurns', 'admin-traces'],
+    queryFn: async () => (await api.aiTurns.list()) as unknown as AdminAiTrace[],
+  })
+  const traces = tracesRaw.filter((item) => typeof item.purpose === 'string' && !isAiTestId(item.conversationId))
   const traceTurns = useMemo(() => groupTraces(traces), [traces])
   const shownLogs = useMemo(() => logs.slice().reverse().filter((log) => (level === 'all' || log.level === level) && log.message.toLowerCase().includes(query.toLowerCase())), [logs, level, query])
   const shownTurns = traceTurns.slice(turnPage * TRACE_PAGE, turnPage * TRACE_PAGE + TRACE_PAGE)

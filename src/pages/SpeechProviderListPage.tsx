@@ -1,7 +1,7 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { TopBar } from '../components/TopBar'
 import { db } from '../db/db'
+import { useLocalQuery } from '../lib/useLocalQuery'
 import { isSpeechProviderReady, SPEECH_PROVIDER_INFO, speechProviderName } from '../lib/speechProviders'
 import { stopSpeechPlayback } from '../lib/speechPlayer'
 import { useSettingsStore } from '../store/useSettingsStore'
@@ -16,7 +16,7 @@ export function SpeechProviderListPage() {
   const speechProvider = useSettingsStore((state) => state.speechProvider)
   const speechProviders = useSettingsStore((state) => state.speechProviders)
   const setSettings = useSettingsStore((state) => state.setSettings)
-  const stats = useLiveQuery(async () => {
+  const stats = useLocalQuery(async () => {
     const rows = await db.speechCache.toArray()
     return { count: rows.length, bytes: rows.reduce((sum, row) => sum + row.size, 0) }
   }, [])

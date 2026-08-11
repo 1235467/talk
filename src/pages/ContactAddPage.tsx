@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useQuery } from '@tanstack/react-query'
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from '../lib/api/resources'
+import { invalidate } from '../lib/api/keys'
 import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
 import { AvatarPicker } from '../components/AvatarPicker'
@@ -54,10 +55,11 @@ const EMPTY_LIST: never[] = []
 export function ContactAddPage() {
   const navigate = useNavigate()
   const settings = useSettingsStore()
-  const existingContacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? []).filter((item) => !isAiTestId(item.id))
-  const savedPersonas = useLiveQuery(() => db.savedPersonas.orderBy('updatedAt').reverse().toArray(), []) ?? []
-  const creationRecords = useLiveQuery(() => db.personaCreationRecords.orderBy('createdAt').reverse().toArray(), []) ?? []
-  const worldviews = useLiveQuery(() => db.worldbookCollections.orderBy('updatedAt').reverse().toArray(), []) ?? EMPTY_LIST
+  const { data: existingContactsRaw = [] } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const existingContacts = existingContactsRaw.filter((item) => !isAiTestId(item.id))
+  const { data: savedPersonas = [] } = useQuery({ queryKey: ['savedPersonas'], queryFn: () => api.savedPersonas.list() })
+  const { data: creationRecords = [] } = useQuery({ queryKey: ['personaCreationRecords'], queryFn: () => api.personaCreationRecords.list() })
+  const { data: worldviews = EMPTY_LIST } = useQuery({ queryKey: ['worldbookCollections'], queryFn: () => api.worldbookCollections.list() })
 
   const [tags, setTags] = useState<string[]>([])
   const [customTag, setCustomTag] = useState('')
@@ -316,7 +318,8 @@ issues 要用简短中文列出具体错误。` },
     const now = Date.now()
     const profile = personaSnapshot()
     const automaticWarmth = initialWarmthForBase(profile.relationship || '朋友', personalityTrait)
-    await db.savedPersonas.add({ id: uuid(), name: customNickname.trim() || customRealName.trim(), nickname: customNickname.trim() || undefined, realName: customRealName.trim() || undefined, birthday: customBirthday.trim() || undefined, profile, sharedHistory: profile.sharedHistory || undefined, personaConstraints: (isNuwaMode ? `${extra.trim()}\n${currentNuwaPersonaText()}` : extra.trim()) || undefined, customPersonalityTraits: isNuwaMode ? effectiveNuwaTraits() : customTraits, initialWarmth: isNuwaMode ? personaDraft?.initialWarmth : initialWarmthMode === 'custom' ? customInitialWarmth : automaticWarmth, initialWarmthMode: isNuwaMode ? 'ai' : initialWarmthMode, createdAt: now, updatedAt: now })
+    await api.savedPersonas.put({ id: uuid(), name: customNickname.trim() || customRealName.trim(), nickname: customNickname.trim() || undefined, realName: customRealName.trim() || undefined, birthday: customBirthday.trim() || undefined, profile, sharedHistory: profile.sharedHistory || undefined, personaConstraints: (isNuwaMode ? `${extra.trim()}\n${currentNuwaPersonaText()}` : extra.trim()) || undefined, customPersonalityTraits: isNuwaMode ? effectiveNuwaTraits() : customTraits, initialWarmth: isNuwaMode ? personaDraft?.initialWarmth : initialWarmthMode === 'custom' ? customInitialWarmth : automaticWarmth, initialWarmthMode: isNuwaMode ? 'ai' : initialWarmthMode, createdAt: now, updatedAt: now })
+    invalidate('savedPersonas')
     setPersonaPage(0)
   }
 
@@ -330,7 +333,8 @@ issues 要用简短中文列出具体错误。` },
   async function deleteSavedPersona(saved: import('../types').SavedPersona) {
     const label = saved.nickname || saved.realName || saved.name || '未命名人设'
     if (!window.confirm(`确定删除已保存的人设“${label}”吗？\n已创建的联系人和创建历史不会受到影响。`)) return
-    await db.savedPersonas.delete(saved.id)
+    await api.savedPersonas.delete(saved.id)
+    invalidate('savedPersonas')
     const remainingCount = Math.max(0, savedPersonas.length - 1)
     setPersonaPage((page) => Math.min(page, Math.max(0, Math.ceil(remainingCount / 5) - 1)))
   }
@@ -338,7 +342,8 @@ issues 要用简短中文列出具体错误。` },
   async function deleteCreationRecord(record: PersonaCreationRecord) {
     const label = record.nickname || record.realName || record.name || '未命名人设'
     if (!window.confirm(`确定删除以前创建过的人设“${label}”吗？\n已经创建的联系人不会受到影响。`)) return
-    await db.personaCreationRecords.delete(record.id)
+    await api.personaCreationRecords.delete(record.id)
+    invalidate('personaCreationRecords')
   }
 
   function applyCreationRecord(record: PersonaCreationRecord) {

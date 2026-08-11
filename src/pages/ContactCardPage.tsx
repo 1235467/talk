@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useLocalQuery } from '../lib/useLocalQuery'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
 import { db } from '../db/db'
+import { api } from '../lib/api/resources'
+import { getOrUndef } from '../lib/api/client'
+import { invalidate, invalidateAll } from '../lib/api/keys'
 import { isAiTestId } from '../lib/aiTestIsolation'
 import { TopBar } from '../components/TopBar'
 import { UiIcon } from '../components/UiIcon'
@@ -12,8 +16,6 @@ import { ActionSheet } from '../components/ActionSheet'
 import { SchedulePlanner } from '../components/SchedulePlanner'
 import { displayName } from '../lib/contact'
 import { activeUpcomingPlans, activeUpcomingPlansText, resetMemory } from '../lib/memory'
-import { cascadeDeleteContactSocialData } from '../lib/moments'
-import { removeContactFromAllGroups } from '../lib/groupChat'
 import { describeCurrentSchedule, describeUpcomingScheduleText, isPhoneAvailable, scheduleOccurrencesForDate } from '../lib/schedule'
 import { normalizeMood } from '../lib/mood'
 import { describeCurrentTime } from '../lib/time'
@@ -126,12 +128,15 @@ function ScheduleWeekTimeline({ contact, onEdit, onOptimize, optimizing, optimiz
 }
 
 function LatestAiTurnJson({ contactId }: { contactId: string }) {
-  const latestTurn = useLiveQuery(async () => {
-    const conv = await db.conversations.where('contactId').equals(contactId).first()
-    if (!conv) return null
-    const turns = await db.aiTurns.where('conversationId').equals(conv.id).reverse().sortBy('createdAt')
-    return turns[0] ?? null
-  }, [contactId])
+  const { data: latestTurn } = useQuery({
+    queryKey: ['aiTurns', 'latest-by-contact', contactId],
+    queryFn: async () => {
+      const conv = (await api.conversations.list({ contactId }))[0]
+      if (!conv) return null
+      const turns = (await api.aiTurns.list({ conversationId: conv.id })).sort((a, b) => b.createdAt - a.createdAt)
+      return turns[0] ?? null
+    },
+  })
 
   if (!latestTurn?.raw) return null
   const actionCommittee = latestTurn.parsed && typeof latestTurn.parsed === 'object'
@@ -182,18 +187,34 @@ export function ContactCardPage() {
   const [speechVoiceStatus, setSpeechVoiceStatus] = useState('')
   const [relationDrafts, setRelationDrafts] = useState<Array<{ targetContactId: string; label: string }>>([])
 
-  const contact = useLiveQuery(() => (contactId ? db.contacts.get(contactId) : undefined), [contactId])
-  const currentLocation = useLiveQuery(() => contact?.currentLocationId ? db.locations.get(contact.currentLocationId) : undefined, [contact?.currentLocationId])
-  const allContacts = (useLiveQuery(() => db.contacts.toArray(), []) ?? []).filter((item) => !isAiTestId(item.id))
-  const worldviews = useLiveQuery(() => db.worldbookCollections.orderBy('updatedAt').reverse().toArray(), []) ?? []
-  const conversation = useLiveQuery(
-    () => (contactId ? db.conversations.where('contactId').equals(contactId).first() : undefined),
-    [contactId],
-  )
+  const { data: contactData, isPending: contactPending } = useQuery({
+    queryKey: ['contacts', contactId],
+    queryFn: () => getOrUndef(api.contacts.get(contactId!)),
+    enabled: !!contactId,
+  })
+  const contact = contactPending ? undefined : (contactData ?? null)
+  const { data: currentLocation } = useQuery({
+    queryKey: ['locations', contact?.currentLocationId],
+    queryFn: () => getOrUndef(api.locations.get(contact!.currentLocationId!)),
+    enabled: !!contact?.currentLocationId,
+  })
+  const { data: allContactsRaw = [] } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
+  const allContacts = allContactsRaw.filter((item) => !isAiTestId(item.id))
+  const { data: worldviews = [] } = useQuery({ queryKey: ['worldbookCollections'], queryFn: () => api.worldbookCollections.list() })
+  const { data: conversation } = useQuery({
+    queryKey: ['conversations', 'by-contact', contactId],
+    queryFn: async () => (await api.conversations.list({ contactId: contactId! }))[0],
+    enabled: !!contactId,
+  })
+
+  async function patchContact(patch: Partial<Contact>) {
+    await api.contacts.patch(contactId!, patch)
+    invalidate('contacts')
+  }
 
   async function changeWorldview(nextWorldviewId: string) {
     if (!contact || nextWorldviewId === contact.worldviewId) return
-    const affected = (await db.groups.toArray()).filter((group) => group.memberContactIds.includes(contact.id) && (group.worldviewId || settings.defaultWorldviewId) !== nextWorldviewId)
+    const affected = (await api.groups.list()).filter((group) => group.memberContactIds.includes(contact.id) && (group.worldviewId || settings.defaultWorldviewId) !== nextWorldviewId)
     const nextName = worldviews.find((world) => world.id === nextWorldviewId)?.name || '新世界'
     if (affected.length && !window.confirm(`切换到“${nextName}”后，${displayName(contact)}会被移出 ${affected.length} 个不同世界的群聊；群里只剩一人时会自动解散。继续吗？`)) return
     if (!window.confirm(`切换到“${nextName}”会先自动保存当前剧情线，然后开启一条不继承聊天记录和角色记忆的新剧情线。确定继续吗？`)) return
@@ -201,36 +222,60 @@ export function ContactCardPage() {
     for (const group of affected) {
       const remaining = group.memberContactIds.filter((id) => id !== contact.id)
       if (remaining.length <= 1) {
-        const conv = await db.conversations.where('groupId').equals(group.id).first()
-        if (conv) { await db.messages.where('conversationId').equals(conv.id).delete(); await db.mediaAssets.where('conversationId').equals(conv.id).delete(); await db.conversations.delete(conv.id) }
-        await db.groups.delete(group.id)
-      } else await db.groups.update(group.id, { memberContactIds: remaining })
+        const conv = (await api.conversations.list({ groupId: group.id }))[0]
+        if (conv) {
+          const convMessages = await api.messages.list({ conversationId: conv.id })
+          if (convMessages.length) await api.messages.bulkDelete(convMessages.map((message) => message.id))
+          const convAssets = await api.mediaAssets.list({ conversationId: conv.id })
+          if (convAssets.length) await api.mediaAssets.bulkDelete(convAssets.map((asset) => asset.id))
+          await api.conversations.delete(conv.id)
+        }
+        await api.groups.delete(group.id)
+      } else await api.groups.patch(group.id, { memberContactIds: remaining })
     }
+    invalidate('groups', 'conversations', 'messages', 'mediaAssets')
   }
-  const contactWallet = useLiveQuery(() => contactId ? db.walletAccounts.get(contactId) : undefined, [contactId])
-  const momentCount = useLiveQuery(() => contactId ? db.moments.where('contactId').equals(contactId).count() : 0, [contactId]) ?? 0
-  const lifeEvents = useLiveQuery(() => contactId ? db.lifeEvents.where('contactId').equals(contactId).reverse().sortBy('occurredAt') : [], [contactId]) ?? []
-  const experiences = useLiveQuery(() => contactId ? db.contactExperiences.where('contactIds').equals(contactId).toArray() : [], [contactId]) ?? []
-  const lifeState = useLiveQuery(() => contactId ? db.contactLifeStates.get(contactId) : undefined, [contactId])
-  const socialTimeline = useLiveQuery(async () => {
-    if (!contactId) return []
-    return (await db.socialEvents.orderBy('createdAt').reverse().limit(80).toArray())
-      .filter((event) => event.relatedContactIds.includes(contactId) || event.actorId === contactId || event.targetId === contactId)
-      .slice(0, 6)
-  }, [contactId]) ?? []
-  const structuredMemories = useLiveQuery(
-    () => (contactId ? db.contactMemories.where('contactId').equals(contactId).reverse().sortBy('updatedAt') : []),
-    [contactId],
-  ) ?? []
-  const relationLinks = useLiveQuery(
-    async () => {
+  const contactWallet = useLocalQuery(() => contactId ? db.walletAccounts.get(contactId) : undefined, [contactId])
+  const { data: momentCount = 0 } = useQuery({
+    queryKey: ['moments', 'by-contact', contactId],
+    queryFn: async () => (await api.moments.list({ contactId: contactId! })).length,
+    enabled: !!contactId,
+  })
+  const { data: lifeEvents = [] } = useQuery({
+    queryKey: ['lifeEvents', contactId],
+    queryFn: () => api.lifeEvents.list({ contactId: contactId! }),
+    enabled: !!contactId,
+  })
+  const { data: experiences = [] } = useQuery({
+    queryKey: ['contactExperiences', 'by-contact', contactId],
+    queryFn: () => api.contactExperiences.list({ contactIds_contains: contactId! }),
+    enabled: !!contactId,
+  })
+  const { data: lifeState } = useQuery({
+    queryKey: ['contactLifeStates', contactId],
+    queryFn: () => getOrUndef(api.contactLifeStates.get(contactId!)),
+    enabled: !!contactId,
+  })
+  const { data: socialTimeline = [] } = useQuery({
+    queryKey: ['socialEvents', 'timeline', contactId],
+    queryFn: async () => (await api.socialEvents.list({ limit: 80 }))
+      .filter((event) => event.relatedContactIds.includes(contactId!) || event.actorId === contactId || event.targetId === contactId)
+      .slice(0, 6),
+    enabled: !!contactId,
+  })
+  const { data: structuredMemories = [] } = useQuery({
+    queryKey: ['contactMemories', contactId],
+    queryFn: async () => (await api.contactMemories.list({ contactId: contactId! })).sort((a, b) => b.updatedAt - a.updatedAt),
+    enabled: !!contactId,
+  })
+  const { data: relationLinks = [] } = useQuery({
+    queryKey: ['contactRelations', 'by-contact', contactId],
+    queryFn: async () => {
       if (!contactId) return []
-      const links = await db.contactRelations
+      const links = (await api.contactRelations.list())
         .filter((link) => link.fromContactId === contactId || link.toContactId === contactId)
-        .toArray()
-      const otherIds = Array.from(new Set(links.map((link) => (link.fromContactId === contactId ? link.toContactId : link.fromContactId))))
-      const contacts = await db.contacts.bulkGet(otherIds)
-      const contactById = new Map(contacts.filter((c): c is NonNullable<typeof c> => !!c).map((c) => [c.id, c]))
+      const contacts = await api.contacts.list()
+      const contactById = new Map(contacts.map((c) => [c.id, c]))
       return uniqueRelationPairs(links)
         .map((link) => {
           const otherId = link.fromContactId === contactId ? link.toContactId : link.fromContactId
@@ -239,8 +284,8 @@ export function ContactCardPage() {
         })
         .filter((item): item is { id: string; targetContactId: string; name: string; label: ContactRelationLabel } => !!item)
     },
-    [contactId],
-  ) ?? []
+    enabled: !!contactId,
+  })
   const structuredMemoryGroups = structuredMemories.reduce(
     (acc, memory) => {
       const scope = memory.scope ?? 'private'
@@ -260,10 +305,10 @@ export function ContactCardPage() {
       const raw = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.utilityModel, messages: [{ role: 'system', content: careerPrompt }, { role: 'user', content: '生成职业资料' }], jsonMode: true, purpose: 'persona' })
       const parsed = parseOccupation(raw)
       if (!parsed) throw new Error('职业资料生成失败')
-      await db.contacts.update(contact.id, { ...employmentPatch(value, parsed.monthlySalary), ...(parsed.schedule ? { schedule: parsed.schedule } : {}) })
+      await patchContact({ ...employmentPatch(value, parsed.monthlySalary), ...(parsed.schedule ? { schedule: parsed.schedule } : {}) })
     } finally { setAssigningCareer(false) }
   }
-  const stickers = useLiveQuery(() => db.stickers.toArray(), []) ?? []
+  const { data: stickers = [] } = useQuery({ queryKey: ['stickers'], queryFn: () => api.stickers.list() })
   if (contact === undefined) return null
   if (contact === null || !contactId) {
     return (
@@ -279,7 +324,8 @@ export function ContactCardPage() {
     if (!conv) {
       const now = Date.now()
       conv = { id: uuid(), contactId: contactId!, pinned: false, createdAt: now, updatedAt: now }
-      await db.conversations.add(conv)
+      await api.conversations.put(conv)
+      invalidate('conversations')
     }
     void navigate(`/chat/${conv.id}`)
   }
@@ -291,7 +337,7 @@ export function ContactCardPage() {
   async function saveSpeechVoice(voiceId: string) {
     if (!contact || activeSpeechProvider === 'none') return
     const previous = contact.speechVoices?.[activeSpeechProvider]
-    await db.contacts.update(contact.id, {
+    await patchContact({
       speechVoices: {
         ...contact.speechVoices,
         [activeSpeechProvider]: {
@@ -307,7 +353,7 @@ export function ContactCardPage() {
 
   async function saveSpeechStyle(styleInstruction: string) {
     if (!contact || activeSpeechProvider === 'none' || !activeSpeechVoice) return
-    await db.contacts.update(contact.id, {
+    await patchContact({
       speechVoices: {
         ...contact.speechVoices,
         [activeSpeechProvider]: { ...activeSpeechVoice, styleInstruction: styleInstruction.trim(), source: 'user', assignedAt: Date.now() },
@@ -335,14 +381,8 @@ export function ContactCardPage() {
   }
 
   async function handleDelete() {
-    if (conversation) {
-      await db.messages.where('conversationId').equals(conversation.id).delete()
-      await db.mediaAssets.where('conversationId').equals(conversation.id).delete()
-      await db.conversations.delete(conversation.id)
-    }
-    await cascadeDeleteContactSocialData(contactId!)
-    await removeContactFromAllGroups(contactId!)
-    await db.contacts.delete(contactId!)
+    await api.batch.deleteContact(contactId!)
+    invalidateAll()
     void navigate('/contacts', { replace: true })
   }
 
@@ -356,7 +396,7 @@ export function ContactCardPage() {
     const drafts = relationDrafts
       .map((draft) => ({ targetContactId: draft.targetContactId, label: draft.label.trim() }))
       .filter((draft, index, all) => draft.targetContactId && draft.label && all.findIndex((item) => item.targetContactId === draft.targetContactId) === index)
-    const oldLinks = await db.contactRelations.filter((link) => link.fromContactId === contactId || link.toContactId === contactId).toArray()
+    const oldLinks = (await api.contactRelations.list()).filter((link) => link.fromContactId === contactId || link.toContactId === contactId)
     const oldTargetIds = new Set(oldLinks.map((link) => link.fromContactId === contactId ? link.toContactId : link.fromContactId))
     for (const targetId of oldTargetIds) await removePairedContactRelation(contactId, targetId)
     for (const draft of drafts) await setPairedContactRelation(contactId, draft.targetContactId, draft.label as ContactRelationLabel)
@@ -364,7 +404,7 @@ export function ContactCardPage() {
   }
 
   async function saveRemark() {
-    await db.contacts.update(contactId!, { remark: remarkDraft.trim() })
+    await patchContact({ remark: remarkDraft.trim() })
     setEditingRemark(false)
   }
 
@@ -782,8 +822,8 @@ export function ContactCardPage() {
           onClose={() => setPickingRelationshipType(false)}
           options={[...RELATIONSHIP_OPTIONS.map((label) => ({
             label,
-            onSelect: () => { void db.contacts.update(contactId!, { relationshipBase: label }) },
-          })), { label: '自定义…', onSelect: () => { const value = window.prompt('输入自定义关系定位', contact.relationshipBase || '')?.trim(); if (value) void db.contacts.update(contactId!, { relationshipBase: value }) } }]}
+            onSelect: () => { void patchContact({ relationshipBase: label }) },
+          })), { label: '自定义…', onSelect: () => { const value = window.prompt('输入自定义关系定位', contact.relationshipBase || '')?.trim(); if (value) void patchContact({ relationshipBase: value }) } }]}
         />
       )}
 
@@ -792,8 +832,8 @@ export function ContactCardPage() {
           onClose={() => setPickingPersonalityTrait(false)}
           options={[...PERSONALITY_TRAIT_OPTIONS.map((opt) => ({
             label: opt.value,
-            onSelect: () => { void db.contacts.update(contactId!, { personalityTrait: opt.value }) },
-          })), { label: '自定义…', onSelect: () => { const value = window.prompt('输入自定义性格特质', contact.personalityTrait || '')?.trim(); if (value) void db.contacts.update(contactId!, { personalityTrait: value }) } }]}
+            onSelect: () => { void patchContact({ personalityTrait: opt.value }) },
+          })), { label: '自定义…', onSelect: () => { const value = window.prompt('输入自定义性格特质', contact.personalityTrait || '')?.trim(); if (value) void patchContact({ personalityTrait: value }) } }]}
         />
       )}
 
@@ -813,11 +853,11 @@ export function ContactCardPage() {
       {pickingAvatar && (
         <AvatarPicker
           onSelect={(avatar, photographer) =>
-            db.contacts.update(contactId!, {
+            void patchContact({
               avatar,
-              avatarPhotographer: photographer?.name,
-              avatarPhotographerUrl: photographer?.url,
-            })
+              avatarPhotographer: photographer?.name ?? null,
+              avatarPhotographerUrl: photographer?.url ?? null,
+            } as Partial<Contact>)
           }
           onClose={() => setPickingAvatar(false)}
           settings={settings}
