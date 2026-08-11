@@ -72,16 +72,36 @@ pub async fn import_value(pool: &SqlitePool, backup: &serde_json::Value) -> anyh
         summary.push(format!("{backup_name}: {count} rows"));
     }
 
-    // Legacy knowledgeEntries merge into library_items without overwriting.
+    // Legacy knowledgeEntries → library_items with the same shape the web
+    // app's restoreBackup produced (id prefix, web sourceType, topic→title).
     if let Some(rows) = tables.get("knowledgeEntries").and_then(|v| v.as_array()) {
         let res = &crate::resources::library_items::RES;
         let mut count = 0usize;
         for row in rows {
             let Some(id) = row.get("id").and_then(|v| v.as_str()) else { continue };
-            if crate::crud::get(pool, res, id).await.is_err() {
-                crate::crud::upsert(pool, res, row.clone()).await?;
-                count += 1;
+            let mapped_id = format!("restored-knowledge:{id}");
+            if crate::crud::get(pool, res, &mapped_id).await.is_ok() {
+                continue;
             }
+            let fetched_at = row.get("fetchedAt").cloned().unwrap_or(serde_json::Value::from(0));
+            let keywords = row
+                .get("sourceQuery")
+                .and_then(|v| v.as_str())
+                .map(|query| vec![serde_json::Value::String(query.to_string())])
+                .unwrap_or_default();
+            let mapped = serde_json::json!({
+                "id": mapped_id,
+                "sourceType": "web",
+                "title": row.get("topic").cloned().unwrap_or(serde_json::Value::String("未命名知识".into())),
+                "content": row.get("content").cloned().unwrap_or(serde_json::Value::String(String::new())),
+                "keywords": keywords,
+                "sourceLabel": "恢复的旧知识库",
+                "fetchedAt": fetched_at,
+                "createdAt": fetched_at,
+                "updatedAt": fetched_at,
+            });
+            crate::crud::upsert(pool, res, mapped).await?;
+            count += 1;
         }
         summary.push(format!("knowledgeEntries→libraryItems: {count} merged"));
     }

@@ -338,7 +338,7 @@ crud_routes!(ai_usage_records, "/ai-usage-records", Resource {
     table: "ai_usage_records",
     pk: "id",
     pk_json: "id",
-    cols: &[text("date", "date"), text("purpose", "purpose"), int("created_at", "createdAt")],
+    cols: &[text("purpose", "purpose"), int("created_at", "createdAt")],
     join: None,
     default_order: "created_at DESC",
 });

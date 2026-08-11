@@ -177,12 +177,11 @@ CREATE INDEX idx_ai_turns_conversation ON ai_turns(conversation_id, created_at);
 
 CREATE TABLE ai_usage_records (
     id TEXT PRIMARY KEY,
-    date TEXT NOT NULL,            -- YYYY-MM-DD local date, for daily caps
     purpose TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     data TEXT NOT NULL
 );
-CREATE INDEX idx_ai_usage_date ON ai_usage_records(date);
+CREATE INDEX idx_ai_usage_created ON ai_usage_records(created_at);
 
 -- TTS cache: audio lives as a file under TALK_MEDIA_DIR, path recorded here.
 CREATE TABLE speech_cache (
