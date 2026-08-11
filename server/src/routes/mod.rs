@@ -13,6 +13,7 @@ pub fn router(state: AppState) -> Router {
         .route("/kv/{key}", get(kv::get_one).delete(kv::remove))
         .route("/presets", get(presets::list).post(presets::create))
         .route("/presets/{name}", get(presets::get_one).put(presets::update).delete(presets::remove))
+        .merge(crate::resources::router())
         .route_layer(middleware::from_fn_with_state(state.clone(), auth::require_token));
 
     Router::new()

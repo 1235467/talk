@@ -1,8 +1,10 @@
 mod auth;
 mod config;
+mod crud;
 mod db;
 mod error;
 mod import;
+mod resources;
 mod routes;
 mod state;
 

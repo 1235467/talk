@@ -1,0 +1,393 @@
+//! Resource declarations for every domain table and the route wiring.
+
+use axum::{routing::get, Router};
+
+use crate::crud::{crud_routes, Col, ColType::*, Join, Resource};
+
+const fn text(name: &'static str, json: &'static str) -> Col {
+    Col { name, json, ty: Text }
+}
+const fn int(name: &'static str, json: &'static str) -> Col {
+    Col { name, json, ty: Int }
+}
+const fn real(name: &'static str, json: &'static str) -> Col {
+    Col { name, json, ty: Real }
+}
+
+crud_routes!(contacts, "/contacts", Resource {
+    table: "contacts",
+    pk: "id",
+    pk_json: "id",
+    cols: &[
+        text("worldview_id", "worldviewId"),
+        text("name", "name"),
+        text("preset_name", "presetName"),
+        int("warmth", "warmth"),
+        int("last_moment_at", "lastMomentAt"),
+        int("created_at", "createdAt"),
+    ],
+    join: None,
+    default_order: "created_at",
+});
+
+crud_routes!(conversations, "/conversations", Resource {
+    table: "conversations",
+    pk: "id",
+    pk_json: "id",
+    cols: &[
+        text("contact_id", "contactId"),
+        text("group_id", "groupId"),
+        int("updated_at", "updatedAt"),
+        int("created_at", "createdAt"),
+    ],
+    join: None,
+    default_order: "updated_at DESC",
+});
+
+crud_routes!(messages, "/messages", Resource {
+    table: "messages",
+    pk: "id",
+    pk_json: "id",
+    cols: &[
+        text("conversation_id", "conversationId"),
+        text("role", "role"),
+        text("type", "type"),
+        text("speaker_contact_id", "speakerContactId"),
+        int("created_at", "createdAt"),
+    ],
+    join: None,
+    default_order: "created_at, id",
+});
+
+crud_routes!(groups, "/groups", Resource {
+    table: "groups",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("name", "name"), int("created_at", "createdAt")],
+    join: Some(Join { table: "group_members", fk: "group_id", json: "memberContactIds" }),
+    default_order: "created_at",
+});
+
+crud_routes!(stickers, "/stickers", Resource {
+    table: "stickers",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("name", "name"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "created_at",
+});
+
+crud_routes!(contact_relations, "/contact-relations", Resource {
+    table: "contact_relations",
+    pk: "id",
+    pk_json: "id",
+    cols: &[
+        text("from_contact_id", "fromContactId"),
+        text("to_contact_id", "toContactId"),
+        text("pair_id", "pairId"),
+        text("label", "label"),
+        int("created_at", "createdAt"),
+    ],
+    join: None,
+    default_order: "created_at",
+});
+
+crud_routes!(moments, "/moments", Resource {
+    table: "moments",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("contact_id", "contactId"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "created_at DESC",
+});
+
+crud_routes!(moment_comments, "/moment-comments", Resource {
+    table: "moment_comments",
+    pk: "id",
+    pk_json: "id",
+    cols: &[
+        text("moment_id", "momentId"),
+        text("author_contact_id", "authorContactId"),
+        text("reply_to_comment_id", "replyToCommentId"),
+        int("created_at", "createdAt"),
+    ],
+    join: None,
+    default_order: "created_at, id",
+});
+
+crud_routes!(moment_likes, "/moment-likes", Resource {
+    table: "moment_likes",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("moment_id", "momentId"), text("liker_id", "likerId"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "created_at",
+});
+
+crud_routes!(worldbook_collections, "/worldbook-collections", Resource {
+    table: "worldbook_collections",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("name", "name"), int("enabled", "enabled"), int("updated_at", "updatedAt"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "updated_at DESC",
+});
+
+crud_routes!(worldbook_entries, "/worldbook-entries", Resource {
+    table: "worldbook_entries",
+    pk: "id",
+    pk_json: "id",
+    cols: &[
+        text("collection_id", "collectionId"),
+        int("source_order", "sourceOrder"),
+        int("priority", "priority"),
+        int("enabled", "enabled"),
+        int("created_at", "createdAt"),
+        int("updated_at", "updatedAt"),
+    ],
+    join: Some(Join { table: "worldbook_entry_keywords", fk: "entry_id", json: "keywords" }),
+    default_order: "collection_id, source_order",
+});
+
+crud_routes!(library_items, "/library-items", Resource {
+    table: "library_items",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("source_type", "sourceType"), text("title", "title"), int("created_at", "createdAt"), int("updated_at", "updatedAt")],
+    join: Some(Join { table: "library_item_keywords", fk: "item_id", json: "keywords" }),
+    default_order: "updated_at DESC",
+});
+
+crud_routes!(saved_worldviews, "/saved-worldviews", Resource {
+    table: "saved_worldviews",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("name", "name"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "created_at DESC",
+});
+
+crud_routes!(simulation_state, "/simulation-state", Resource {
+    table: "simulation_state",
+    pk: "id",
+    pk_json: "id",
+    cols: &[],
+    join: None,
+    default_order: "id",
+});
+
+crud_routes!(contact_life_states, "/contact-life-states", Resource {
+    table: "contact_life_states",
+    pk: "contact_id",
+    pk_json: "contactId",
+    cols: &[int("updated_at", "updatedAt")],
+    join: None,
+    default_order: "contact_id",
+});
+
+crud_routes!(life_events, "/life-events", Resource {
+    table: "life_events",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("contact_id", "contactId"), text("type", "type"), int("occurred_at", "occurredAt")],
+    join: Some(Join { table: "life_event_participants", fk: "event_id", json: "participantContactIds" }),
+    default_order: "occurred_at DESC",
+});
+
+crud_routes!(contact_experiences, "/contact-experiences", Resource {
+    table: "contact_experiences",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("kind", "kind"), text("memory_tier", "memoryTier"), int("start_at", "startedAt"), int("created_at", "createdAt")],
+    join: Some(Join { table: "contact_experience_contacts", fk: "experience_id", json: "contactIds" }),
+    default_order: "created_at DESC",
+});
+
+crud_routes!(social_events, "/social-events", Resource {
+    table: "social_events",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("actor_id", "actorId"), text("target_id", "targetId"), int("created_at", "createdAt")],
+    join: Some(Join { table: "social_event_contacts", fk: "event_id", json: "relatedContactIds" }),
+    default_order: "created_at DESC",
+});
+
+crud_routes!(contact_memories, "/contact-memories", Resource {
+    table: "contact_memories",
+    pk: "id",
+    pk_json: "id",
+    cols: &[
+        text("contact_id", "contactId"),
+        text("scope", "scope"),
+        text("category", "category"),
+        real("importance", "importance"),
+        int("created_at", "createdAt"),
+        int("updated_at", "updatedAt"),
+    ],
+    join: Some(Join { table: "contact_memory_contacts", fk: "memory_id", json: "relatedContactIds" }),
+    default_order: "created_at DESC",
+});
+
+crud_routes!(group_plans, "/group-plans", Resource {
+    table: "group_plans",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("group_id", "groupId"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "created_at DESC",
+});
+
+crud_routes!(internal_tasks, "/internal-tasks", Resource {
+    table: "internal_tasks",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("contact_id", "contactId"), text("conversation_id", "conversationId"), text("kind", "kind"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "created_at DESC",
+});
+
+crud_routes!(saved_personas, "/saved-personas", Resource {
+    table: "saved_personas",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("name", "name"), int("updated_at", "updatedAt"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "updated_at DESC",
+});
+
+crud_routes!(persona_creation_records, "/persona-creation-records", Resource {
+    table: "persona_creation_records",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("source_contact_id", "sourceContactId"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "created_at DESC",
+});
+
+crud_routes!(contact_generation_tasks, "/contact-generation-tasks", Resource {
+    table: "contact_generation_tasks",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("status", "status"), int("created_at", "createdAt"), int("updated_at", "updatedAt")],
+    join: None,
+    default_order: "created_at",
+});
+
+crud_routes!(locations, "/locations", Resource {
+    table: "locations",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("parent_id", "parentId"), text("name", "name"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "created_at",
+});
+
+crud_routes!(world_maps, "/world-maps", Resource {
+    table: "world_maps",
+    pk: "id",
+    pk_json: "id",
+    cols: &[],
+    join: None,
+    default_order: "id",
+});
+
+crud_routes!(location_module_state, "/location-module-state", Resource {
+    table: "location_module_state",
+    pk: "id",
+    pk_json: "id",
+    cols: &[],
+    join: None,
+    default_order: "id",
+});
+
+crud_routes!(acoustic_edges, "/acoustic-edges", Resource {
+    table: "acoustic_edges",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("from_location_id", "fromLocationId"), text("to_location_id", "toLocationId")],
+    join: None,
+    default_order: "id",
+});
+
+crud_routes!(media_assets, "/media-assets", Resource {
+    table: "media_assets",
+    pk: "id",
+    pk_json: "id",
+    cols: &[
+        text("origin", "origin"),
+        text("origin_id", "originId"),
+        text("conversation_id", "conversationId"),
+        text("status", "status"),
+        int("created_at", "createdAt"),
+        int("updated_at", "updatedAt"),
+    ],
+    join: Some(Join { table: "media_asset_owners", fk: "asset_id", json: "ownerContactIds" }),
+    default_order: "created_at DESC",
+});
+
+crud_routes!(ai_turns, "/ai-turns", Resource {
+    table: "ai_turns",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("conversation_id", "conversationId"), text("contact_id", "contactId"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "created_at DESC",
+});
+
+crud_routes!(ai_usage_records, "/ai-usage-records", Resource {
+    table: "ai_usage_records",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("date", "date"), text("purpose", "purpose"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "created_at DESC",
+});
+
+macro_rules! mount {
+    ($router:expr, $path:literal, $mod:ident) => {
+        $router.route(
+            $path,
+            get($mod::list).post($mod::upsert),
+        )
+        .route(concat!($path, "/bulk"), axum::routing::post($mod::bulk_upsert))
+        .route(
+            concat!($path, "/{id}"),
+            get($mod::get).put($mod::upsert).delete($mod::remove),
+        )
+    };
+}
+
+pub fn router() -> Router<crate::state::AppState> {
+    let r = Router::new();
+    let r = mount!(r, "/contacts", contacts);
+    let r = mount!(r, "/conversations", conversations);
+    let r = mount!(r, "/messages", messages);
+    let r = mount!(r, "/groups", groups);
+    let r = mount!(r, "/stickers", stickers);
+    let r = mount!(r, "/contact-relations", contact_relations);
+    let r = mount!(r, "/moments", moments);
+    let r = mount!(r, "/moment-comments", moment_comments);
+    let r = mount!(r, "/moment-likes", moment_likes);
+    let r = mount!(r, "/worldbook-collections", worldbook_collections);
+    let r = mount!(r, "/worldbook-entries", worldbook_entries);
+    let r = mount!(r, "/library-items", library_items);
+    let r = mount!(r, "/saved-worldviews", saved_worldviews);
+    let r = mount!(r, "/simulation-state", simulation_state);
+    let r = mount!(r, "/contact-life-states", contact_life_states);
+    let r = mount!(r, "/life-events", life_events);
+    let r = mount!(r, "/contact-experiences", contact_experiences);
+    let r = mount!(r, "/social-events", social_events);
+    let r = mount!(r, "/contact-memories", contact_memories);
+    let r = mount!(r, "/group-plans", group_plans);
+    let r = mount!(r, "/internal-tasks", internal_tasks);
+    let r = mount!(r, "/saved-personas", saved_personas);
+    let r = mount!(r, "/persona-creation-records", persona_creation_records);
+    let r = mount!(r, "/contact-generation-tasks", contact_generation_tasks);
+    let r = mount!(r, "/locations", locations);
+    let r = mount!(r, "/world-maps", world_maps);
+    let r = mount!(r, "/location-module-state", location_module_state);
+    let r = mount!(r, "/acoustic-edges", acoustic_edges);
+    let r = mount!(r, "/media-assets", media_assets);
+    let r = mount!(r, "/ai-turns", ai_turns);
+    mount!(r, "/ai-usage-records", ai_usage_records)
+}
