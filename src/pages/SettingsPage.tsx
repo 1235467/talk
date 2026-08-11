@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Capacitor } from '@capacitor/core'
+import { Directory, Filesystem } from '@capacitor/filesystem'
 import { TopBar } from '../components/TopBar'
 import { FileSliders, Palette } from 'lucide-react'
 import { ActionSheet } from '../components/ActionSheet'
@@ -72,16 +74,29 @@ export function SettingsPage() {
     const settings = { ...useSettingsStore.getState() } as Partial<AppSettings> & { setSettings?: unknown }
     delete settings.setSettings
     const backup = await createBackup(settings)
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+    const json = JSON.stringify(backup, null, 2)
+    const fileName = backupFileName()
+    // Android WebView 无法通过 blob 下载拉起系统下载器；原生环境直接写进
+    // 应用私有目录（/data/data/com.talk.aichat/files/，root 可直接取）。
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const result = await Filesystem.writeFile({ path: fileName, data: json, directory: Directory.Data, recursive: true })
+        setBackupStatus(`备份已写入 ${result.uri}（包含 API Key 等密钥，请妥善保管，不要发给别人）`)
+      } catch (error) {
+        setBackupStatus(`导出失败：${error instanceof Error ? error.message : String(error)}`)
+      }
+      return
+    }
+    const blob = new Blob([json], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = backupFileName()
+    link.download = fileName
     document.body.appendChild(link)
     link.click()
     link.remove()
     URL.revokeObjectURL(url)
-    setBackupStatus('备份已导出。API Key、令牌和密码不会写入备份文件。')
+    setBackupStatus('备份已导出（包含 API Key 等密钥，请妥善保管，不要发给别人）。')
   }
 
   async function handleImportBackup(file: File) {

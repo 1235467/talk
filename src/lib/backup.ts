@@ -31,6 +31,10 @@ export const BACKUP_TABLES = [
   'contactGenerationTasks',
   'contactStorylines', 'contactSaveSnapshots', 'globalSaveSnapshots',
   'mediaAssets',
+  'personaCreationRecords',
+  'internalTasks',
+  'saveSlots',
+  'aiTestSuites',
 ] as const
 
 export type BackupTableName = (typeof BACKUP_TABLES)[number]
@@ -53,28 +57,30 @@ export function backupFileName(now = new Date()) {
   return `talk-backup-${stamp}.json`
 }
 
-function settingsWithoutSecrets(value: unknown, key = ''): unknown {
-  if (/api.?key|authorization|token|password|secret/i.test(key)) return ''
-  if (Array.isArray(value)) return value.map((item) => settingsWithoutSecrets(item))
+/** Complete export: secrets (API keys, tokens) are included — the backup is a
+ * full-fidelity copy for the owner's own migration, so strip only functions. */
+function settingsWithoutFunctions(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => settingsWithoutFunctions(item))
   if (value && typeof value === 'object') {
     return Object.fromEntries(Object.entries(value).flatMap(([childKey, childValue]) =>
-      typeof childValue === 'function' ? [] : [[childKey, settingsWithoutSecrets(childValue, childKey)]],
+      typeof childValue === 'function' ? [] : [[childKey, settingsWithoutFunctions(childValue)]],
     ))
   }
   return value
 }
 
 export function mergeSettingsPreservingSecrets(restored: Partial<AppSettings>, current: AppSettings): Partial<AppSettings> {
-  const merge = (incoming: unknown, existing: unknown, key = ''): unknown => {
-    if (/api.?key|authorization|token|password|secret/i.test(key)) return existing ?? ''
+  // Backups now carry secrets too (complete export), so a restore takes them
+  // verbatim — `current` only survives for call-site compatibility.
+  void current
+  const merge = (incoming: unknown): unknown => {
     if (Array.isArray(incoming)) return incoming
     if (incoming && typeof incoming === 'object') {
-      const existingRecord = existing && typeof existing === 'object' ? existing as Record<string, unknown> : {}
-      return Object.fromEntries(Object.entries(incoming).map(([childKey, childValue]) => [childKey, merge(childValue, existingRecord[childKey], childKey)]))
+      return Object.fromEntries(Object.entries(incoming).map(([childKey, childValue]) => [childKey, merge(childValue)]))
     }
     return incoming
   }
-  return merge(restored, current) as Partial<AppSettings>
+  return merge(restored) as Partial<AppSettings>
 }
 
 export async function createBackup(settings: Partial<AppSettings>): Promise<TalkBackup> {
@@ -84,7 +90,7 @@ export async function createBackup(settings: Partial<AppSettings>): Promise<Talk
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
     appVersion: typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : undefined,
-    settings: settingsWithoutSecrets(settings) as Partial<AppSettings>,
+    settings: settingsWithoutFunctions(settings) as Partial<AppSettings>,
     tables: Object.fromEntries(entries) as Record<BackupTableName, unknown[]>,
   }
 }
@@ -96,7 +102,7 @@ export function assertTalkBackup(value: unknown): asserts value is TalkBackup {
   if (![1, 2, 3, 4, 5, 6, 7, BACKUP_SCHEMA_VERSION].includes(backup.schemaVersion as number)) throw new Error('备份版本暂不支持')
   if (!backup.tables || typeof backup.tables !== 'object') throw new Error('备份文件缺少数据表')
   for (const name of BACKUP_TABLES) {
-    if (['libraryItems','worldbookCollections','worldbookEntries','simulationState','contactLifeStates','lifeEvents','contactExperiences','aiUsageRecords','socialEvents','contactMemories','walletAccounts','walletTransactions','loans','jobListings','interviews','groupPlans','adminLogs','adminAiTraces','savedPersonas','shopPurchaseHistory','locations','worldMaps','locationModuleState','acousticEdges','contactGenerationTasks','contactStorylines','contactSaveSnapshots','globalSaveSnapshots','mediaAssets'].includes(name) && backup.tables[name] === undefined) continue
+    if (['libraryItems','worldbookCollections','worldbookEntries','simulationState','contactLifeStates','lifeEvents','contactExperiences','aiUsageRecords','socialEvents','contactMemories','walletAccounts','walletTransactions','loans','jobListings','interviews','groupPlans','adminLogs','adminAiTraces','savedPersonas','shopPurchaseHistory','locations','worldMaps','locationModuleState','acousticEdges','contactGenerationTasks','contactStorylines','contactSaveSnapshots','globalSaveSnapshots','mediaAssets','personaCreationRecords','internalTasks','saveSlots','aiTestSuites'].includes(name) && backup.tables[name] === undefined) continue
     if (!Array.isArray(backup.tables[name])) throw new Error(`备份文件缺少 ${name} 表`)
   }
 }

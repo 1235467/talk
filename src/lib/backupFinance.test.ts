@@ -19,7 +19,7 @@ beforeEach(async () => {
 })
 
 describe('wallet backup and save slots', () => {
-  it('never writes API credentials into a backup', async () => {
+  it('writes API credentials into a complete backup', async () => {
     const current = useSettingsStore.getState()
     const backup = await createBackup({
       ...current,
@@ -28,9 +28,9 @@ describe('wallet backup and save slots', () => {
       imageProviders: { ...current.imageProviders, atlas: { ...current.imageProviders.atlas, apiKey: 'atlas-secret' } },
     })
     const serialized = JSON.stringify(backup)
-    expect(serialized).not.toContain('chat-secret')
-    expect(serialized).not.toContain('search-secret')
-    expect(serialized).not.toContain('atlas-secret')
+    expect(serialized).toContain('chat-secret')
+    expect(serialized).toContain('search-secret')
+    expect(serialized).toContain('atlas-secret')
   })
 
   it('round-trips wallet accounts and transactions through a backup', async () => {
