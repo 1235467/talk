@@ -7,7 +7,9 @@
 
 use sqlx::SqlitePool;
 
-/// Backup tables that exist but belong to dropped features.
+/// Backup tables that exist but belong to dormant (not-yet-migrated) features
+/// — the table-level counterpart of the client's DORMANT_MODULES list. When a
+/// feature migrates, its tables move from here into import_order().
 const SKIPPED_TABLES: &[&str] = &[
     "inventory",
     "walletAccounts",
@@ -22,6 +24,7 @@ const SKIPPED_TABLES: &[&str] = &[
     "contactSaveSnapshots",
     "globalSaveSnapshots",
     "saveSlots",
+    "aiTestSuites",
 ];
 
 /// Settings keys that stay on the device and never belong in kv.
