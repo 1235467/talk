@@ -19,9 +19,9 @@ talk-server stats              # 打印各表行数
 | `TALK_MEDIA_DIR` | `media` | 图片/语音文件目录 |
 | `TALK_ADDRESS_PORT` | `127.0.0.1:3300` | 监听地址（nginx 反代到本机） |
 | `TALK_TOKEN` | （空=拒绝一切 API 请求） | 单用户 bearer token |
-| `TALK_AI_KEY` | （空） | AI 接口 key（/api/ai-proxy 用） |
-| `TALK_AI_BASE_URL` | `https://api.deepseek.com` | AI 接口地址 |
 | `TALK_LOG` | `info,tower_http=info` | tracing 日志级别 |
+
+AI Key 和第三方 provider 配置不走环境变量：都在 kv 表里，任何通过 token 鉴权的设备都能在 设置页查看/修改，改动即时同步到全部设备（`/api/ai-proxy` 每次请求现读 kv）。
 
 ## 数据原则
 

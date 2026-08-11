@@ -16,41 +16,14 @@ import { normalizeChatPageSize } from '../lib/chatPagination'
 import type { AiProviderId } from '../lib/aiProviders'
 import { normalizeUiTheme } from '../lib/uiTheme'
 
-/** AppSettings keys that are user data (shared across devices) rather than
- * per-device config. These mirror to the server kv store; everything else
- * (keys, providers, theme, layout) stays local. */
-export const SERVER_SYNCED_KEYS = [
-  'userNickname',
-  'userAvatar',
-  'userGender',
-  'userBirthday',
-  'userBio',
-  'userVisualIdentity',
-  'worldview',
-  'momentsCoverPhoto',
-  'albumSavedImages',
-  'hiddenAlbumUrls',
-  'promptModules',
-  'proactiveMessageLog',
-  'knowledgeQueryLog',
-  'experienceMode',
-  'enabledModules',
-  // Provider configurations and their keys — user data shared across devices.
-  // The AI chat key itself stays server-side (TALK_AI_KEY) and is never synced.
-  'aiProvider',
-  'baseUrl',
-  'model',
-  'utilityModel',
-  'imageProvider',
-  'imageProviders',
-  'speechProvider',
-  'speechProviders',
-  'stickerProvider',
-  'stickerProviders',
-  'pexelsApiKey',
-  'tavilyApiKey',
-  'shopModel',
-] as const
+/** Everything syncs to the server kv store by default — only genuinely
+ * device-bound values stay local: how to reach the server, and this device's
+ * physical screen adjustments. */
+export const DEVICE_ONLY_KEYS = new Set<string>([
+  'serverUrl',
+  'serverToken',
+  'topInsetAdjustmentPx',
+])
 
 /** Pull server-kv values into the local store on launch (call after the user
  * configures serverUrl, or unconditionally — it no-ops without a server). */
@@ -61,8 +34,8 @@ export async function hydrateSettingsFromServer(): Promise<void> {
     if (!isServerConfigured()) return
     const kv = await api.kv.list()
     const patch: Record<string, unknown> = {}
-    for (const key of SERVER_SYNCED_KEYS) {
-      if (key in kv && kv[key] !== undefined) patch[key] = kv[key]
+    for (const [key, value] of Object.entries(kv)) {
+      if (!DEVICE_ONLY_KEYS.has(key) && value !== undefined) patch[key] = value
     }
     if (Object.keys(patch).length) {
       useSettingsStore.setState(patch as Partial<AppSettings>)
@@ -166,15 +139,14 @@ export const useSettingsStore = create<SettingsState>()(
       enabledModules: ['worldview', 'knowledgeBase', 'relationship', 'personalityTraits', 'intent', 'storyOutline', 'location'],
       setSettings: (patch) => {
         set(patch)
-        // User data (not device config) mirrors to the server kv store so all
-        // devices see the same profile/worldview/prompt modules. Writes are
+        // Everything except device-only keys mirrors to the server kv store,
+        // so all authed devices see the same settings. Writes are
         // fire-and-forget; hydration on launch is the authoritative read.
-        for (const key of SERVER_SYNCED_KEYS) {
-          if (key in patch) {
-            void import('../lib/api/resources').then(({ api }) =>
-              api.kv.set(key, (patch as Record<string, unknown>)[key]).catch((error) => console.warn('[kv] sync failed', key, error)),
-            )
-          }
+        for (const [key, value] of Object.entries(patch)) {
+          if (DEVICE_ONLY_KEYS.has(key)) continue
+          void import('../lib/api/resources').then(({ api }) =>
+            api.kv.set(key, value).catch((error) => console.warn('[kv] sync failed', key, error)),
+          )
         }
       },
     }),

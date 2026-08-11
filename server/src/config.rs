@@ -36,8 +36,6 @@ pub struct Config {
     pub media_dir: String,
     pub address_port: String,
     pub token: String,
-    pub ai_api_key: Option<String>,
-    pub ai_base_url: String,
 }
 
 impl Config {
@@ -50,8 +48,6 @@ impl Config {
                 tracing::warn!("TALK_TOKEN not set; all /api requests will be rejected");
                 String::new()
             }),
-            ai_api_key: std::env::var("TALK_AI_KEY").ok().filter(|v| !v.is_empty()),
-            ai_base_url: env_or("TALK_AI_BASE_URL", "https://api.deepseek.com"),
         }
     }
 }

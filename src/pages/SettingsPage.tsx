@@ -73,7 +73,10 @@ export function SettingsPage() {
       const base = serverUrl.trim().replace(/\/+$/, '')
       const response = await fetch(`${base}/health`)
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      setServerTestResult('✓ 连接成功')
+      setServerTestResult('✓ 连接成功，正在同步服务器设置…')
+      const { hydrateSettingsFromServer } = await import('../store/useSettingsStore')
+      await hydrateSettingsFromServer()
+      setServerTestResult('✓ 连接成功，服务器设置已同步')
     } catch (error) {
       setServerTestResult(`✗ ${error instanceof Error ? error.message : '连接失败'}`)
     }

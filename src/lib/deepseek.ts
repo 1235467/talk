@@ -360,14 +360,20 @@ async function readStreamingCompletion(body: ReadableStream<Uint8Array>): Promis
 
 /**
  * When a talk server is configured, chat completions go through its
- * /api/ai-proxy endpoint — the provider key lives only on the server
- * (TALK_AI_KEY) and devices just need the server token. Otherwise the
- * legacy direct-to-provider path runs with the locally stored apiKey.
+ * /api/ai-proxy endpoint. The proxy forwards to the target URL the client
+ * resolves here (provider adapters know the right /chat/completions path
+ * shape for each service) and injects the API key from the server kv store
+ * (falling back to TALK_AI_KEY env) — so editing the key/endpoint in
+ * SettingsPage on any authed device just works everywhere.
  */
-function resolveAiEndpoint(opts: ChatCompletionOptions, provider: AiProviderId): { endpoint: string; key: string } {
+function resolveAiEndpoint(opts: ChatCompletionOptions, provider: AiProviderId): { endpoint: string; key: string; targetUrl?: string } {
   const { serverUrl, serverToken } = useSettingsStore.getState()
   if (serverUrl) {
-    return { endpoint: `${serverUrl.replace(/\/+$/, '')}/api/ai-proxy`, key: serverToken }
+    return {
+      endpoint: `${serverUrl.replace(/\/+$/, '')}/api/ai-proxy`,
+      key: serverToken,
+      targetUrl: resolveChatCompletionsUrl(opts.baseUrl, provider),
+    }
   }
   const key = requireApiKey(opts.apiKey, 'AI')
   requireHttpUrl(opts.baseUrl || AI_PROVIDERS[provider].defaultBaseUrl, 'Base URL')
@@ -383,7 +389,7 @@ export async function chatCompletion(opts: ChatCompletionOptions): Promise<ChatC
   const inputTokens = messages.reduce((sum, message) => sum + estimateTokens(message.content), 0)
   const startedAt = Date.now()
   try {
-  const { endpoint, key } = resolveAiEndpoint(opts, provider)
+  const { endpoint, key, targetUrl } = resolveAiEndpoint(opts, provider)
   let result: ChatCompletionResult | undefined
   let retryMode: { disableJson?: boolean; alternateToken?: boolean; emptyRetry?: boolean } = {}
   const maxAttempts = opts.singleRequest ? 1 : EMPTY_COMPLETION_MAX_ATTEMPTS
@@ -393,10 +399,11 @@ export async function chatCompletion(opts: ChatCompletionOptions): Promise<ChatC
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const body = requestBody(opts, messages, provider, retryMode)
     if (!streamDisabled) body.stream = true
+    const payload = targetUrl ? { url: targetUrl, payload: body } : body
     const res = await appFetch(endpoint, {
       method: 'POST', signal: opts.signal,
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     })
     let json: Record<string, any>
     if (!streamDisabled && res.ok && res.body && /text\/event-stream/i.test(res.headers.get('content-type') ?? '')) {
@@ -461,9 +468,10 @@ export async function chatCompletionStream(opts: ChatCompletionOptions & { onDel
   const messages = opts.messages
   const inputTokens = messages.reduce((sum, message) => sum + estimateTokens(message.content), 0)
   const provider = opts.provider ?? useSettingsStore.getState().aiProvider ?? 'deepseek'
-  const { endpoint, key } = resolveAiEndpoint(opts, provider)
+  const { endpoint, key, targetUrl } = resolveAiEndpoint(opts, provider)
   const startedAt = Date.now()
-  const res = await appFetch(endpoint, { method: 'POST', signal: opts.signal, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...requestBody(opts, messages, provider), stream: true }) })
+  const payload = targetUrl ? { url: targetUrl, payload: { ...requestBody(opts, messages, provider), stream: true } } : { ...requestBody(opts, messages, provider), stream: true }
+  const res = await appFetch(endpoint, { method: 'POST', signal: opts.signal, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
   if (!res.ok || !res.body) {
     const text = await res.text()
     let payload: unknown = text
