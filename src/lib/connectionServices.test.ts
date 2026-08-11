@@ -53,7 +53,7 @@ describe('connection checks', () => {
     const result = await testConnection('sk-test', 'https://api.example.com', 'test-model')
 
     expect(result).toEqual({ ok: true, message: '连接成功，模型已正常返回回复' })
-    const body = JSON.parse(String((fetchMock.mock.calls as unknown[][])[0]?.[1] && ((fetchMock.mock.calls as unknown[][])[0]?.[1] as RequestInit).body))
+    const body = JSON.parse(String(((fetchMock.mock.calls as unknown[][])[0]?.[1] as RequestInit | undefined)?.body))
     expect(body.messages).toEqual([{ role: 'user', content: '请只回复 OK，不要解释。' }])
     expect(body).not.toHaveProperty('max_tokens')
     expect(body).not.toHaveProperty('max_completion_tokens')

@@ -507,7 +507,6 @@ async function runGroupAiTurn(
       if (!turns.isCurrent(conversationId, streamId)) return
       if (parseGroupAiResponse(rawText, speakers.length).bubbles.length === 0) throw new Error('审核及修改没有产出有效的群聊JSON')
     }
-    let draftFeedback: string | undefined
     const parsedTurn = { ...parseGroupAiResponse(rawText, speakers.length), valid: true, needsUtility: false }
     let jsonRaw = rawText
     if (parsedTurn.bubbles.length === 0) throw new Error('主模型没有产出有效的群聊JSON')
@@ -516,7 +515,6 @@ async function runGroupAiTurn(
     let finalRaw = jsonRaw
     let { bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = parsedTurn
     const initiallyRequestedKnowledge = [...knowledgeQueries]
-    let reviewFailure = draftFeedback
     const directReview = directOutput ? parseDirectOutputReview(rawText) : null
     if (!turns.isCurrent(conversationId, streamId)) return
     if (directReview?.valid === false) {
@@ -526,7 +524,7 @@ async function runGroupAiTurn(
     if (!directOutput && featureActive(settings, 'knowledgeBase') && knowledgeQueries.length > 0) {
       const knowledge = await resolveKnowledgeQueries(knowledgeQueries, settings)
       if (knowledge.text) {
-        rawText = await chatCompletion({ apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.model,messages:[...chatMessages,{role:'user',content:`刚才出现了你们不了解的词。搜索结果如下：\n${knowledge.text}${reviewFailure?`\n\n上一版审查问题：${reviewFailure}，重写时同时修正。`:''}\n请基于结果重新生成群聊草稿，保持原群聊格式，像刚查明白后自然接话，不要写成报告。${regenerationUserMessage ? `\n\n再次确认：仍必须严格执行前述“最高优先级剧情要求”。` : ''}`}],signal:controller.signal, thinking:'disabled',temperature:regenerationInstruction ? 0.55 : 0.9,maxTokens:1800,trace:{turnId:streamId,stage:'second_chat',conversationId} })
+        rawText = await chatCompletion({ apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.model,messages:[...chatMessages,{role:'user',content:`刚才出现了你们不了解的词。搜索结果如下：\n${knowledge.text}\n请基于结果重新生成群聊草稿，保持原群聊格式，像刚查明白后自然接话，不要写成报告。${regenerationUserMessage ? `\n\n再次确认：仍必须严格执行前述“最高优先级剧情要求”。` : ''}`}],signal:controller.signal, thinking:'disabled',temperature:regenerationInstruction ? 0.55 : 0.9,maxTokens:1800,trace:{turnId:streamId,stage:'second_chat',conversationId} })
         const enrichedTooled = await insertToolCallsIntoRawTurn({ settings, rawDraft: rawText, recentContext: recentHistory.slice(-4).map((message) => formatGroupHistoryMessage(message, contactById, messageById, settings.userNickname).content).join('\n'), scene: 'group', imageGenerationEnabled, signal: controller.signal, trace: { turnId: streamId, conversationId } })
         rawText = enrichedTooled.raw
         const enrichedAudited = await auditAndRepairRawTurn({ settings, masterPrompt: chatMessages[0]?.content ?? systemPrompt, rawDraft: rawText, scene: 'group', regenerationInstruction, signal: controller.signal, trace: { turnId: streamId, conversationId } })
@@ -550,7 +548,7 @@ async function runGroupAiTurn(
       id: aiTurnId,
       conversationId,
       raw: finalRaw,
-      parsed: parseGroupTurnDebugPayload(systemPrompt, rawText, draftFeedback, jsonRaw, finalRaw, bubbles, knowledgeQueries, turnSummary, groupVibe),
+      parsed: parseGroupTurnDebugPayload(systemPrompt, rawText, undefined, jsonRaw, finalRaw, bubbles, knowledgeQueries, turnSummary, groupVibe),
       knowledgeQueries,
       createdAt: Date.now(),
     })
