@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
-import { Directory, Filesystem } from '@capacitor/filesystem'
+import { Directory, Encoding, Filesystem } from '@capacitor/filesystem'
 import { TopBar } from '../components/TopBar'
 import { FileSliders, Palette } from 'lucide-react'
 import { ActionSheet } from '../components/ActionSheet'
@@ -80,7 +80,7 @@ export function SettingsPage() {
     // 应用私有目录（/data/data/com.talk.aichat/files/，root 可直接取）。
     if (Capacitor.isNativePlatform()) {
       try {
-        const result = await Filesystem.writeFile({ path: fileName, data: json, directory: Directory.Data, recursive: true })
+        const result = await Filesystem.writeFile({ path: fileName, data: json, directory: Directory.Data, encoding: Encoding.UTF8, recursive: true })
         setBackupStatus(`备份已写入 ${result.uri}（包含 API Key 等密钥，请妥善保管，不要发给别人）`)
       } catch (error) {
         setBackupStatus(`导出失败：${error instanceof Error ? error.message : String(error)}`)
