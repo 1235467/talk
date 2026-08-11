@@ -57,13 +57,6 @@ function renderEntry(entry: WorldbookEntry, collections: Map<string, WorldbookCo
   return `【${label}】\n${entry.content}`
 }
 
-export async function foundationalWorldviewText(worldviewId?: string) {
-  const { entries, collections } = await enabledEntries(worldviewId)
-  const foundational = entries.filter((entry) => entry.foundationalWorldview).sort((a, b) => b.priority - a.priority || (a.sourceOrder ?? 0) - (b.sourceOrder ?? 0))
-  if (!foundational.length) return ''
-  return `【底层世界观——全局最高优先级正史】\n以下规则默认约束所有主要内容生成，不得被现实常识、普通世界书或自由发挥覆盖。\n${foundational.map((entry) => renderEntry(entry, collections)).join('\n\n')}`
-}
-
 export async function retrieveWorldbookTrace(query: string, opts: WorldbookRetrievalOptions = {}) {
   const maxEntries = opts.maxEntries ?? 6
   const maxChars = opts.maxChars ?? 5000

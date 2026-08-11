@@ -126,16 +126,6 @@ export async function confirmContactGenerationDraft(taskId: string, draft: Perso
   void drainContactGenerationQueue()
 }
 
-export async function cancelContactGenerationTask(taskId: string): Promise<void> {
-  controllers.get(taskId)?.abort()
-  const task = await getOrUndef(api.contactGenerationTasks.get(taskId))
-  if (!task) return
-  await api.contactGenerationTasks.patch(taskId, {
-    status: 'cancelled', stageLabel: stageLabel('cancelled', task.experienceMode), updatedAt: Date.now(),
-  })
-  invalidate('contactGenerationTasks')
-}
-
 export async function pauseContactGenerationTask(taskId: string): Promise<void> {
   const task = await getOrUndef(api.contactGenerationTasks.get(taskId))
   if (!task) return

@@ -390,21 +390,6 @@ export async function resolveLocationParticipants(locationId: string): Promise<L
   return { here, audible, away, activeMembers: [...here, ...audible.map((item) => item.contact)] }
 }
 
-export function locationCounts(contacts: Contact[], locations: LocationNode[]) {
-  const direct = new Map<string, number>()
-  for (const contact of contacts) if (contact.currentLocationId) direct.set(contact.currentLocationId, (direct.get(contact.currentLocationId) ?? 0) + 1)
-  const byId = new Map(locations.map((item) => [item.id, item]))
-  const aggregate = new Map(direct)
-  for (const [id, count] of direct) {
-    let parentId = byId.get(id)?.parentId
-    while (parentId) {
-      aggregate.set(parentId, (aggregate.get(parentId) ?? 0) + count)
-      parentId = byId.get(parentId)?.parentId
-    }
-  }
-  return aggregate
-}
-
 /** Rebuild terrain and redistribute every top-level marker without deleting place data. */
 export async function regenerateLocationMap(seed?: string) {
   await ensureLocationsInitialized()
@@ -431,9 +416,6 @@ export async function regenerateLocationMap(seed?: string) {
   invalidate('worldMaps', 'locations')
   return next
 }
-
-/** Legacy alias retained for older callers and imported UI state. */
-export const upgradeLocationMap = regenerateLocationMap
 
 export async function enterLocation(locationId: string) {
   await syncContactLocationsAt(new Date())

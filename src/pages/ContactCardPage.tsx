@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useLocalQuery } from '../lib/useLocalQuery'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -16,7 +16,7 @@ import { ActionSheet } from '../components/ActionSheet'
 import { SchedulePlanner } from '../components/SchedulePlanner'
 import { displayName } from '../lib/contact'
 import { activeUpcomingPlans, activeUpcomingPlansText, resetMemory } from '../lib/memory'
-import { describeCurrentSchedule, describeUpcomingScheduleText, isPhoneAvailable, scheduleOccurrencesForDate } from '../lib/schedule'
+import { describeCurrentSchedule, describeUpcomingScheduleText, isPhoneAvailable } from '../lib/schedule'
 import { normalizeMood } from '../lib/mood'
 import { describeCurrentTime } from '../lib/time'
 import { RELATIONSHIP_OPTIONS, formatSpeechSamplesForScene, buildRawChatPromptParts } from '../lib/prompt'
@@ -24,7 +24,7 @@ import { useModuleEnabled, isModuleEnabled } from '../features'
 import { personalityIntimacyStage, warmthLabel, relationshipLine } from '../lib/relationship'
 import { buildUserProfileText } from '../lib/chatEngine'
 import { useSettingsStore } from '../store/useSettingsStore'
-import type { Contact, ContactMemoryScope, ContactRelationLabel, ScheduleBlock, ScheduleOverride } from '../types'
+import type { Contact, ContactMemoryScope, ContactRelationLabel } from '../types'
 import { CONTACT_RELATION_LABELS, PERSONALITY_TRAIT_OPTIONS } from '../types'
 import { activeIntentPrompt, activeIntents, clearIntentQueue } from '../lib/intent'
 import { removePairedContactRelation, setPairedContactRelation, uniqueRelationPairs } from '../lib/contactRelations'
@@ -36,96 +36,7 @@ import { switchContactWorldview } from '../lib/scopedSaves'
 import { FACTORY_PRESET_NAME, resolveContactPromptModules } from '../lib/promptPresets'
 import { contactSpeechVoice, isSpeechProviderReady, speechProviderName, speechVoiceOptions } from '../lib/speechProviders'
 import { synthesizeSpeech } from '../lib/speechSynthesis'
-import { ArrowUpFromLine, ChevronLeft, ChevronRight, ClipboardList, Phone, PhoneOff } from 'lucide-react'
-
-const CALENDAR_HOUR_HEIGHT = 22
-
-function startOfMonday(date: Date) {
-  const value = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  value.setDate(value.getDate() - ((value.getDay() + 6) % 7))
-  return value
-}
-
-function sameLocalDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
-}
-
-function calendarTaskTone(task: { activity: string; location: string }, special: boolean) {
-  if (special) return 'special'
-  const text = `${task.activity} ${task.location}`
-  if (/睡觉|休息|午休|补觉/.test(text)) return 'rest'
-  if (/上班|工作|会议|开会|汇报|课程|上课|公司|办公室|学校|教室/.test(text)) return 'work'
-  return 'personal'
-}
-
-function adaptiveCalendarTitleSize(activity: string, durationMs: number) {
-  const chars = Math.max(activity.trim().length, 1)
-  const area = 34 * Math.max(durationMs / 3_600_000 * CALENDAR_HOUR_HEIGHT - 8, 12)
-  return Math.max(8, Math.min(16, Math.floor(Math.sqrt(area / (chars * 1.25)))))
-}
-
-type ScheduleEditTarget = { kind: 'default'; task: ScheduleBlock } | { kind: 'special'; task: ScheduleOverride }
-
-function ScheduleWeekTimeline({ contact, onEdit, onOptimize, optimizing, optimizeError }: { contact: Contact; onEdit: (target: ScheduleEditTarget) => void; onOptimize: () => void; optimizing: boolean; optimizeError: string }) {
-  void onEdit; void onOptimize; void optimizing; void optimizeError
-  const [weekStart, setWeekStart] = useState(() => startOfMonday(new Date()))
-  const [now, setNow] = useState(() => new Date())
-  const scrollRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 60_000)
-    return () => window.clearInterval(timer)
-  }, [])
-
-  const days = useMemo(() => Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(weekStart)
-    date.setDate(weekStart.getDate() + index)
-    return date
-  }), [weekStart])
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const monthTitle = `${weekStart.getMonth() + 1}月 · 第${Math.ceil((weekStart.getDate() + ((new Date(weekStart.getFullYear(), weekStart.getMonth(), 1).getDay() + 6) % 7)) / 7)}周`
-  const weekdayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-
-  return <section className="mt-3 bg-white px-4 py-4">
-    <div className="mb-2 flex items-center justify-between">
-      <h3 className="text-xs font-medium text-gray-400">日程表</h3>
-      <div className="flex items-center gap-1 text-xs text-gray-600">
-        <button type="button" aria-label="上一周" onClick={() => setWeekStart((value) => new Date(value.getFullYear(), value.getMonth(), value.getDate() - 7))} className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200"><ChevronLeft size={16} /></button>
-        <span className="min-w-20 text-center font-medium">{monthTitle}</span>
-        <button type="button" aria-label="下一周" onClick={() => setWeekStart((value) => new Date(value.getFullYear(), value.getMonth(), value.getDate() + 7))} className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200"><ChevronRight size={16} /></button>
-      </div>
-    </div>
-    <div ref={scrollRef} className="schedule-week-scroll" aria-label="本周日程时间轴">
-      <div className="schedule-week-header">
-        <span />
-        {days.map((day, index) => <span key={day.getTime()} className={sameLocalDay(day, today) ? 'schedule-week-today' : ''}>{weekdayLabels[index]}<b>{day.getDate()}</b></span>)}
-      </div>
-      <div className="schedule-week-body">
-        <div className="schedule-week-hours">{Array.from({ length: 25 }, (_, hour) => <span key={hour} style={{ top: hour * CALENDAR_HOUR_HEIGHT }}>{hour === 24 ? '23:59' : `${String(hour).padStart(2, '0')}:00`}</span>)}</div>
-        {days.map((day) => {
-          const occurrences = scheduleOccurrencesForDate(contact, day)
-          const isToday = sameLocalDay(day, today)
-          return <div key={day.getTime()} className="schedule-week-day">
-            {occurrences.map((occurrence) => {
-              const duration = occurrence.endsAt - occurrence.startsAt
-              const active = now.getTime() >= occurrence.startsAt && now.getTime() < occurrence.endsAt
-              const task = occurrence.task
-              const tone = active ? 'current' : calendarTaskTone(task, occurrence.kind === 'special')
-              return <div key={occurrence.id} data-ui-scope="special" className={`schedule-week-event schedule-week-event--${tone}`} style={{ top: (new Date(occurrence.startsAt).getHours() * 60 + new Date(occurrence.startsAt).getMinutes()) / 60 * CALENDAR_HOUR_HEIGHT + 1, height: Math.max(duration / 3_600_000 * CALENDAR_HOUR_HEIGHT - 2, 9) }} aria-label={`${task.activity}，${task.phoneAccess === 'available' ? '可以接电话' : '不方便接电话'}`}>
-                {duration >= 40 * 60_000 && <span className="schedule-week-event-title" style={{ fontSize: adaptiveCalendarTitleSize(task.activity, duration) }}>{task.activity}</span>}
-                {duration >= 20 * 60_000 && <span className="schedule-week-event-phone">{task.phoneAccess === 'available' ? <Phone size={11} /> : <PhoneOff size={11} />}</span>}
-              </div>
-            })}
-            {isToday && <span className="schedule-week-now" style={{ top: (now.getHours() * 60 + now.getMinutes()) / 60 * CALENDAR_HOUR_HEIGHT }}><i /></span>}
-          </div>
-        })}
-      </div>
-    </div>
-    <div className="schedule-week-legend" data-ui-scope="special">
-      <span><i className="schedule-week-swatch schedule-week-swatch--work" />绿色：工作/学习</span><span><i className="schedule-week-swatch schedule-week-swatch--personal" />紫色：个人安排</span><span><i className="schedule-week-swatch schedule-week-swatch--rest" />蓝灰：休息</span><span><i className="schedule-week-swatch schedule-week-swatch--special" />金色：特殊安排</span><span><i className="schedule-week-swatch schedule-week-swatch--current" />红色：当前进行中</span>
-    </div>
-  </section>
-}
+import { ArrowUpFromLine, ClipboardList, Phone, PhoneOff } from 'lucide-react'
 
 function LatestAiTurnJson({ contactId }: { contactId: string }) {
   const { data: latestTurn } = useQuery({
@@ -163,7 +74,6 @@ const MEMORY_SCOPE_LABELS: Record<ContactMemoryScope, string> = {
 }
 
 export function ContactCardPage() {
-  void ScheduleWeekTimeline
   const { contactId } = useParams()
   const navigate = useNavigate()
   const settings = useSettingsStore()
@@ -178,7 +88,6 @@ export function ContactCardPage() {
   const relEnabled = useModuleEnabled('relationship')
   const personalityEnabled = useModuleEnabled('personalityTraits')
   const adminEnabled = useSettingsStore((s) => s.adminModeEnabled)
-  const moodEnabled = true
   const careerEnabled = useModuleEnabled('career')
   const lifeSimulationEnabled = useModuleEnabled('lifeSimulation')
   const [assigningCareer, setAssigningCareer] = useState(false)
@@ -578,14 +487,12 @@ export function ContactCardPage() {
             <span className="text-right text-sm text-gray-400">{contact.personalityTrait || '无'}{contact.personalityTrait && contact.personalityTrait !== '无' && relEnabled ? ` · ${personalityIntimacyStage(contact.warmth ?? 0)}` : ''}</span>
           </button>
         )}
-        {moodEnabled && (
-          <div className="flex w-full items-center justify-between px-4 py-3.5">
-            <span className="text-[15px] text-gray-900">心情</span>
-            <span className="text-sm text-gray-400">
+        <div className="flex w-full items-center justify-between px-4 py-3.5">
+          <span className="text-[15px] text-gray-900">心情</span>
+          <span className="text-sm text-gray-400">
             {contact.mood?.text && contactNow < contact.mood.expiresAt ? normalizeMood(contact.mood.text) : '暂无'}
-            </span>
-          </div>
-        )}
+          </span>
+        </div>
         <div className="flex w-full items-center justify-between px-4 py-3.5">
           <span className="text-[15px] text-gray-900">状态</span>
           <span className="flex items-center gap-1.5 text-sm text-gray-400">

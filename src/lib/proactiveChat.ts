@@ -8,8 +8,6 @@ import { useSettingsStore } from '../store/useSettingsStore'
 import { toDateKey } from './time'
 import type { AppSettings, Contact, ProactiveTopicRecord } from '../types'
 
-export const AUTONOMOUS_TICK_INTERVAL_MS = 5 * 60 * 1000
-
 function canSendToday() {
   const { proactiveMessageLog, proactiveDailyCap } = useSettingsStore.getState()
   const today = toDateKey(new Date())

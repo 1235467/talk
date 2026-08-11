@@ -228,7 +228,6 @@ export const PERSONALITY_TRAIT_OPTIONS = [
   { value: '大小姐', description: '优雅挑剔 带一点优越感 只对亲近的人例外' },
   { value: '无', description: '普通性格 没有特殊的情绪反应模式' },
 ] as const
-export type PersonalityTrait = (typeof PERSONALITY_TRAIT_OPTIONS)[number]['value']
 
 export const HOBBY_TAG_OPTIONS = [
   '养猫', '养狗', '打游戏', '运动健身', '追剧看电影',
@@ -933,7 +932,7 @@ export interface AppSettings {
   imageApiUrl?: string
   imageApiKey?: string
   imageApiResponsePath?: string
-  // ---- worldview (see lib/prompt.ts buildWorldviewDraftPrompt) ----
+  // ---- worldview (legacy migration key; see lib/worldbook.ts) ----
   worldview: string // shared world-setting text injected into every persona's prompt (chat, group chat, moments) once confirmed; empty until the user sets one
   worldbookMigrationCompleted?: boolean
   /** Default for new contacts and unbound generation surfaces; existing contacts keep their own world. */

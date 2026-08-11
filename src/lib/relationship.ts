@@ -222,10 +222,6 @@ export function personalityIntimacyStage(warmth: number): string {
   return '私密解锁'
 }
 
-export function warmthPrompt(warmth: number): string {
-  return warmthStage(warmth).prompt
-}
-
 // ---- breakup detection ----
 
 const BREAKUP_PATTERN = /已经分手|已经解除|已经不再是|已经离婚|已经绝交|彻底闹掰|确认分开|分手了|已经分了|关系破裂|闹翻了|掰了|结束了|到此为止|不想再继续|彻底完了|没戏了|拉黑了|删好友了|断绝|一刀两断|恩断义绝|决裂|一拍两散|形同陌路/
@@ -235,12 +231,6 @@ const UPGRADE_PATTERN = /已经在一起|确认恋爱|确认成为恋人|确认�
 export function containsBreakupLanguage(dynamic: string): boolean {
   if (!dynamic) return false
   return BREAKUP_PATTERN.test(dynamic)
-}
-
-/** True if the assessment text describes a confirmed upgrade to romantic relationship. */
-export function containsUpgradeLanguage(dynamic: string): boolean {
-  if (!dynamic) return false
-  return UPGRADE_PATTERN.test(dynamic)
 }
 
 // ---- relationship base / dynamic ----

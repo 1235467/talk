@@ -248,8 +248,3 @@ export async function cacheSpeechForMessage(
   invalidate('speechCache')
   return record
 }
-
-export async function speechCacheStats(): Promise<{ count: number; bytes: number }> {
-  const rows = await api.speechCache.list()
-  return { count: rows.length, bytes: rows.reduce((sum, row) => sum + row.size, 0) }
-}

@@ -9,7 +9,7 @@ import { displayName } from './contact'
 import { describeCurrentTime, toDateKey } from './time'
 import { parseIntentsField, type ParsedIntent } from './intent'
 import { applyInterpersonalMemorySignals, uniqueRelationPairs } from './contactRelations'
-import type { AppSettings, Contact, ContactMemory, ContactMemoryScope, ContactRelationLabel, IntentItem, MemoryCategory, MemoryKind, Message, PlanItem } from '../types'
+import type { AppSettings, Contact, ContactMemory, ContactMemoryScope, IntentItem, MemoryCategory, MemoryKind, Message, PlanItem } from '../types'
 import { featureActive, getPromptTemplate, promptModuleEnabled } from './promptModules'
 
 /** How many *new* messages accumulate before we bother refreshing memory. Keeps the extra API call rare. */
@@ -702,42 +702,6 @@ export async function contactRelationMemoryText(contactId: string): Promise<stri
   } catch {
     return ''
   }
-}
-
-export async function rememberInitialContactRelation(opts: {
-  fromContactId: string
-  toContactId: string
-  label: ContactRelationLabel
-  now?: number
-}): Promise<void> {
-  const now = opts.now ?? Date.now()
-  const [from, to] = await Promise.all([
-    getOrUndef(api.contacts.get(opts.fromContactId)),
-    getOrUndef(api.contacts.get(opts.toContactId)),
-  ])
-  if (!from || !to) return
-  const makeItem = (contactId: string, other: Contact): ContactMemory => ({
-    id: uuid(),
-    contactId,
-    scope: 'interpersonal',
-    relatedContactIds: [other.id],
-    category: '关系动态',
-    kind: 'relationship_event',
-    content: `${displayName(other)}是你的${opts.label}，这是创建角色时设定的 AI 关系事实，不可随意改称朋友。`,
-    tags: ['AI关系', opts.label, displayName(other)],
-    importance: 0.85,
-    emotionalWeight: 0.35,
-    confidence: 1,
-    sourceMessageIds: [],
-    createdAt: now,
-    updatedAt: now,
-    usageCount: 0,
-  })
-  await api.contactMemories.bulkPut([
-    makeItem(opts.fromContactId, to),
-    makeItem(opts.toContactId, from),
-  ])
-  invalidate('contactMemories')
 }
 
 export async function resetMemory(contactId: string): Promise<void> {

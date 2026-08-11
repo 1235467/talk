@@ -21,21 +21,3 @@ export async function buildPrivateStatusLine(contact: Contact, now = new Date())
   parts.push(schedule || '空闲')
   return parts.join(' · ')
 }
-
-export async function buildGroupStatusLine(members: Contact[], now = new Date()): Promise<string> {
-  const moods = members
-    .map((m) => {
-      const mood = activeMood(m, now.getTime())
-      return mood ? `${m.name}${mood}` : ''
-    })
-    .filter(Boolean)
-    .slice(0, 2)
-  const busy = members
-    .map((m) => {
-      const schedule = compactSchedule(m, now)
-      return schedule ? `${m.name}${schedule}` : ''
-    })
-    .filter(Boolean)
-    .slice(0, 1)
-  return [...moods, ...busy].filter(Boolean).slice(0, 3).join(' · ')
-}

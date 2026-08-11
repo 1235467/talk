@@ -6,12 +6,12 @@
 
 逐项证据、master 交叉验证与精确删除边界见 [DEADCODE-CLEANUP.md](./DEADCODE-CLEANUP.md)。
 
-- [ ] ContactAddPage：3 个恒假女娲区块 + 3 个特质编辑器死函数（`customTraits` 接线保留）
-- [ ] ContactCardPage：`ScheduleWeekTimeline` 死组件 + 私有 helpers + `moodEnabled` 硬编码
-- [ ] features/index.ts：`getEnabled*` 死导出（`linkApps` 声明保留）
-- [ ] 14 个 lib 文件的 20 个零引用导出
-- [ ] Avatar 死 props、types 的 `PersonalityTrait`
-- [ ] 验证：`tsc -b` / `oxlint` / `vitest run` 全绿
+- [x] ContactAddPage：3 个恒假女娲区块 + 3 个特质编辑器死函数（`customTraits` 接线保留）
+- [x] ContactCardPage：`ScheduleWeekTimeline` 死组件 + 私有 helpers + `moodEnabled` 硬编码
+- [x] features/index.ts：`getEnabled*` 死导出（`linkApps` 声明保留）
+- [x] 14 个 lib 文件的 20 个零引用导出
+- [x] Avatar 死 props、types 的 `PersonalityTrait`
+- [x] 验证：`tsc -b` / `oxlint` / `vitest run` 全绿（37 文件通过 / 171 测试通过）
 
 ## 2. 休眠功能迁移（最高优先级；在清理之后做，按下列顺序）
 

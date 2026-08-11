@@ -101,11 +101,6 @@ export async function applyExplicitRelationshipEvent(fromContactId: string, toCo
   invalidate('contactRelations')
 }
 
-/** Whether a relationship is close/positive enough that the two might plausibly interact on each other's moments at all — bad ones never do. */
-export function canReactToMoments(label: ContactRelationLabel): boolean {
-  return relationSentiment(label) !== 'bad'
-}
-
 export function dynamicRelationScore(link: { affinity?: number; familiarity?: number; tension?: number }): number {
   return (link.affinity ?? 0) * 0.65 + (link.familiarity ?? 0) * 0.2 - (link.tension ?? 0) * 0.45
 }

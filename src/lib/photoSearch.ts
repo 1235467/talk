@@ -98,29 +98,6 @@ const ANIME_CATEGORIES = ['waifu', 'neko']
 
 type WaifuImageResponse = { items?: Array<{ url?: unknown }> }
 
-export async function requestAnimeImageLegacy(params: URLSearchParams): Promise<PhotoResult | null> {
-  let lastError: unknown
-  for (let attempt = 1; attempt <= 1; attempt++) {
-    try {
-      const res = await outboundFetch(`https://api.waifu.im/images?${params}`)
-      if (!res.ok) {
-        // A malformed/unknown tag will not become valid by retrying.
-        if (res.status === 400) throw Object.assign(new Error('没有这个动漫图库标签；可试试 waifu、husbando、maid、neko'), { noRetry: true })
-        throw new Error(`Waifu.im请求失败 HTTP ${res.status}`)
-      }
-      const json = await res.json() as WaifuImageResponse
-      const url = json.items?.[0]?.url
-      if (typeof url === 'string') return { url }
-      throw new Error('Waifu.im返回结果没有图片链接')
-    } catch (error) {
-      lastError = error
-      if ((error as { noRetry?: boolean }).noRetry || attempt === 1) break
-      console.warn(`[photo] Waifu.im 第 ${attempt} 次请求失败，正在重试`, error)
-    }
-  }
-  throw new Error(`Waifu.im 连续请求五次失败，请稍后再试${lastError instanceof Error ? `（${lastError.message}）` : ''}`)
-}
-
 /** One request per user action: retries are deliberately manual. */
 async function requestAnimeImage(params: URLSearchParams): Promise<PhotoResult | null> {
   try {

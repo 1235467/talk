@@ -1,4 +1,3 @@
-import type { ElementType } from 'react'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { shopModule } from './shop'
 import { warehouseModule } from './warehouse'
@@ -90,58 +89,6 @@ export function useModuleEnabled(id: string): boolean {
 /** Non-reactive read for use outside React components (e.g. chat engine). */
 export function isModuleEnabled(id: string): boolean {
   return moduleEffectivelyEnabled(id)
-}
-
-/**
- * Build the linkApps list the chat engine should inject into the system
- * prompt. Starts from the standard constant, then filters out any entries
- * whose owning module is disabled.
- */
-const MODULE_LINK_APP_OWNERS: Record<string, string> = {
-  shop: 'shop',
-  work: 'career',
-}
-
-export function getEnabledLinkApps(
-  baseLinkApps: { app: string; desc: string }[],
-): { app: string; desc: string }[] {
-  return baseLinkApps.filter((la) => {
-    const owner = MODULE_LINK_APP_OWNERS[la.app]
-    if (!owner) return true
-    return isModuleEnabled(owner)
-  })
-}
-
-/**
- * Get the set of unique routes from enabled modules, deduplicating by path.
- */
-export function getEnabledRoutes(): { path: string; component: ElementType }[] {
-  const seen = new Set<string>()
-  const routes: { path: string; component: ElementType }[] = []
-  for (const m of ALL_MODULES) {
-    if (!moduleEffectivelyEnabled(m.id)) continue
-    for (const r of m.routes ?? []) {
-      if (seen.has(r.path)) continue
-      seen.add(r.path)
-      routes.push(r)
-    }
-  }
-  return routes
-}
-
-/** Get discover entries from all enabled modules. */
-export function getEnabledDiscoverEntries(): { to: string; icon: string; label: string }[] {
-  const seen = new Set<string>()
-  const entries: { to: string; icon: string; label: string }[] = []
-  for (const m of ALL_MODULES) {
-    if (!moduleEffectivelyEnabled(m.id)) continue
-    for (const e of m.discoverEntries ?? []) {
-      if (seen.has(e.to + e.label)) continue
-      seen.add(e.to + e.label)
-      entries.push(e)
-    }
-  }
-  return entries
 }
 
 // ---- defaults ----

@@ -158,11 +158,6 @@ export function formatSpeechSamplesForScene(samples: string[] | undefined, scene
   return picked.map((sample) => `- ${sample}`).join('\n')
 }
 
-export const AVAILABLE_LINK_APPS: { app: string; desc: string }[] = [
-  { app: 'shop', desc: '虚拟网购小程序' },
-  { app: 'work', desc: '求职与职业小程序' },
-]
-
 // ---- persona generation ----
 
 export interface PersonaAnswers {
@@ -365,28 +360,6 @@ export function diagnosePersonaGeneration(raw: string): { result: PersonaGenerat
 
 export function parsePersonaGeneration(raw: string): PersonaGenerationResult | null {
   return diagnosePersonaGeneration(raw).result
-}
-
-// ---- worldview drafting ----
-
-export function buildWorldviewDraftPrompt(userIdea: string, existingWorldview: string, promptModules?: PromptModuleSettings): string {
-  const editable = getPromptTemplate({ promptModules: promptModules ?? createDefaultPromptModules() }, 'worldview', 'draft', {
-    userIdea,
-    existingWorldview: existingWorldview || '（暂无）',
-  }) ?? ''
-  return `${editable}\n\n固定输出协议：只输出JSON {"worldview":"扩写后的世界设定，200到500字"}`
-}
-
-export interface WorldviewDraftResult {
-  worldview: string
-}
-
-export function parseWorldviewDraft(raw: string): WorldviewDraftResult | null {
-  const parsed = parseJsonLoose<{ worldview?: unknown }>(raw)
-  if (typeof parsed?.worldview === 'string' && parsed.worldview.trim()) {
-    return { worldview: parsed.worldview.trim() }
-  }
-  return null
 }
 
 export const PERSONALITY_TAG_OPTIONS = [

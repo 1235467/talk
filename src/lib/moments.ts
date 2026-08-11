@@ -978,14 +978,3 @@ export async function deleteMomentCompletely(momentId: string): Promise<boolean>
   }
   return true
 }
-
-/**
- * Called when a contact is deleted: removes their own posted moments (and
- * every like/comment on those), their likes/comments on everyone else's
- * still-existing moments, and any relationship links involving them —
- * without touching other contacts' moments themselves.
- */
-export async function cascadeDeleteContactSocialData(contactId: string): Promise<void> {
-  await api.batch.deleteContact(contactId)
-  invalidateAll()
-}

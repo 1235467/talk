@@ -1,5 +1,4 @@
 import { api } from './api/resources'
-import { invalidate } from './api/keys'
 import { isModuleEnabled } from '../features'
 import { parseJsonLoose, parseKnowledgeQueriesField, parseScheduleMarker } from './aiProtocol'
 import { activeUpcomingPlansText } from './memory'
@@ -10,7 +9,7 @@ import { dynamicRelationScore } from './contactRelations'
 import { normalizeMood } from './mood'
 import { createDefaultPromptModules, featureActive, getPromptTemplate, promptModuleEnabled } from './promptModules'
 
-/** Group chats can cap how many members answer per turn; see pickSpeakers. */
+/** Group chats can cap how many members answer per turn. */
 const DEFAULT_GROUP_SPEAKER_LIMIT: GroupSpeakerLimit = 3
 
 /** Warmer contacts get picked to speak more often (also reused by proactiveChat.ts). */
@@ -37,32 +36,6 @@ export function weightedSampleWithoutReplacement(contacts: Contact[], k: number)
     pool.splice(idx, 1)
   }
   return picked
-}
-
-/**
- * Who answers this round, decided entirely in code (per the user's spec),
- * not left to the model. Mentioned/replied-to members are preferred, then
- * the remaining slots are filled by relationship-weighted sampling.
- */
-export function pickSpeakers(
-  members: Contact[],
-  preferredContactIds: string[] = [],
-  speakerLimit: GroupSpeakerLimit = DEFAULT_GROUP_SPEAKER_LIMIT,
-): Contact[] {
-  const preferredIds = new Set(preferredContactIds)
-  const preferred = members.filter((m) => preferredIds.has(m.id))
-  const limit = speakerLimit === 'all' ? members.length : Math.min(speakerLimit, members.length)
-  if (limit >= members.length) {
-    const preferredSet = new Set(preferred.map((m) => m.id))
-    return [...preferred, ...members.filter((m) => !preferredSet.has(m.id))]
-  }
-
-  const picked = preferred.slice(0, limit)
-  if (picked.length >= limit) return picked
-
-  const pickedIds = new Set(picked.map((m) => m.id))
-  const rest = members.filter((m) => !pickedIds.has(m.id))
-  return [...picked, ...weightedSampleWithoutReplacement(rest, limit - picked.length)]
 }
 
 export function groupTypingDelayMs(bubble: GroupAiBubble): number {
@@ -506,19 +479,4 @@ function tryParseGroupJson(trimmedRaw: string, speakerCount: number): ParsedGrou
         : []
     }).slice(0, 1) : [],
   }
-}
-
-/** Called when a contact is deleted — group membership shouldn't keep dangling references to a contact that no longer exists. */
-export async function removeContactFromAllGroups(contactId: string): Promise<void> {
-  const groups = await api.groups.list()
-  let changed = false
-  for (const group of groups) {
-    if (group.memberContactIds.includes(contactId)) {
-      await api.groups.patch(group.id, {
-        memberContactIds: group.memberContactIds.filter((id) => id !== contactId),
-      })
-      changed = true
-    }
-  }
-  if (changed) invalidate('groups')
 }
