@@ -1,5 +1,7 @@
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { getOrUndef } from './api/client'
+import { invalidate } from './api/keys'
 import type { SocialEvent, SocialEventType } from '../types'
 
 const MAX_EVENT_SUMMARY_LENGTH = 80
@@ -35,7 +37,7 @@ export async function recordSocialEvent(opts: {
   if (relatedContactIds.length === 0) return
   // A moment may have been removed while an AI reaction was still being
   // generated. Never recreate derived social data for a deleted post.
-  if (opts.momentId && !await db.moments.get(opts.momentId)) return
+  if (opts.momentId && !await getOrUndef(api.moments.get(opts.momentId))) return
   const event: SocialEvent = {
     id: uuid(),
     type: opts.type,
@@ -51,7 +53,8 @@ export async function recordSocialEvent(opts: {
     createdAt: opts.createdAt ?? Date.now(),
   }
   event.expiresAt = defaultExpiry(event.createdAt, event.importance)
-  await db.socialEvents.add(event)
+  await api.socialEvents.put(event)
+  invalidate('socialEvents')
 }
 
 export async function recentSocialEventsText(contactIds: string[], limit = 4, includePrivateGroups = true): Promise<string> {
@@ -61,7 +64,7 @@ export async function recentSocialEventsText(contactIds: string[], limit = 4, in
   let events = await recentSocialEvents(contactIds, limit + 8)
   if (!includePrivateGroups) {
     const groupIds = Array.from(new Set(events.map((event) => event.groupId).filter((id): id is string => !!id)))
-    const groups = new Map((await db.groups.bulkGet(groupIds)).filter((group): group is NonNullable<typeof group> => !!group).map((group) => [group.id, group]))
+    const groups = new Map((await Promise.all(groupIds.map((id) => getOrUndef(api.groups.get(id))))).filter((group): group is NonNullable<typeof group> => !!group).map((group) => [group.id, group]))
     events = events.filter((event) => !event.groupId || (groups.get(event.groupId)?.momentSharing ?? 'enabled') === 'enabled')
   }
   return events
@@ -76,7 +79,7 @@ export async function recentSocialEvents(contactIds: string[], limit = 4): Promi
   if (ids.size === 0) return []
 
   const now = Date.now()
-  const events = await db.socialEvents.orderBy('createdAt').reverse().limit(120).toArray()
+  const events = (await api.socialEvents.list()).sort((a, b) => b.createdAt - a.createdAt).slice(0, 120)
   return events
     .filter((event) => event.relatedContactIds.some((id) => ids.has(id)) && (!event.expiresAt || event.expiresAt > now))
     // Importance matters, but an old event must not permanently eclipse a

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ContactGenerationInput, ContactGenerationTask } from '../types'
-import { db } from '../db/db'
+import { resetFakeServer } from '../test/setup'
+import { api } from './api/resources'
 import { useSettingsStore } from '../store/useSettingsStore'
 
 const streamRuntime = vi.hoisted(() => ({ active: 0, maxActive: 0, calls: 0 }))
@@ -38,7 +39,7 @@ const taskInput: ContactGenerationInput = {
 }
 
 beforeEach(async () => {
-  await db.contactGenerationTasks.clear()
+  resetFakeServer()
   streamRuntime.active = 0
   streamRuntime.maxActive = 0
   streamRuntime.calls = 0
@@ -70,7 +71,7 @@ describe('contact generation task presentation', () => {
     ])
 
     await vi.waitFor(async () => {
-      expect(await db.contactGenerationTasks.where('status').equals('awaiting_review').count()).toBe(2)
+      expect(await api.contactGenerationTasks.list({ status: 'awaiting_review' })).toHaveLength(2)
     })
     expect(streamRuntime.calls).toBe(2)
     expect(streamRuntime.maxActive).toBe(1)

@@ -1,4 +1,6 @@
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { getOrUndef } from './api/client'
+import { invalidate } from './api/keys'
 import { isAiTestId } from './aiTestIsolation'
 import type { AcousticEdge, Contact, LocationAudibility, LocationNode, TerrainType } from '../types'
 import { createUpgradedWorldMap, createWorldMap, defaultTerrainsForIcon, MAP_GENERATOR_VERSION, MAP_SIZE, placeBuildings } from './locationMap'
@@ -125,10 +127,10 @@ const ACOUSTIC_SEEDS: AcousticEdge[] = [
 let initialization: Promise<void> | undefined
 export function ensureLocationsInitialized() {
   if (!initialization) initialization = (async () => {
-    const existingMap = await db.worldMaps.get('active')
-    const existingLocations = await db.locations.toArray()
+    const existingMap = await getOrUndef(api.worldMaps.get('active'))
+    const existingLocations = await api.locations.list()
     const existingLocationIds = new Set(existingLocations.map((item) => item.id))
-    const state = await db.locationModuleState.get('active')
+    const state = await getOrUndef(api.locationModuleState.get('active'))
     const deletedLocationIds = new Set(state?.deletedLocationIds ?? [])
     const missingLocations = LOCATION_SEEDS.filter((item) => !existingLocationIds.has(item.id) && !deletedLocationIds.has(item.id))
     const builtInRootIds = new Set(ROOT_SPECS.map((item) => item.id))
@@ -148,29 +150,29 @@ export function ensureLocationsInitialized() {
       })
       const bindings = placeBuildings(map, specs)
       if (bindings.size !== specs.length) throw new Error(`地图空间不足，无法安排：${specs.filter((item) => !bindings.has(item.id)).map((item) => item.id).join('、')}`)
-      await db.transaction('rw', db.worldMaps, db.locations, async () => {
-        await db.worldMaps.put(map)
-        await db.locations.bulkPut(merged.map((item) => {
-          const binding = bindings.get(item.id)
-          return {
-            ...item,
-            mapBinding: binding ? { ...binding, iconId: item.mapBinding?.iconId ?? binding.iconId, customIconDataUrl: item.mapBinding?.customIconDataUrl } : item.mapBinding,
-            updatedAt: now,
-          }
-        }))
-      })
+      await api.worldMaps.put(map)
+      await api.locations.bulkPut(merged.map((item) => {
+        const binding = bindings.get(item.id)
+        return {
+          ...item,
+          mapBinding: binding ? { ...binding, iconId: item.mapBinding?.iconId ?? binding.iconId, customIconDataUrl: item.mapBinding?.customIconDataUrl } : item.mapBinding,
+          updatedAt: now,
+        }
+      }))
+      invalidate('worldMaps', 'locations')
     } else if (missingLocations.length) {
-      await db.locations.bulkPut(missingLocations.map((item) => ({ ...item, createdAt: now, updatedAt: now })))
+      await api.locations.bulkPut(missingLocations.map((item) => ({ ...item, createdAt: now, updatedAt: now })))
+      invalidate('locations')
     }
 
     const nickname = useSettingsStore.getState().userNickname.trim()
     const homeName = nickname && nickname !== '我' ? `${nickname}的家` : '我的家'
-    const home = await db.locations.get('home')
-    if (home && home.name !== homeName) await db.locations.update('home', { name: homeName, updatedAt: now })
-    const existingEdgeIds = new Set((await db.acousticEdges.toArray()).map((item) => item.id))
+    const home = await getOrUndef(api.locations.get('home'))
+    if (home && home.name !== homeName) { await api.locations.patch('home', { name: homeName, updatedAt: now }); invalidate('locations') }
+    const existingEdgeIds = new Set((await api.acousticEdges.list()).map((item) => item.id))
     const missingEdges = ACOUSTIC_SEEDS.filter((item) => !existingEdgeIds.has(item.id))
-    if (missingEdges.length) await db.acousticEdges.bulkPut(missingEdges)
-    if (!await db.locationModuleState.get('active')) await db.locationModuleState.put({ id: 'active', updatedAt: Date.now() })
+    if (missingEdges.length) { await api.acousticEdges.bulkPut(missingEdges); invalidate('acousticEdges') }
+    if (!await getOrUndef(api.locationModuleState.get('active'))) { await api.locationModuleState.put({ id: 'active', updatedAt: Date.now() }); invalidate('locationModuleState') }
   })().finally(() => { initialization = undefined })
   return initialization
 }
@@ -196,31 +198,29 @@ export function locationTreeIds(locationId: string, locations: LocationNode[]) {
 
 /** Remove a location subtree and every runtime reference that could point into it. */
 export async function deleteLocationTree(locationId: string) {
-  const locations = await db.locations.toArray()
+  const locations = await api.locations.list()
   const deletedIds = locationTreeIds(locationId, locations)
-  const state = await db.locationModuleState.get('active')
+  const state = await getOrUndef(api.locationModuleState.get('active'))
   const deletedBuiltIns = locations
     .filter((location) => deletedIds.has(location.id) && !location.userCreated)
     .map((location) => location.id)
   const nextDeletedIds = [...new Set([...(state?.deletedLocationIds ?? []), ...deletedBuiltIns])]
-  const affectedContacts = (await db.contacts.toArray()).filter((contact) => contact.currentLocationId && deletedIds.has(contact.currentLocationId))
-  const affectedEdges = (await db.acousticEdges.toArray())
+  const affectedContacts = (await api.contacts.list()).filter((contact) => contact.currentLocationId && deletedIds.has(contact.currentLocationId))
+  const affectedEdges = (await api.acousticEdges.list())
     .filter((edge) => deletedIds.has(edge.fromLocationId) || deletedIds.has(edge.toLocationId))
 
-  await db.transaction('rw', db.locations, db.contacts, db.locationModuleState, db.acousticEdges, async () => {
-    await db.locations.bulkDelete([...deletedIds])
-    if (affectedEdges.length) await db.acousticEdges.bulkDelete(affectedEdges.map((edge) => edge.id))
-    if (affectedContacts.length) await db.contacts.bulkUpdate(affectedContacts.map((contact) => ({
-      key: contact.id,
-      changes: { currentLocationId: undefined, locationSource: 'unknown', locationUpdatedAt: Date.now() },
-    })))
-    await db.locationModuleState.put({
-      id: 'active',
-      currentLocationId: state?.currentLocationId && deletedIds.has(state.currentLocationId) ? undefined : state?.currentLocationId,
-      deletedLocationIds: nextDeletedIds,
-      updatedAt: Date.now(),
-    })
+  await api.locations.bulkDelete([...deletedIds])
+  if (affectedEdges.length) await api.acousticEdges.bulkDelete(affectedEdges.map((edge) => edge.id))
+  for (const contact of affectedContacts) {
+    await api.contacts.patch(contact.id, { currentLocationId: undefined, locationSource: 'unknown', locationUpdatedAt: Date.now() })
+  }
+  await api.locationModuleState.put({
+    id: 'active',
+    currentLocationId: state?.currentLocationId && deletedIds.has(state.currentLocationId) ? undefined : state?.currentLocationId,
+    deletedLocationIds: nextDeletedIds,
+    updatedAt: Date.now(),
   })
+  invalidate('locations', 'acousticEdges', 'contacts', 'locationModuleState')
 }
 
 export function isLeafLocation(id: string, locations: LocationNode[]) {
@@ -235,7 +235,7 @@ export function isLeafLocation(id: string, locations: LocationNode[]) {
 export async function reassignUnknownContactLocation(contact: Contact, settings: AppSettings) {
   if (contact.locationSource !== 'unknown') return false
   await ensureLocationsInitialized()
-  const locations = await db.locations.toArray()
+  const locations = await api.locations.list()
   const leaves = locations.filter((location) => isLeafLocation(location.id, locations))
   if (!leaves.length || !settings.apiKey) return false
   const catalog = leaves.map((location) => `${location.id}=${location.name}`).join('；')
@@ -256,7 +256,8 @@ export async function reassignUnknownContactLocation(contact: Contact, settings:
     const currentLocationId = typeof parsed.currentLocationId === 'string' && validIds.has(parsed.currentLocationId) ? parsed.currentLocationId : undefined
     const schedule = validateScheduleBlocks(parsed.schedule).map((item) => validIds.has(item.locationId ?? '') ? item : { ...item, locationId: currentLocationId })
     if (!currentLocationId || schedule.length === 0) return false
-    await db.contacts.update(contact.id, { currentLocationId, locationSource: 'schedule', locationUpdatedAt: Date.now(), schedule: schedule as ScheduleBlock[] })
+    await api.contacts.patch(contact.id, { currentLocationId, locationSource: 'schedule', locationUpdatedAt: Date.now(), schedule: schedule as ScheduleBlock[] })
+    invalidate('contacts')
     return true
   } catch (error) {
     console.warn('[locations] unknown location reassignment failed', error)
@@ -338,23 +339,26 @@ export function resolveContactLocationAt(contact: Contact, now: Date, validLocat
  * live location participant list. */
 export async function syncContactLocationAt(contactId: string, now = new Date()) {
   await ensureLocationsInitialized()
-  const [locations, contact] = await Promise.all([db.locations.toArray(), db.contacts.get(contactId)])
+  const [locations, contact] = await Promise.all([api.locations.list(), getOrUndef(api.contacts.get(contactId))])
   if (!contact) return false
   if (contact.locationSource === 'unknown') return false
   const leafIds = new Set(locations.filter((item) => isLeafLocation(item.id, locations)).map((item) => item.id))
   const resolved = resolveContactRuntimeAt(contact, now, leafIds)
   const changed = contact.currentLocationId !== resolved.locationId || contact.locationSource !== resolved.source || contact.currentTaskId !== resolved.taskId || contact.currentTaskKind !== resolved.taskKind || contact.currentActivity !== resolved.activity
-  if (changed) await db.contacts.update(contact.id, { currentLocationId: resolved.locationId, locationSource: resolved.source, locationUpdatedAt: now.getTime(), currentTaskId: resolved.taskId, currentTaskKind: resolved.taskKind, currentActivity: resolved.activity, taskUpdatedAt: now.getTime() })
+  if (changed) { await api.contacts.patch(contact.id, { currentLocationId: resolved.locationId, locationSource: resolved.source, locationUpdatedAt: now.getTime(), currentTaskId: resolved.taskId, currentTaskKind: resolved.taskKind, currentActivity: resolved.activity, taskUpdatedAt: now.getTime() }); invalidate('contacts') }
   return changed
 }
 
 export async function syncContactLocationsAt(now = new Date()) {
   await ensureLocationsInitialized()
-  const [locations, contacts] = await Promise.all([db.locations.toArray(), db.contacts.toArray().then((items) => items.filter((item) => !isAiTestId(item.id)))])
+  const [locations, contacts] = await Promise.all([api.locations.list(), api.contacts.list().then((items) => items.filter((item) => !isAiTestId(item.id)))])
   const leafIds = new Set(locations.filter((item) => isLeafLocation(item.id, locations)).map((item) => item.id))
   const updates = contacts.filter((contact) => contact.locationSource !== 'unknown').map((contact) => ({ contact, resolved: resolveContactRuntimeAt(contact, now, leafIds) }))
     .filter(({ contact, resolved }) => contact.currentLocationId !== resolved.locationId || contact.locationSource !== resolved.source || contact.currentTaskId !== resolved.taskId || contact.currentTaskKind !== resolved.taskKind || contact.currentActivity !== resolved.activity)
-  if (updates.length) await db.contacts.bulkUpdate(updates.map(({ contact, resolved }) => ({ key: contact.id, changes: { currentLocationId: resolved.locationId, locationSource: resolved.source, locationUpdatedAt: now.getTime(), currentTaskId: resolved.taskId, currentTaskKind: resolved.taskKind, currentActivity: resolved.activity, taskUpdatedAt: now.getTime() } })))
+  for (const { contact, resolved } of updates) {
+    await api.contacts.patch(contact.id, { currentLocationId: resolved.locationId, locationSource: resolved.source, locationUpdatedAt: now.getTime(), currentTaskId: resolved.taskId, currentTaskKind: resolved.taskKind, currentActivity: resolved.activity, taskUpdatedAt: now.getTime() })
+  }
+  if (updates.length) invalidate('contacts')
   return updates.length
 }
 
@@ -367,7 +371,7 @@ export interface LocationParticipants {
 
 export async function resolveLocationParticipants(locationId: string): Promise<LocationParticipants> {
   await ensureLocationsInitialized()
-  const [contacts, edges] = await Promise.all([db.contacts.toArray().then((items) => items.filter((item) => !isAiTestId(item.id))), db.acousticEdges.toArray()])
+  const [contacts, edges] = await Promise.all([api.contacts.list().then((items) => items.filter((item) => !isAiTestId(item.id))), api.acousticEdges.list()])
   const audibleByLocation = new Map<string, 'clear' | 'muffled'>()
   for (const item of edges) {
     if (item.audibility === 'none') continue
@@ -404,9 +408,9 @@ export function locationCounts(contacts: Contact[], locations: LocationNode[]) {
 /** Rebuild terrain and redistribute every top-level marker without deleting place data. */
 export async function regenerateLocationMap(seed?: string) {
   await ensureLocationsInitialized()
-  const current = await db.worldMaps.get('active')
+  const current = await getOrUndef(api.worldMaps.get('active'))
   if (!current) return undefined
-  const roots = (await db.locations.toArray()).filter((item) => item.mapBinding)
+  const roots = (await api.locations.list()).filter((item) => item.mapBinding)
   const specs = roots.map((item) => ({
     id: item.id,
     allowedTerrains: item.mapBinding!.allowedTerrains.length ? item.mapBinding!.allowedTerrains : defaultTerrainsForIcon(item.mapBinding!.iconId ?? item.mapBinding!.buildingCategory),
@@ -419,13 +423,12 @@ export async function regenerateLocationMap(seed?: string) {
     bindings = placeBuildings(next, specs)
   }
   if (bindings.size !== roots.length) throw new Error('没有生成出足够的合法空位，请再试一次')
-  await db.transaction('rw', db.worldMaps, db.locations, async () => {
-    await db.worldMaps.put(next)
-    for (const location of roots) {
-      const binding = bindings.get(location.id)
-      if (binding) await db.locations.update(location.id, { mapBinding: { ...binding, iconId: location.mapBinding?.iconId ?? binding.iconId, customIconDataUrl: location.mapBinding?.customIconDataUrl }, updatedAt: Date.now() })
-    }
-  })
+  await api.worldMaps.put(next)
+  for (const location of roots) {
+    const binding = bindings.get(location.id)
+    if (binding) await api.locations.patch(location.id, { mapBinding: { ...binding, iconId: location.mapBinding?.iconId ?? binding.iconId, customIconDataUrl: location.mapBinding?.customIconDataUrl }, updatedAt: Date.now() })
+  }
+  invalidate('worldMaps', 'locations')
   return next
 }
 
@@ -434,27 +437,26 @@ export const upgradeLocationMap = regenerateLocationMap
 
 export async function enterLocation(locationId: string) {
   await syncContactLocationsAt(new Date())
-  const [location, allLocations] = await Promise.all([db.locations.get(locationId), db.locations.toArray()])
+  const [location, allLocations] = await Promise.all([getOrUndef(api.locations.get(locationId)), api.locations.list()])
   if (!location || !isLeafLocation(location.id, allLocations)) throw new Error('请选择建筑内的具体地点')
   const participants = await resolveLocationParticipants(location.id)
   const now = Date.now()
-  const existingGroup = await db.groups.get(LOCATION_GROUP_ID)
+  const existingGroup = await getOrUndef(api.groups.get(LOCATION_GROUP_ID))
   const worldviewId = existingGroup?.worldviewId || useSettingsStore.getState().defaultWorldviewId || participants.activeMembers[0]?.worldviewId
   const worldMembers = participants.activeMembers.filter((contact) => (contact.worldviewId || useSettingsStore.getState().defaultWorldviewId) === worldviewId)
-  await db.transaction('rw', db.groups, db.conversations, db.locationModuleState, async () => {
-    await db.groups.put({
-      id: LOCATION_GROUP_ID, name: '地点群聊', avatar: '📍', avatarColor: '#7c3aed',
-      memberContactIds: worldMembers.map((contact) => contact.id), worldviewId,
-      memory: existingGroup?.memory, vibe: existingGroup?.vibe,
-      speakerLimit: existingGroup?.speakerLimit ?? 3, allowAiChatter: existingGroup?.allowAiChatter ?? true,
-      energyLevel: existingGroup?.energyLevel ?? 'normal', memoryTurnCount: existingGroup?.memoryTurnCount,
-      memoryMessageCursor: existingGroup?.memoryMessageCursor, momentSharing: existingGroup?.momentSharing ?? 'private',
-      createdAt: existingGroup?.createdAt ?? now, kind: 'location', locationId: location.id,
-    })
-    const existingConversation = await db.conversations.get(LOCATION_CONVERSATION_ID)
-    await db.conversations.put({ id: LOCATION_CONVERSATION_ID, groupId: LOCATION_GROUP_ID, pinned: true, systemPinned: true, createdAt: existingConversation?.createdAt ?? now, updatedAt: now, lastReadAt: existingConversation?.lastReadAt })
-    await db.locationModuleState.put({ id: 'active', currentLocationId: location.id, updatedAt: now })
+  const existingConversation = await getOrUndef(api.conversations.get(LOCATION_CONVERSATION_ID))
+  await api.groups.put({
+    id: LOCATION_GROUP_ID, name: '地点群聊', avatar: '📍', avatarColor: '#7c3aed',
+    memberContactIds: worldMembers.map((contact) => contact.id), worldviewId,
+    memory: existingGroup?.memory, vibe: existingGroup?.vibe,
+    speakerLimit: existingGroup?.speakerLimit ?? 3, allowAiChatter: existingGroup?.allowAiChatter ?? true,
+    energyLevel: existingGroup?.energyLevel ?? 'normal', memoryTurnCount: existingGroup?.memoryTurnCount,
+    memoryMessageCursor: existingGroup?.memoryMessageCursor, momentSharing: existingGroup?.momentSharing ?? 'private',
+    createdAt: existingGroup?.createdAt ?? now, kind: 'location', locationId: location.id,
   })
+  await api.conversations.put({ id: LOCATION_CONVERSATION_ID, groupId: LOCATION_GROUP_ID, pinned: true, systemPinned: true, createdAt: existingConversation?.createdAt ?? now, updatedAt: now, lastReadAt: existingConversation?.lastReadAt })
+  await api.locationModuleState.put({ id: 'active', currentLocationId: location.id, updatedAt: now })
+  invalidate('groups', 'conversations', 'locationModuleState')
   return LOCATION_CONVERSATION_ID
 }
 

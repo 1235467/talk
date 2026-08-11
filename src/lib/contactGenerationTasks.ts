@@ -1,5 +1,7 @@
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { getOrUndef, hasAiAccess } from './api/client'
+import { invalidate } from './api/keys'
 import type {
   AppSettings,
   Contact,
@@ -28,7 +30,6 @@ import { employmentPatch } from './career'
 import { displayName } from './contact'
 import { syncContactLocationsAt } from './locations'
 import { activePromptPreset, clonePromptModules } from './promptPresets'
-import { hasAiAccess } from './api/client'
 
 const ACTIVE_STATUSES: ContactGenerationStatus[] = [
   'preparing', 'retrieving_context', 'extracting_canon', 'generating', 'validating', 'fetching_avatar', 'committing',
@@ -83,7 +84,8 @@ export async function createContactGenerationTask(options: {
     createdAt: now,
     updatedAt: now,
   }
-  await db.contactGenerationTasks.add(task)
+  await api.contactGenerationTasks.put(task)
+  invalidate('contactGenerationTasks')
   void drainContactGenerationQueue()
   return task.id
 }
@@ -92,61 +94,67 @@ export async function createContactGenerationTask(options: {
 export async function initializeContactGenerationTasks(): Promise<void> {
   if (!initializationPromise) {
     initializationPromise = (async () => {
-      const interrupted = await db.contactGenerationTasks.filter((task) => ACTIVE_STATUSES.includes(task.status) || task.status === 'queued').toArray()
+      const interrupted = (await api.contactGenerationTasks.list()).filter((task) => ACTIVE_STATUSES.includes(task.status) || task.status === 'queued')
       const now = Date.now()
-      await Promise.all(interrupted.map((task) => db.contactGenerationTasks.update(task.id, {
+      await Promise.all(interrupted.map((task) => api.contactGenerationTasks.patch(task.id, {
         status: 'paused',
         stageLabel: stageLabel('paused', task.experienceMode),
         error: interruptionError(task),
         updatedAt: now,
       })))
+      if (interrupted.length) invalidate('contactGenerationTasks')
     })()
   }
   await initializationPromise
 }
 
 export async function resumeContactGenerationTask(taskId: string): Promise<void> {
-  const task = await db.contactGenerationTasks.get(taskId)
+  const task = await getOrUndef(api.contactGenerationTasks.get(taskId))
   if (!task || !['paused', 'failed'].includes(task.status)) return
-  await db.contactGenerationTasks.update(taskId, {
+  await api.contactGenerationTasks.patch(taskId, {
     status: 'queued', stageLabel: stageLabel('queued', task.experienceMode), error: undefined, updatedAt: Date.now(),
   })
+  invalidate('contactGenerationTasks')
   void drainContactGenerationQueue()
 }
 
 export async function confirmContactGenerationDraft(taskId: string, draft: PersonaGenerationResult): Promise<void> {
-  const task = await db.contactGenerationTasks.get(taskId)
+  const task = await getOrUndef(api.contactGenerationTasks.get(taskId))
   if (!task || task.status !== 'awaiting_review') return
-  await db.contactGenerationTasks.update(taskId, {
+  await api.contactGenerationTasks.patch(taskId, {
     personaDraft: structuredClone(draft), status: 'queued', stageLabel: '等待保存联系人', error: undefined, updatedAt: Date.now(),
   })
+  invalidate('contactGenerationTasks')
   void drainContactGenerationQueue()
 }
 
 export async function cancelContactGenerationTask(taskId: string): Promise<void> {
   controllers.get(taskId)?.abort()
-  const task = await db.contactGenerationTasks.get(taskId)
+  const task = await getOrUndef(api.contactGenerationTasks.get(taskId))
   if (!task) return
-  await db.contactGenerationTasks.update(taskId, {
+  await api.contactGenerationTasks.patch(taskId, {
     status: 'cancelled', stageLabel: stageLabel('cancelled', task.experienceMode), updatedAt: Date.now(),
   })
+  invalidate('contactGenerationTasks')
 }
 
 export async function pauseContactGenerationTask(taskId: string): Promise<void> {
-  const task = await db.contactGenerationTasks.get(taskId)
+  const task = await getOrUndef(api.contactGenerationTasks.get(taskId))
   if (!task) return
   controllers.get(taskId)?.abort()
-  await db.contactGenerationTasks.update(taskId, {
+  await api.contactGenerationTasks.patch(taskId, {
     status: 'paused',
     stageLabel: stageLabel('paused', task.experienceMode),
     error: { code: 'USER_PAUSED', stage: task.status, message: '任务已暂停，可随时继续', technicalMessage: 'Paused by user', retryable: true, attempt: task.attempt, provider: task.provider, model: task.model, occurredAt: Date.now() },
     updatedAt: Date.now(),
   })
+  invalidate('contactGenerationTasks')
 }
 
 export async function deleteContactGenerationTask(taskId: string): Promise<void> {
   controllers.get(taskId)?.abort()
-  await db.contactGenerationTasks.delete(taskId)
+  await api.contactGenerationTasks.delete(taskId)
+  invalidate('contactGenerationTasks')
 }
 
 export async function cancelAllContactGenerationTasks(): Promise<void> {
@@ -155,14 +163,17 @@ export async function cancelAllContactGenerationTasks(): Promise<void> {
   for (const controller of controllers.values()) controller.abort()
   controllers.clear()
   runningTaskId = null
-  await db.contactGenerationTasks.clear()
+  const tasks = await api.contactGenerationTasks.list()
+  if (tasks.length) await api.contactGenerationTasks.bulkDelete(tasks.map((task) => task.id))
+  invalidate('contactGenerationTasks')
 }
 
 export async function markPersistedContactGenerationTasksPaused(): Promise<void> {
-  const tasks = await db.contactGenerationTasks.filter((task) => ACTIVE_STATUSES.includes(task.status) || task.status === 'queued').toArray()
-  await Promise.all(tasks.map((task) => db.contactGenerationTasks.update(task.id, {
+  const tasks = (await api.contactGenerationTasks.list()).filter((task) => ACTIVE_STATUSES.includes(task.status) || task.status === 'queued')
+  await Promise.all(tasks.map((task) => api.contactGenerationTasks.patch(task.id, {
     status: 'paused', stageLabel: stageLabel('paused', task.experienceMode), error: interruptionError(task), updatedAt: Date.now(),
   })))
+  if (tasks.length) invalidate('contactGenerationTasks')
 }
 
 export function formatContactGenerationDiagnostic(task: ContactGenerationTask): string {
@@ -190,7 +201,8 @@ async function setStage(task: ContactGenerationTask, status: ContactGenerationSt
   task.stageLabel = stageLabel(status, task.experienceMode)
   Object.assign(task, patch)
   task.updatedAt = Date.now()
-  await db.contactGenerationTasks.update(task.id, { status, stageLabel: task.stageLabel, updatedAt: task.updatedAt, ...patch })
+  await api.contactGenerationTasks.patch(task.id, { status, stageLabel: task.stageLabel, updatedAt: task.updatedAt, ...patch })
+  invalidate('contactGenerationTasks')
 }
 
 async function drainContactGenerationQueue(): Promise<void> {
@@ -203,7 +215,7 @@ async function drainContactGenerationQueue(): Promise<void> {
   const generation = runtimeGeneration
   let task: ContactGenerationTask | undefined
   try {
-    task = await db.contactGenerationTasks.where('status').equals('queued').sortBy('createdAt').then((rows) => rows[0])
+    task = (await api.contactGenerationTasks.list({ status: 'queued' })).sort((a, b) => a.createdAt - b.createdAt)[0]
     if (generation !== runtimeGeneration) return
     if (task) runningTaskId = task.id
   } finally {
@@ -223,12 +235,13 @@ async function drainContactGenerationQueue(): Promise<void> {
     await runTask(task, controller.signal)
   } catch (error) {
     if (controller.signal.aborted) return
-    const latest = await db.contactGenerationTasks.get(task.id)
+    const latest = await getOrUndef(api.contactGenerationTasks.get(task.id))
     if (!latest || latest.status === 'cancelled') return
     const detail = classifyError(error, latest)
-    await db.contactGenerationTasks.update(task.id, {
+    await api.contactGenerationTasks.patch(task.id, {
       status: 'failed', stageLabel: stageLabel('failed', latest.experienceMode), error: detail, updatedAt: Date.now(),
     })
+    invalidate('contactGenerationTasks')
   } finally {
     controllers.delete(task.id)
     runningTaskId = null
@@ -270,13 +283,14 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
       retrievedText,
     ].filter(Boolean).join('\n\n')
     task.worldbookText = worldbookText
-    await db.contactGenerationTasks.update(task.id, { worldbookText, updatedAt: Date.now() })
+    await api.contactGenerationTasks.patch(task.id, { worldbookText, updatedAt: Date.now() })
+    invalidate('contactGenerationTasks')
   }
 
   let canon = task.canon as WorldbookPersonaCanon | undefined
   if (!canon) {
     await setStage(task, 'extracting_canon')
-    const contacts = await db.contacts.toArray()
+    const contacts = await api.contacts.list()
     try {
       canon = await extractWorldbookPersonaCanon({
         settings,
@@ -290,7 +304,8 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
       canon = { relationship: '', sharedHistory: '', facts: [], boundaries: [], pastExperiences: [] }
     }
     task.canon = canon
-    await db.contactGenerationTasks.update(task.id, { canon, updatedAt: Date.now() })
+    await api.contactGenerationTasks.patch(task.id, { canon, updatedAt: Date.now() })
+    invalidate('contactGenerationTasks')
   }
 
   const relationship = input.relationship || canon.relationship
@@ -337,7 +352,7 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
       if (now - lastPersistedAt < 150) return
       lastPersistedAt = now
       const partialFields = completedTopLevelJsonFields(raw)
-      void db.contactGenerationTasks.update(task.id, { rawOutput: raw, partialFields, updatedAt: now })
+      void api.contactGenerationTasks.patch(task.id, { rawOutput: raw, partialFields, updatedAt: now }).then(() => invalidate('contactGenerationTasks'))
     },
   })
   task.rawOutput = raw
@@ -346,10 +361,12 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
   const originalValidation = diagnosePersonaGeneration(raw)
   let parsed = originalValidation.result
   let validationDiagnostics = originalValidation.diagnostics
-  await db.contactGenerationTasks.update(task.id, { validationDiagnostics, updatedAt: Date.now() })
+  await api.contactGenerationTasks.patch(task.id, { validationDiagnostics, updatedAt: Date.now() })
+  invalidate('contactGenerationTasks')
   if (!parsed) {
     task.validationRepairAttempted = true
-    await db.contactGenerationTasks.update(task.id, { validationRepairAttempted: true, updatedAt: Date.now() })
+    await api.contactGenerationTasks.patch(task.id, { validationRepairAttempted: true, updatedAt: Date.now() })
+    invalidate('contactGenerationTasks')
     const repaired = await chatCompletionText({
       apiKey: settings.apiKey,
       baseUrl: settings.baseUrl,
@@ -370,12 +387,14 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
     parsed = repairedValidation.result
     validationDiagnostics = { ...originalValidation.diagnostics, repairAttempted: true, repair: repairedValidation.diagnostics }
     task.validationDiagnostics = validationDiagnostics
-    await db.contactGenerationTasks.update(task.id, { validationDiagnostics, updatedAt: Date.now() })
+    await api.contactGenerationTasks.patch(task.id, { validationDiagnostics, updatedAt: Date.now() })
+    invalidate('contactGenerationTasks')
     if (parsed) {
       raw = repaired
       task.rawOutput = repaired
       task.partialFields = completedTopLevelJsonFields(repaired)
-      await db.contactGenerationTasks.update(task.id, { rawOutput: repaired, partialFields: task.partialFields, updatedAt: Date.now() })
+      await api.contactGenerationTasks.patch(task.id, { rawOutput: repaired, partialFields: task.partialFields, updatedAt: Date.now() })
+      invalidate('contactGenerationTasks')
     }
   }
   if (!parsed) {
@@ -415,7 +434,8 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
     parsed = { ...parsed, speechVoiceId: undefined, speechStyleInstruction: undefined }
   }
   task.personaDraft = parsed
-  await db.contactGenerationTasks.update(task.id, { personaDraft: parsed, updatedAt: Date.now() })
+  await api.contactGenerationTasks.patch(task.id, { personaDraft: parsed, updatedAt: Date.now() })
+  invalidate('contactGenerationTasks')
 }
 
 async function prepareAvatar(task: ContactGenerationTask, settings: AppSettings) {
@@ -449,15 +469,16 @@ async function prepareAvatar(task: ContactGenerationTask, settings: AppSettings)
   task.finalAvatar = finalAvatar
   task.avatarPhotographer = avatarPhotographer
   task.avatarPhotographerUrl = avatarPhotographerUrl
-  await db.contactGenerationTasks.update(task.id, { finalAvatar, avatarPhotographer, avatarPhotographerUrl, updatedAt: Date.now() })
+  await api.contactGenerationTasks.patch(task.id, { finalAvatar, avatarPhotographer, avatarPhotographerUrl, updatedAt: Date.now() })
+  invalidate('contactGenerationTasks')
 }
 
 async function commitTask(task: ContactGenerationTask) {
   const parsed = task.personaDraft
   if (!parsed) throw codedError('PERSONA_MISSING', '没有可保存的人物资料', false)
   await setStage(task, 'committing')
-  const existingResult = task.resultContactId ? await db.contacts.get(task.resultContactId) : undefined
-  if (existingResult) { await db.contactGenerationTasks.delete(task.id); return }
+  const existingResult = task.resultContactId ? await getOrUndef(api.contacts.get(task.resultContactId)) : undefined
+  if (existingResult) { await api.contactGenerationTasks.delete(task.id); invalidate('contactGenerationTasks'); return }
 
   const input = task.input
   const contactId = task.resultContactId || uuid()
@@ -469,7 +490,7 @@ async function commitTask(task: ContactGenerationTask) {
     ? Math.max(-100, Math.min(100, Math.round(input.initialWarmth ?? automaticWarmth)))
     : task.method === 'precision' ? parsed.initialWarmth ?? automaticWarmth : automaticWarmth
   const boundWorldbookEntryIds = Array.from(new Set([...input.selectedWorldbookEntryIds, ...(input.importedWorldbook?.entries.map((entry) => entry.id) ?? [])]))
-  const contacts = await db.contacts.toArray()
+  const contacts = await api.contacts.list()
   const byName = new Map(contacts.flatMap((contact) => [contact.name, contact.realName, contact.nickname, displayName(contact)].filter((name): name is string => !!name).map((name) => [name.trim().toLocaleLowerCase(), contact.id] as const)))
   const voiceContext = speechVoiceGenerationContext(useSettingsStore.getState())
   const generatedSpeechVoices = voiceContext && parsed.speechVoiceId && voiceContext.options.some((option) => option.id === parsed.speechVoiceId)
@@ -477,7 +498,6 @@ async function commitTask(task: ContactGenerationTask) {
     : undefined
 
   try {
-  await db.transaction('rw', [db.contacts, db.conversations, db.messages, db.contactRelations, db.contactMemories, db.contactExperiences, db.personaCreationRecords, db.contactGenerationTasks], async () => {
     const contact: Contact = {
       id: contactId,
       name: parsed.name,
@@ -517,25 +537,25 @@ async function commitTask(task: ContactGenerationTask) {
       promptSnapshotUpdatedAt: now,
       ...(input.careerEnabled && (input.occupation || parsed.occupation) ? employmentPatch(input.occupation || parsed.occupation || '', parsed.monthlySalary ?? 6000) : {}),
     }
-    await db.contacts.add(contact)
-    await db.conversations.add({ id: conversationId, contactId, pinned: false, createdAt: now, updatedAt: now })
+    await api.contacts.put(contact)
+    await api.conversations.put({ id: conversationId, contactId, pinned: false, createdAt: now, updatedAt: now })
     if (input.importedFirstMessage?.trim()) {
-      await db.messages.add({ id: uuid(), conversationId, role: 'assistant', type: 'text', content: input.importedFirstMessage.trim(), createdAt: now + 1 })
-      await db.conversations.update(conversationId, { updatedAt: now + 1 })
+      await api.messages.put({ id: uuid(), conversationId, role: 'assistant', type: 'text', content: input.importedFirstMessage.trim(), createdAt: now + 1 })
+      await api.conversations.patch(conversationId, { updatedAt: now + 1 })
     }
     await addInitialRelations(contact, input.relations, contacts, now)
     const past = parsed.pastExperiences ?? []
     if (past.length) {
-      await db.contactExperiences.bulkAdd(past.map((experience) => ({
+      await api.contactExperiences.bulkPut(past.map((experience) => ({
         id: uuid(), contactIds: [contactId, ...Array.from(new Set(experience.relatedContactNames.map((name) => byName.get(name.trim().toLocaleLowerCase())).filter((id): id is string => !!id)))],
         kind: 'past' as const, memoryTier: 'long' as const, title: experience.title || '过去的经历', summary: experience.summary, periodLabel: experience.period || undefined, importance: experience.importance,
         sources: Array.from(new Set([input.sharedHistory ? 'user' : undefined, boundWorldbookEntryIds.length ? 'worldbook' : undefined, input.relations.length ? 'relationship' : undefined, 'persona'].filter((source): source is 'user' | 'worldbook' | 'relationship' | 'persona' => !!source))),
         sourceRefIds: boundWorldbookEntryIds.length ? boundWorldbookEntryIds : undefined, createdAt: now,
       })))
     } else if (input.sharedHistory) {
-      await db.contactExperiences.add({ id: uuid(), contactIds: [contactId], kind: 'past', memoryTier: 'long', title: '与用户的过去', summary: input.sharedHistory, importance: 85, sources: ['user'], createdAt: now })
+      await api.contactExperiences.put({ id: uuid(), contactIds: [contactId], kind: 'past', memoryTier: 'long', title: '与用户的过去', summary: input.sharedHistory, importance: 85, sources: ['user'], createdAt: now })
     }
-    await db.personaCreationRecords.add({
+    await api.personaCreationRecords.put({
       id: uuid(), sourceContactId: contactId, name: parsed.name, realName: parsed.realName, nickname: parsed.nickname, birthday: parsed.birthday,
       gender: input.gender || parsed.gender, ageRange: input.ageRange || parsed.ageRange, relationship, occupation: input.occupation || parsed.occupation,
       personalityTrait: input.personalityTrait || parsed.personalityTrait, initialWarmth: input.relationshipEnabled ? warmth : undefined, hobbies: input.hobbies,
@@ -543,8 +563,8 @@ async function commitTask(task: ContactGenerationTask) {
       speechSamples: parsed.speechSamples, mbti: parsed.mbti, schedule: parsed.schedule, avatarKeyword: parsed.avatarKeyword, monthlySalary: parsed.monthlySalary,
       sharedHistory: input.sharedHistory || undefined, createdAt: now,
     })
-    await db.contactGenerationTasks.delete(task.id)
-  })
+    await api.contactGenerationTasks.delete(task.id)
+    invalidate('contacts', 'conversations', 'messages', 'contactRelations', 'contactMemories', 'contactExperiences', 'personaCreationRecords', 'contactGenerationTasks')
   } catch (error) {
     throw codedError('DATABASE_COMMIT_FAILED', error instanceof Error ? error.message : String(error), true)
   }
@@ -566,12 +586,12 @@ async function addInitialRelations(contact: Contact, relations: ContactGeneratio
     const makeMemory = (contactId: string, target: Contact): ContactMemory => ({ id: uuid(), contactId, scope: 'interpersonal', relatedContactIds: [target.id], category: '关系动态', kind: 'relationship_event', content: `${displayName(target)}是你的${relation.label}，这是创建角色时设定的 AI 关系事实，不可随意改称朋友。`, tags: ['AI关系', relation.label, displayName(target)], importance: 0.85, emotionalWeight: 0.35, confidence: 1, sourceMessageIds: [], createdAt: now, updatedAt: now, usageCount: 0 })
     memories.push(makeMemory(contact.id, other), makeMemory(other.id, contact))
   }
-  if (links.length) await db.contactRelations.bulkAdd(links)
-  if (memories.length) await db.contactMemories.bulkAdd(memories)
+  if (links.length) await api.contactRelations.bulkPut(links)
+  if (memories.length) await api.contactMemories.bulkPut(memories)
 }
 
 async function interpersonalSetting(input: ContactGenerationInput) {
-  const contacts = await db.contacts.bulkGet(input.relations.map((row) => row.targetContactId))
+  const contacts = await Promise.all(input.relations.map((row) => getOrUndef(api.contacts.get(row.targetContactId))))
   return input.relations.map((row, index) => contacts[index] ? `与已有角色“${displayName(contacts[index] as Contact)}”的关系：${row.label}` : '').filter(Boolean).join('\n')
 }
 

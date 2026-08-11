@@ -1,8 +1,10 @@
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
 import type { Contact, ContactRuntimeSnapshot, InternalTask } from '../types'
 import { createSpecialTask, type CreateSpecialTaskInput } from './agentTasks'
 import { syncContactLocationAt } from './locations'
+import { api } from './api/resources'
+import { getOrUndef } from './api/client'
+import { invalidate } from './api/keys'
 
 function runtimeOf(contact: Contact): ContactRuntimeSnapshot {
   return {
@@ -19,11 +21,11 @@ function clock(timestamp: number) {
 }
 
 export async function createScheduleInternalTask(contactId: string, conversationId: string, input: CreateSpecialTaskInput, now = Date.now()) {
-  const before = await db.contacts.get(contactId)
+  const before = await getOrUndef(api.contacts.get(contactId))
   if (!before) throw new Error('联系人不存在')
   const result = await createSpecialTask(contactId, input, now)
   if (!result.success) return result
-  const after = await db.contacts.get(contactId)
+  const after = await getOrUndef(api.contacts.get(contactId))
   const task: InternalTask = {
     id: uuid(), kind: 'schedule_arrangement', status: 'active', contactId, conversationId, createdAt: now,
     effects: [
@@ -39,26 +41,28 @@ export async function createScheduleInternalTask(contactId: string, conversation
       cancelledDefaultActivities: result.cancelledDefaultTasks.map((item) => item.activity),
     },
   }
-  await db.internalTasks.add(task)
+  await api.internalTasks.put(task)
+  invalidate('internalTasks')
   return { ...result, internalTask: task }
 }
 
 export async function revertInternalTask(taskId: string) {
-  const record = await db.internalTasks.get(taskId)
+  const record = await getOrUndef(api.internalTasks.get(taskId))
   if (!record) throw new Error('该安排记录不存在')
   if (record.status === 'reverted') return record
   const created = record.effects.find((effect) => effect.type === 'schedule_override_created')
   const replaced = record.effects.find((effect) => effect.type === 'special_tasks_replaced')
   if (!created || created.type !== 'schedule_override_created') throw new Error('该任务不支持撤销')
-  await db.transaction('rw', db.contacts, db.internalTasks, async () => {
-    const contact = await db.contacts.get(record.contactId)
+  {
+    const contact = await getOrUndef(api.contacts.get(record.contactId))
     if (!contact) throw new Error('联系人不存在')
     const remaining = (contact.scheduleOverrides ?? []).filter((item) => item.id !== created.override.id)
     const restored = replaced?.type === 'special_tasks_replaced' ? replaced.overrides : []
     const ids = new Set(remaining.map((item) => item.id))
-    await db.contacts.update(contact.id, { scheduleOverrides: [...remaining, ...restored.filter((item) => !ids.has(item.id))] })
-    await db.internalTasks.update(taskId, { status: 'reverted', revertedAt: Date.now() })
-  })
+    await api.contacts.patch(contact.id, { scheduleOverrides: [...remaining, ...restored.filter((item) => !ids.has(item.id))] })
+    await api.internalTasks.patch(taskId, { status: 'reverted', revertedAt: Date.now() })
+    invalidate('internalTasks', 'contacts')
+  }
   await syncContactLocationAt(record.contactId)
-  return (await db.internalTasks.get(taskId))!
+  return (await api.internalTasks.get(taskId))!
 }

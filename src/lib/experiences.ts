@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid'
 import { canPublishNovelMoment } from './moments'
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { invalidate } from './api/keys'
 import type { AppSettings, Contact, ContactExperience, ContactLifeState } from '../types'
 import { chatCompletionText as chatCompletion } from './deepseek'
 import { parseJsonLoose } from './aiProtocol'
@@ -8,7 +9,7 @@ import { selectedWorldbookEntriesText, retrieveWorldbookContext } from './worldb
 import { uniqueRelationPairs } from './contactRelations'
 import { displayName } from './contact'
 import { isPhoneAvailable } from './schedule'
-import { hasAiAccess } from './api/client'
+import { getOrUndef, hasAiAccess } from './api/client'
 
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
@@ -45,10 +46,13 @@ function scheduleSlice(contact: Contact, from: number, to: number) {
 }
 
 async function interactionCandidates(contact: Contact, from: number, to: number) {
-  const rows = uniqueRelationPairs(await db.contactRelations.filter((row) => row.fromContactId === contact.id || row.toContactId === contact.id).toArray())
+  const rows = uniqueRelationPairs((await api.contactRelations.list()).filter((row) => row.fromContactId === contact.id || row.toContactId === contact.id))
   const otherIds = rows.map((row) => row.fromContactId === contact.id ? row.toContactId : row.fromContactId)
-  const [others, states] = await Promise.all([db.contacts.bulkGet(otherIds), db.contactLifeStates.bulkGet(otherIds)])
-  const ownState = await db.contactLifeStates.get(contact.id)
+  const [others, states] = await Promise.all([
+    Promise.all(otherIds.map((id) => getOrUndef(api.contacts.get(id)))),
+    Promise.all(otherIds.map((id) => getOrUndef(api.contactLifeStates.get(id)))),
+  ])
+  const ownState = await getOrUndef(api.contactLifeStates.get(contact.id))
   const allowedPhysical = new Set<string>()
   const contacts = new Map<string, Contact>()
   const text = rows.map((row, index) => {
@@ -78,14 +82,15 @@ function desiredCount(gap: number) {
 }
 
 async function createMomentFromExperience(contact: Contact, experience: ContactExperience, content: string) {
-  const recent = await db.moments.where('contactId').equals(contact.id).reverse().sortBy('createdAt')
+  const recent = (await api.moments.list({ contactId: contact.id })).sort((a, b) => b.createdAt - a.createdAt)
   if (recent[0] && (experience.endedAt ?? experience.createdAt) - recent[0].createdAt < 2 * HOUR) return
   const createdAt = Math.max(experience.startedAt ?? experience.createdAt, Math.min(experience.endedAt ?? experience.createdAt, experience.createdAt))
   if (!await canPublishNovelMoment(contact.id, content, createdAt)) return
   const id = uuid()
-  await db.moments.add({ id, contactId: contact.id, content: content.trim().slice(0, 500), createdAt, sourceExperienceId: experience.id })
-  await db.contacts.update(contact.id, { lastMomentAt: createdAt })
-  await db.contactExperiences.update(experience.id, { surfacedAsMoment: true })
+  await api.moments.put({ id, contactId: contact.id, content: content.trim().slice(0, 500), createdAt, sourceExperienceId: experience.id })
+  await api.contacts.patch(contact.id, { lastMomentAt: createdAt })
+  await api.contactExperiences.patch(experience.id, { surfacedAsMoment: true })
+  invalidate('moments', 'contacts', 'contactExperiences')
 }
 
 export interface OfflineExperienceResult {
@@ -114,7 +119,7 @@ export async function ensureOfflineExperiences(opts: {
       selectedWorldbookEntriesText(contact.worldbookEntryIds ?? []),
     ]).then((parts) => parts.filter(Boolean).join('\n\n')),
     interactionCandidates(contact, from, to),
-    db.contactLifeStates.get(contact.id),
+    getOrUndef(api.contactLifeStates.get(contact.id)),
   ])
   const maxMinutes = Math.max(60, Math.floor(gap / 60000))
   const prompt = `你是角色离线经历补全器。根据自由人设、世界观、自然语言日程和时间区间，补全角色在用户没有回复时真实经历的生活。职业和活动完全开放，禁止套用固定的上班/上学模板。
@@ -153,7 +158,7 @@ ${worldbook ? `【所属世界正史与创建参考资料】\n${worldbook.slice(
     maxTokens: 1400,
   })
   const parsed = parseJsonLoose<{ experiences?: GeneratedExperience[] }>(raw)
-  const allowedIds = new Set((await db.contactRelations.filter((row) => row.fromContactId === contact.id || row.toContactId === contact.id).toArray()).flatMap((row) => [row.fromContactId, row.toContactId]).filter((id) => id !== contact.id))
+  const allowedIds = new Set((await api.contactRelations.list()).filter((row) => row.fromContactId === contact.id || row.toContactId === contact.id).flatMap((row) => [row.fromContactId, row.toContactId]).filter((id) => id !== contact.id))
   const generated: ContactExperience[] = []
   for (const item of Array.isArray(parsed?.experiences) ? parsed!.experiences!.slice(0, 5) : []) {
     if (!item || typeof item.summary !== 'string' || !item.summary.trim()) continue
@@ -180,20 +185,22 @@ ${worldbook ? `【所属世界正史与创建参考资料】\n${worldbook.slice(
       startedAt: from + startOffset * 60000, endedAt, location: String(item.location || '').trim().slice(0, 100) || undefined,
       importance, sources: ['simulation'], createdAt: endedAt, expiresAt: importance >= 70 ? undefined : endedAt + 3 * DAY,
     }
-    await db.contactExperiences.add(experience)
+    await api.contactExperiences.put(experience)
+    invalidate('contactExperiences')
     generated.push(experience)
     if (item.shareAsMoment && item.momentContent?.trim()) await createMomentFromExperience(contact, experience, item.momentContent)
   }
   const last = generated.at(-1)
   const statePatch: Partial<ContactLifeState> = last ? { location: last.location || lifeState?.location || '未知', activity: last.title, situation: last.summary, updatedAt: last.endedAt ?? to } : {}
-  if (last) await db.contactLifeStates.put({ contactId: contact.id, energy: lifeState?.energy ?? 65, stress: lifeState?.stress ?? 25, socialNeed: lifeState?.socialNeed ?? 45, ...lifeState, ...statePatch } as ContactLifeState)
-  await db.contacts.update(contact.id, { experienceCursorAt: to })
+  if (last) { await api.contactLifeStates.put({ contactId: contact.id, energy: lifeState?.energy ?? 65, stress: lifeState?.stress ?? 25, socialNeed: lifeState?.socialNeed ?? 45, ...lifeState, ...statePatch } as ContactLifeState); invalidate('contactLifeStates') }
+  await api.contacts.patch(contact.id, { experienceCursorAt: to })
+  invalidate('contacts')
   return { absenceContext, generated }
 }
 
 /** Attribute -> prompt slice. Uses fixed tiers/participants/importance, never keyword matching. */
 export async function buildExperiencePromptSlice(contactId: string, now: number): Promise<string> {
-  const rows = await db.contactExperiences.where('contactIds').equals(contactId).toArray()
+  const rows = await api.contactExperiences.list({ contactIds_contains: contactId })
   const active = rows.filter((row) => !row.expiresAt || row.expiresAt > now)
   const past = active.filter((row) => row.kind === 'past').sort((a, b) => b.importance - a.importance).slice(0, 6)
   const long = active.filter((row) => row.kind === 'offline' && row.memoryTier === 'long').sort((a, b) => b.importance - a.importance).slice(0, 5)

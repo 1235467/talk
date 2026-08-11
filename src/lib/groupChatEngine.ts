@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from './api/resources'
 import { chatCompletionText as chatCompletion, coalesceConsecutiveRoles, type ChatMessage } from './deepseek'
 import {
   buildGroupRawChatPrompt,
@@ -36,7 +36,8 @@ import { createMediaAsset, startMediaAsset } from './imageAssets'
 import { auditAndRepairRawTurn, insertToolCallsIntoRawTurn } from './responseQuality'
 import { traceTurnEvent } from './deepseek'
 import type { AppSettings, Contact, Group, GroupAiBubble, Message, Sticker } from '../types'
-import { hasAiAccess } from './api/client'
+import { getOrUndef, hasAiAccess } from './api/client'
+import { invalidate } from './api/keys'
 
 /** Load recent structured memories for each speaker in parallel. */
 async function loadSpeakerMemories(speakers: Contact[]): Promise<Map<string, string>> {
@@ -169,12 +170,13 @@ async function updateGroupMemoryAndVibe(opts: {
     }
   }
 
-  await db.groups.update(group.id, patch)
-  const turn = await db.aiTurns.get(aiTurnId)
+  await api.groups.patch(group.id, patch)
+  invalidate('groups')
+  const turn = await getOrUndef(api.aiTurns.get(aiTurnId))
   if (turn?.parsed && typeof turn.parsed === 'object') {
-    await db.aiTurns.update(aiTurnId, {
+    await api.aiTurns.patch(aiTurnId, {
       parsed: { ...(turn.parsed as Record<string, unknown>), groupMemoryUpdate: patch },
-    })
+    } as never)
   }
 }
 
@@ -249,7 +251,8 @@ export async function sendGroupMessage(
     const participants = await resolveLocationParticipants(group.locationId)
     members = participants.activeMembers.filter((member) => (member.worldviewId || settings.defaultWorldviewId) === (group.worldviewId || settings.defaultWorldviewId))
     group = { ...group, memberContactIds: members.map((member) => member.id) }
-    await db.groups.update(group.id, { memberContactIds: group.memberContactIds })
+    await api.groups.patch(group.id, { memberContactIds: group.memberContactIds })
+    invalidate('groups')
   }
   if (!hasAiAccess(settings) && members.length > 0) {
     useChatEngineStore.getState().patch(conversationId, { error: '还没有配置API Key 请先去"我-设置"里填写' })
@@ -271,8 +274,9 @@ export async function sendGroupMessage(
     replyToMessageId,
     createdAt: messageCreatedAt,
   }
-  await db.messages.add(msg)
-  await db.conversations.update(conversationId, { updatedAt: messageCreatedAt })
+  await api.messages.put(msg)
+  await api.conversations.patch(conversationId, { updatedAt: messageCreatedAt })
+  invalidate('messages', 'conversations')
   if (group.kind === 'location' && members.length === 0) {
     useChatEngineStore.getState().patch(conversationId, { aiTyping: false, typingLabel: undefined, error: '' })
     return
@@ -336,14 +340,11 @@ export async function regenerateGroupAiTurn(
   turns.begin(conversationId, streamId)
   useChatEngineStore.getState().patch(conversationId, { error: '', typingLabel: '群成员', timedOut: false })
 
-  const turnMessages = await db.messages
-    .where('conversationId')
-    .equals(conversationId)
-    .filter((message) => message.debugAiTurnId === aiTurnId)
-    .toArray()
-  if (turnMessages.length > 0) await db.messages.bulkDelete(turnMessages.map((message) => message.id))
-  await db.aiTurns.delete(aiTurnId)
-  await db.conversations.update(conversationId, { updatedAt: Date.now() })
+  const turnMessages = (await api.messages.list({ conversationId })).filter((message) => message.debugAiTurnId === aiTurnId)
+  if (turnMessages.length > 0) await api.messages.bulkDelete(turnMessages.map((message) => message.id))
+  await api.aiTurns.delete(aiTurnId)
+  await api.conversations.patch(conversationId, { updatedAt: Date.now() })
+  invalidate('messages', 'conversations')
 
   scheduleGroupAiTurn(conversationId, group, members, settings, stickers, streamId, regenerationInstruction.trim())
 }
@@ -377,7 +378,8 @@ async function runGroupAiTurn(
       locationParticipants = await resolveLocationParticipants(group.locationId)
       members = locationParticipants.activeMembers.filter((member) => (member.worldviewId || settings.defaultWorldviewId) === (group.worldviewId || settings.defaultWorldviewId))
       group = { ...group, memberContactIds: members.map((member) => member.id) }
-      await db.groups.update(group.id, { memberContactIds: group.memberContactIds })
+      await api.groups.patch(group.id, { memberContactIds: group.memberContactIds })
+      invalidate('groups')
     }
     if (members.length === 0) {
       engine.patch(conversationId, { error: group.kind === 'location' ? '' : '这个群里已经没有成员了', aiTyping: false, typingLabel: undefined })
@@ -386,7 +388,7 @@ async function runGroupAiTurn(
 
     const contactById = new Map(members.map((c) => [c.id, c]))
 
-    const history = await db.messages.where('conversationId').equals(conversationId).sortBy('createdAt')
+    const history = await api.messages.list({ conversationId })
     const messageById = new Map(history.map((m) => [m.id, m]))
     const latestUserMessage = [...history].reverse().find((m) => m.role === 'user')
     const preferredSpeakerIds = new Set(latestUserMessage?.mentions ?? [])
@@ -409,7 +411,7 @@ async function runGroupAiTurn(
     const aiRelationshipText = featureActive(settings, 'relationship') ? await aiRelationshipPrompt(members) : ''
     const remoteStickerSearchEnabled = isStickerProviderReady(settings)
     const imageGenerationEnabled = isImageProviderReady(settings)
-    const location = group.kind === 'location' && group.locationId ? await db.locations.get(group.locationId) : undefined
+    const location = group.kind === 'location' && group.locationId ? await getOrUndef(api.locations.get(group.locationId)) : undefined
     const promptBuilder = group.kind === 'location' ? buildLocationRawChatPrompt : buildGroupRawChatPrompt
     const participantPositions = locationParticipants
       ? [
@@ -544,7 +546,7 @@ async function runGroupAiTurn(
       return
     }
     const aiTurnId = uuid()
-    await db.aiTurns.add({
+    await api.aiTurns.put({
       id: aiTurnId,
       conversationId,
       raw: finalRaw,
@@ -564,7 +566,8 @@ async function runGroupAiTurn(
       })
       if (plan) createdPlans.push(plan)
     }
-    for (const plan of createdPlans) await db.messages.add(planCardMessage(plan))
+    for (const plan of createdPlans) await api.messages.put(planCardMessage(plan))
+    if (createdPlans.length > 0) invalidate('messages')
     void updateGroupMemoryAndVibe({ group, aiTurnId, settings, turnSummary, groupVibe, directOutput })
     console.info(`[group-perf] 模型与自检完成=${Math.round(performance.now() - turnStartedAt)}ms 群=${group.name}`)
     revealGroupBubbles(conversationId, group, members, speakers, bubbles, streamId, settings, stickers, aiTurnId, turnSummary, turnStartedAt, directOutput, () => {
@@ -631,15 +634,16 @@ function revealGroupBubbles(
       const messageCreatedAt = await nextMessageTimestamp(conversationId)
       const messageId = uuid()
       if (bubble.type === 'scheduleChange' && speaker?.id) {
-        const location = bubble.locationId ? await db.locations.get(bubble.locationId) : undefined
+        const location = bubble.locationId ? await getOrUndef(api.locations.get(bubble.locationId)) : undefined
         if (bubble.locationId && !location) return
-        const fresh = await db.contacts.get(speaker.id)
+        const fresh = await getOrUndef(api.contacts.get(speaker.id))
         if (!fresh) return
-        await db.contacts.update(speaker.id, { scheduleOverrides: [...(fresh.scheduleOverrides ?? []), {
+        await api.contacts.patch(speaker.id, { scheduleOverrides: [...(fresh.scheduleOverrides ?? []), {
           id: uuid(), date: bubble.date, startHour: bubble.startHour, endHour: bubble.endHour,
           phoneAccess: bubble.phoneAccess, location: location?.name ?? bubble.location, locationId: location?.id,
           activity: bubble.activity, summary: bubble.summary, priority: 'special', createdAt: Date.now(),
         }] })
+        invalidate('contacts')
         void traceTurnEvent({ turnId: streamId, conversationId, stage: 'schedule_change', output: `${displayName(speaker)} 新建：${bubble.activity}｜${bubble.date} ${String(bubble.startHour).padStart(2, '0')}:00-${String(bubble.endHour).padStart(2, '0')}:00｜${location?.name ?? bubble.location}` })
       }
       if (bubble.type === 'image') {
@@ -674,7 +678,7 @@ function revealGroupBubbles(
         image: imagePayload,
         createdAt: messageCreatedAt,
       }
-      await db.messages.add(msg)
+      await api.messages.put(msg)
       if (imageAssetId) startMediaAsset(imageAssetId)
       if (i === 0) onFirstBubble?.()
       if (remoteSticker) void trackRemoteStickerSend(remoteSticker)
@@ -682,11 +686,13 @@ function revealGroupBubbles(
         console.info(`[group-perf] 首条气泡显示=${Math.round(performance.now() - turnStartedAt)}ms 群=${group.name}`)
       }
       if (speaker?.id && bubble.mood) {
-        await db.contacts.update(speaker.id, {
+        await api.contacts.patch(speaker.id, {
           mood: { text: bubble.mood, expiresAt: Date.now() + settings.moodExpiryMs },
         })
+        invalidate('contacts')
       }
-      await db.conversations.update(conversationId, { updatedAt: messageCreatedAt })
+      await api.conversations.patch(conversationId, { updatedAt: messageCreatedAt })
+      invalidate('messages', 'conversations')
 
       if (useChatUiStore.getState().activeConversationId !== conversationId) {
         useChatUiStore.getState().showNotification({

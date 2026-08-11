@@ -1,4 +1,4 @@
-import { db } from '../db/db'
+import { api } from './api/resources'
 import { displayName } from './contact'
 import type { Message } from '../types'
 
@@ -25,11 +25,12 @@ export async function recentSharedOriginalContext(
   const maxMoments = options.maxMoments ?? 18
   const maxChars = Math.max(0, Math.min(options.maxChars ?? SHARED_CONTEXT_MAX_CHARS, SHARED_CONTEXT_MAX_CHARS))
   if (maxChars === 0) return ''
-  const [contacts, groups, conversations, moments, momentComments] = await Promise.all([
-    db.contacts.toArray(), db.groups.toArray(), db.conversations.toArray(),
-    db.moments.where('createdAt').aboveOrEqual(since).sortBy('createdAt'),
-    db.momentComments.filter((comment) => comment.createdAt >= since).toArray(),
+  const [contacts, groups, conversations, allMoments, allMomentComments, allMessages] = await Promise.all([
+    api.contacts.list(), api.groups.list(), api.conversations.list(),
+    api.moments.list(), api.momentComments.list(), api.messages.list(),
   ])
+  const moments = allMoments.filter((moment) => moment.createdAt >= since).sort((a, b) => a.createdAt - b.createdAt)
+  const momentComments = allMomentComments.filter((comment) => comment.createdAt >= since)
   const contactsById = new Map(contacts.map((contact) => [contact.id, contact]))
   const groupsById = new Map(groups.map((group) => [group.id, group]))
   const relevantGroupIds = new Set(
@@ -49,7 +50,9 @@ export async function recentSharedOriginalContext(
       .map((conversation) => conversation.id),
   )
   const conversationById = new Map(conversations.map((conversation) => [conversation.id, conversation]))
-  const messages = (await db.messages.where('createdAt').aboveOrEqual(since).sortBy('createdAt'))
+  const messages = allMessages
+    .filter((message) => message.createdAt >= since)
+    .sort((a, b) => a.createdAt - b.createdAt)
     .filter((message) => conversationIds.has(message.conversationId) && !message.pending)
     .slice(-maxMessages)
   const rows: Array<{ at: number; text: string }> = messages.map((message) => {

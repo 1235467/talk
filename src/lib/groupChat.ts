@@ -1,4 +1,5 @@
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { invalidate } from './api/keys'
 import { isModuleEnabled } from '../features'
 import { parseJsonLoose, parseKnowledgeQueriesField, parseScheduleMarker } from './aiProtocol'
 import { activeUpcomingPlansText } from './memory'
@@ -218,7 +219,7 @@ export async function pickSociallyConnectedSpeakers(
   if (picked.length >= limit || members.length <= 1) return picked.length >= limit ? picked : [...picked, ...members.filter((m) => !preferredSet.has(m.id))]
 
   const ids = new Set(members.map((member) => member.id))
-  const links = (await db.contactRelations.toArray()).filter((link) => ids.has(link.fromContactId) && ids.has(link.toContactId))
+  const links = (await api.contactRelations.list()).filter((link) => ids.has(link.fromContactId) && ids.has(link.toContactId))
   const relationScore = (fromId: string, toId: string) => {
     const link = links.find((candidate) =>
       (candidate.fromContactId === fromId && candidate.toContactId === toId)
@@ -509,12 +510,15 @@ function tryParseGroupJson(trimmedRaw: string, speakerCount: number): ParsedGrou
 
 /** Called when a contact is deleted — group membership shouldn't keep dangling references to a contact that no longer exists. */
 export async function removeContactFromAllGroups(contactId: string): Promise<void> {
-  const groups = await db.groups.toArray()
+  const groups = await api.groups.list()
+  let changed = false
   for (const group of groups) {
     if (group.memberContactIds.includes(contactId)) {
-      await db.groups.update(group.id, {
+      await api.groups.patch(group.id, {
         memberContactIds: group.memberContactIds.filter((id) => id !== contactId),
       })
+      changed = true
     }
   }
+  if (changed) invalidate('groups')
 }

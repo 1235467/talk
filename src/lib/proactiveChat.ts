@@ -1,4 +1,5 @@
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { invalidate } from './api/keys'
 import { isAiTestId } from './aiTestIsolation'
 import { triggerAiTurn } from './chatEngine'
 import { weightedSampleWithoutReplacement } from './groupChat'
@@ -25,7 +26,7 @@ async function chooseTopic(contact: Contact): Promise<ProactiveTopicRecord | und
   const used = new Set((contact.proactiveTopicHistory ?? []).filter((x) => Date.now() - x.createdAt < 7 * 86400000).map((x) => x.topic))
   const candidates: Omit<ProactiveTopicRecord, 'createdAt'>[] = []
   for (const event of contact.pendingEvents ?? []) candidates.push({ topic: event, source: 'event' })
-  const memories = await db.contactMemories.where('contactId').equals(contact.id).reverse().sortBy('createdAt')
+  const memories = (await api.contactMemories.list({ contactId: contact.id })).sort((a, b) => b.createdAt - a.createdAt)
   for (const memory of memories.slice(0, 20)) {
     if (memory.kind === 'open_thread') candidates.push({ topic: memory.content, source: 'open_thread' })
     else if (memory.importance >= 0.65) candidates.push({ topic: memory.content, source: 'memory' })
@@ -43,8 +44,8 @@ export async function maybeTriggerProactiveMessage(settings: AppSettings): Promi
   try {
     if (!settings.apiKey || !canSendToday() || Math.random() > settings.proactiveProbability) return
     const now = Date.now()
-    const contacts = (await db.contacts.toArray()).filter((item) => !isAiTestId(item.id))
-    const conversations = (await db.conversations.toArray()).filter((item) => !isAiTestId(item.id))
+    const contacts = (await api.contacts.list()).filter((item) => !isAiTestId(item.id))
+    const conversations = (await api.conversations.list()).filter((item) => !isAiTestId(item.id))
     const byContact = new Map(conversations.filter((c) => c.contactId).map((c) => [c.contactId!, c]))
     const eligible = contacts.filter((c) => {
       const conv = byContact.get(c.id)
@@ -56,12 +57,13 @@ export async function maybeTriggerProactiveMessage(settings: AppSettings): Promi
     const conv = byContact.get(contact.id)
     if (!topic || !conv) return
     const context = `【本轮类型：主动开启对话】\n自然切入这个素材：${topic.topic}\n来源：${topic.source}。用户此刻没有发新消息，不要写成回复口吻，不要说“你刚才”。不要编造素材之外的突发事件、共同经历或线下见面。开场服从你的人设、关系和当前时间，通常一两条短消息即可。如果这个素材不足以形成自然开场，只输出空回复。最近主动聊过：${(contact.proactiveTopicHistory ?? []).slice(-4).map((x) => x.topic).join('；') || '无'}。`
-    const before = await db.aiTurns.where('conversationId').equals(conv.id).count()
-    await triggerAiTurn(conv.id, contact, settings, await db.stickers.toArray(), context)
-    const after = await db.aiTurns.where('conversationId').equals(conv.id).count()
+    const before = (await api.aiTurns.list({ conversationId: conv.id })).length
+    await triggerAiTurn(conv.id, contact, settings, await api.stickers.list(), context)
+    const after = (await api.aiTurns.list({ conversationId: conv.id })).length
     if (after <= before) return
     const history = [...(contact.proactiveTopicHistory ?? []), topic].slice(-12)
-    await db.contacts.update(contact.id, { lastProactiveMessageAt: now, proactiveTopicHistory: history })
+    await api.contacts.patch(contact.id, { lastProactiveMessageAt: now, proactiveTopicHistory: history })
+    invalidate('contacts')
     recordSent()
   } catch (error) {
     console.warn('[proactive] 主动聊天跳过:', error)

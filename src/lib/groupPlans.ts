@@ -1,5 +1,7 @@
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { getOrUndef } from './api/client'
+import { invalidate } from './api/keys'
 import { recordSocialEvent } from './socialEvents'
 import { chatCompletionText as chatCompletion } from './deepseek'
 import type { AppSettings, Group, GroupPlan, GroupPlanStatus, Message } from '../types'
@@ -18,17 +20,16 @@ export async function createGroupPlan(opts: {
 }): Promise<GroupPlan | null> {
   const participants = Array.from(new Set(opts.participantContactIds.filter((id) => opts.group.memberContactIds.includes(id))))
   if (!opts.title.trim() || participants.length < 2) return null
-  const duplicate = await db.groupPlans
-    .where('groupId').equals(opts.group.id)
-    .filter((plan) => plan.status !== 'cancelled' && plan.status !== 'completed' && plan.title.trim() === opts.title.trim())
-    .first()
+  const duplicate = (await api.groupPlans.list({ groupId: opts.group.id }))
+    .filter((plan) => plan.status !== 'cancelled' && plan.status !== 'completed' && plan.title.trim() === opts.title.trim())[0]
   if (duplicate) return duplicate
   const plan: GroupPlan = {
     id: uuid(), groupId: opts.group.id, sourceConversationId: opts.conversationId, sourceMessageId: opts.sourceMessageId,
     title: opts.title.trim().slice(0, 80), summary: opts.summary.trim().slice(0, 180), scheduledAt: opts.scheduledAt,
     location: opts.location?.trim().slice(0, 80), participantContactIds: participants, status: 'pending', createdAt: Date.now(),
   }
-  await db.groupPlans.add(plan)
+  await api.groupPlans.put(plan)
+  invalidate('groupPlans')
   await recordSocialEvent({ type: 'group_plan_created', actorId: 'user', relatedContactIds: participants, groupId: plan.groupId, conversationId: plan.sourceConversationId, messageId: plan.sourceMessageId, summary: `群聊“${opts.group.name}”形成待确认计划：${plan.title}`, importance: 2 })
   return plan
 }
@@ -36,7 +37,8 @@ export async function createGroupPlan(opts: {
 export async function setGroupPlanStatus(plan: GroupPlan, group: Group, status: GroupPlanStatus, settings?: AppSettings): Promise<GroupPlan> {
   const resolvedAt = status === 'completed' || status === 'cancelled' ? Date.now() : undefined
   const next = { ...plan, status, resolvedAt }
-  await db.groupPlans.update(plan.id, { status, resolvedAt })
+  await api.groupPlans.patch(plan.id, { status, resolvedAt })
+  invalidate('groupPlans')
   const labels: Record<GroupPlanStatus, string> = { pending: '待确认', confirmed: '已确认', completed: '已成行', cancelled: '已取消' }
   const eventType = status === 'confirmed' ? 'group_plan_confirmed' : status === 'completed' ? 'group_plan_completed' : status === 'cancelled' ? 'group_plan_cancelled' : 'group_plan_created'
   await recordSocialEvent({ type: eventType, actorId: 'user', relatedContactIds: plan.participantContactIds, groupId: group.id, conversationId: plan.sourceConversationId, summary: `群聊“${group.name}”的计划“${plan.title}”${labels[status]}`, importance: status === 'completed' ? 3 : 2 })
@@ -50,7 +52,7 @@ export async function setGroupPlanStatus(plan: GroupPlan, group: Group, status: 
 async function generatePlanAftermath(plan: GroupPlan, group: Group, settings: AppSettings): Promise<void> {
   try {
     if (!promptModuleEnabled(settings, 'moments')) return
-    const contacts = (await db.contacts.bulkGet(plan.participantContactIds)).filter((contact): contact is NonNullable<typeof contact> => !!contact)
+    const contacts = (await Promise.all(plan.participantContactIds.map((id) => getOrUndef(api.contacts.get(id))))).filter((contact): contact is NonNullable<typeof contact> => !!contact)
     const editable = getPromptTemplate(settings, 'moments', 'planAftermath', {
       planContext: `${plan.title}；${plan.summary}`,
       participants: JSON.stringify(contacts.map((contact) => ({ id: contact.id, name: contact.name, persona: contact.systemPrompt }))),
@@ -61,7 +63,8 @@ async function generatePlanAftermath(plan: GroupPlan, group: Group, settings: Ap
     })
     const parsed = JSON.parse(raw) as { groupMessage?: unknown; moments?: Array<{ contactId?: unknown; content?: unknown }> }
     if (typeof parsed.groupMessage === 'string' && parsed.groupMessage.trim()) {
-      await db.messages.add({ id: uuid(), conversationId: plan.sourceConversationId, role: 'assistant', type: 'text', content: parsed.groupMessage.trim().slice(0, 240), speakerContactId: plan.participantContactIds[0], createdAt: Date.now() })
+      await api.messages.put({ id: uuid(), conversationId: plan.sourceConversationId, role: 'assistant', type: 'text', content: parsed.groupMessage.trim().slice(0, 240), speakerContactId: plan.participantContactIds[0], createdAt: Date.now() })
+      invalidate('messages')
     }
     for (const moment of (parsed.moments ?? []).slice(0, 2)) {
       const contactId = typeof moment.contactId === 'string' ? moment.contactId : ''
@@ -69,7 +72,8 @@ async function generatePlanAftermath(plan: GroupPlan, group: Group, settings: Ap
       if (!plan.participantContactIds.includes(contactId) || !content) continue
       if (!await canPublishNovelMoment(contactId, content)) continue
       const momentId = uuid()
-      await db.moments.add({ id: momentId, contactId, content, createdAt: Date.now() })
+      await api.moments.put({ id: momentId, contactId, content, createdAt: Date.now() })
+      invalidate('moments')
       await recordSocialEvent({ type: 'moment_posted', actorId: contactId, relatedContactIds: plan.participantContactIds, groupId: group.id, conversationId: plan.sourceConversationId, momentId, summary: `${contacts.find((contact) => contact.id === contactId)?.name || '成员'}分享了“${plan.title}”后的动态`, importance: 2 })
     }
   } catch {

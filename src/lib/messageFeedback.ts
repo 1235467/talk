@@ -1,4 +1,6 @@
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { getOrUndef } from './api/client'
+import { invalidate } from './api/keys'
 import { recordSocialEvent } from './socialEvents'
 import type { Contact, Message } from '../types'
 
@@ -41,12 +43,13 @@ export async function applyMessageFeedback(opts: {
   conversationId: string
 }): Promise<void> {
   const line = feedbackLine(opts.kind, opts.message)
-  const fresh = await db.contacts.get(opts.contact.id)
+  const fresh = await getOrUndef(api.contacts.get(opts.contact.id))
   if (!fresh) return
-  await db.contacts.update(opts.contact.id, {
+  await api.contacts.patch(opts.contact.id, {
     memoryStyle: appendMemoryStyle(fresh.memoryStyle || '', line),
     memoryUpdatedAt: Date.now(),
   })
+  invalidate('contacts')
   await recordSocialEvent({
     type: 'message_feedback',
     actorId: 'user',

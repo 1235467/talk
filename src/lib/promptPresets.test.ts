@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import '../store/useSettingsStore'
 import { createDefaultPromptModules } from './promptModules'
 import { clonePromptModules, normalizePromptPresets, SYSTEM_DEFAULT_PROMPT_PRESET_ID } from './promptPresets'
 

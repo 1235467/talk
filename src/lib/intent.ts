@@ -1,4 +1,6 @@
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { getOrUndef } from './api/client'
+import { invalidate } from './api/keys'
 import type { Contact, IntentItem, IntentKind } from '../types'
 
 export const INTENT_CONFIDENCE_THRESHOLD = 70
@@ -59,18 +61,20 @@ export function parseIntentsField(raw: unknown): ParsedIntent[] {
 
 export async function markIntentsUsed(contactId: string, intentIds: string[]): Promise<void> {
   if (intentIds.length === 0) return
-  const contact = await db.contacts.get(contactId)
+  const contact = await getOrUndef(api.contacts.get(contactId))
   if (!contact?.intentQueue?.length) return
   const ids = new Set(intentIds)
-  await db.contacts.update(contactId, {
+  await api.contacts.patch(contactId, {
     intentQueue: contact.intentQueue.map((intent) =>
       ids.has(intent.id) && intent.status === 'active'
         ? { ...intent, status: 'used' as const }
         : intent,
     ),
   })
+  invalidate('contacts')
 }
 
 export async function clearIntentQueue(contactId: string): Promise<void> {
-  await db.contacts.update(contactId, { intentQueue: [] })
+  await api.contacts.patch(contactId, { intentQueue: [] })
+  invalidate('contacts')
 }

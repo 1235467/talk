@@ -290,7 +290,8 @@ export function shouldUpdateBase(dynamic: string, warmth: number): string | null
 
 // ---- cold-start warmth evaluation ----
 
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { invalidate } from './api/keys'
 import { chatCompletionText as chatCompletion } from './deepseek'
 import type { AppSettings, Contact } from '../types'
 import { featureActive, getPromptTemplate } from './promptModules'
@@ -310,21 +311,20 @@ export async function evaluateInitialWarmth(
   // Personality trait with initial warmth takes priority over API evaluation.
   if (featureActive(settings, 'personalityTraits') && contact.personalityTrait && contact.personalityTrait !== '无') {
     const initial = initialWarmthForBase(contact.relationshipBase || '朋友', contact.personalityTrait)
-    await db.contacts.update(contact.id, { warmth: initial })
+    await api.contacts.patch(contact.id, { warmth: initial })
+    invalidate('contacts')
     return initial
   }
 
   // Otherwise, evaluate from chat history using the utility model.
   try {
-    const history = await db.messages
-      .where('conversationId')
-      .equals(conversationId)
-      .sortBy('createdAt')
+    const history = (await api.messages.list({ conversationId })).sort((a, b) => a.createdAt - b.createdAt)
     const recent = history.slice(-20)
     if (recent.length === 0) {
       // No chat history at all — start neutral.
       const fallback = 0
-      await db.contacts.update(contact.id, { warmth: fallback })
+      await api.contacts.patch(contact.id, { warmth: fallback })
+      invalidate('contacts')
       return fallback
     }
 
@@ -354,13 +354,15 @@ export async function evaluateInitialWarmth(
 
     const parsed = parseInt(raw.trim(), 10)
     const warmth = Number.isFinite(parsed) ? Math.max(-100, Math.min(100, parsed)) : 0
-    await db.contacts.update(contact.id, { warmth })
+    await api.contacts.patch(contact.id, { warmth })
+    invalidate('contacts')
     console.log(`[warmth] 冷启动评估 ${contact.name}: ${warmth}`)
     return warmth
   } catch {
     // Best-effort — fall back to neutral if the API call fails.
     const fallback = 0
-    await db.contacts.update(contact.id, { warmth: fallback })
+    await api.contacts.patch(contact.id, { warmth: fallback })
+    invalidate('contacts')
     return fallback
   }
 }

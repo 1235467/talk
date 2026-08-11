@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { invalidate } from './api/keys'
 import type { LibraryItem, WorldbookCollection, WorldbookEntry } from '../types'
 
 function normalize(value: string) {
@@ -74,7 +75,8 @@ export async function storeWorldbookInLibrary(collection: WorldbookCollection, e
     sourceFileName: collection.sourceFileName, rawData: entry.rawData,
     createdAt: now, updatedAt: now,
   }))
-  await db.libraryItems.bulkAdd(rows)
+  await api.libraryItems.bulkPut(rows)
+  invalidate('libraryItems')
   return rows
 }
 
@@ -95,6 +97,7 @@ export async function storeCharacterCardInLibrary(card: {
     keywords: [...entry.keywords], sourceLabel: '角色卡内嵌世界书', sourceFileName: card.sourceFileName,
     rawData: entry.rawData, createdAt: now, updatedAt: now,
   })
-  await db.libraryItems.bulkAdd(rows)
+  await api.libraryItems.bulkPut(rows)
+  invalidate('libraryItems')
   return rows
 }

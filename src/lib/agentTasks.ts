@@ -1,5 +1,7 @@
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { getOrUndef } from './api/client'
+import { invalidate } from './api/keys'
 import type { ScheduleOverride } from '../types'
 import { defaultTasksOverlappingRange, pruneExpiredOverrides, specialTaskRange } from './schedule'
 import { isLeafLocation, syncContactLocationAt } from './locations'
@@ -21,9 +23,9 @@ export type CreateSpecialTaskResult =
 
 export async function createSpecialTask(contactId: string, input: CreateSpecialTaskInput, now = Date.now()): Promise<CreateSpecialTaskResult> {
   const [contact, location, locations] = await Promise.all([
-    db.contacts.get(contactId),
-    db.locations.get(input.locationId),
-    db.locations.toArray(),
+    getOrUndef(api.contacts.get(contactId)),
+    getOrUndef(api.locations.get(input.locationId)),
+    api.locations.list(),
   ])
   if (!contact) return { success: false, code: 'CONTACT_NOT_FOUND', message: '联系人不存在' }
   if (!location || !isLeafLocation(location.id, locations)) return { success: false, code: 'INVALID_LOCATION', message: '目标必须是一个已存在的具体地点' }
@@ -58,8 +60,8 @@ export async function createSpecialTask(contactId: string, input: CreateSpecialT
   }
 
   let replacedSpecialTasks: ScheduleOverride[] = []
-  await db.transaction('rw', db.contacts, async () => {
-    const fresh = await db.contacts.get(contactId)
+  {
+    const fresh = await getOrUndef(api.contacts.get(contactId))
     if (!fresh) throw new Error('联系人不存在')
     const existing = pruneExpiredOverrides(fresh.scheduleOverrides ?? [], new Date(now))
     const nextRange = specialTaskRange(task)
@@ -69,8 +71,9 @@ export async function createSpecialTask(contactId: string, input: CreateSpecialT
       return !(range.startsAt < nextRange.endsAt && nextRange.startsAt < range.endsAt)
     })
     replacedSpecialTasks = existing.filter((item) => !kept.includes(item))
-    await db.contacts.update(contactId, { scheduleOverrides: [...kept, task] })
-  })
+    await api.contacts.patch(contactId, { scheduleOverrides: [...kept, task] })
+    invalidate('contacts')
+  }
 
   if (input.startsAt <= now && now < input.endsAt) await syncContactLocationAt(contactId, new Date(now))
   return { success: true, task, cancelledDefaultTasks: cancelledDefaults.map((item) => ({ id: item.id, activity: item.activity })), replacedSpecialTasks }

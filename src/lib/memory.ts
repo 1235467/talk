@@ -1,5 +1,7 @@
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { getOrUndef } from './api/client'
+import { invalidate } from './api/keys'
 import { parseJsonLoose } from './aiProtocol'
 import { chatCompletionText as chatCompletion } from './deepseek'
 import { clampWarmthDelta, applyWarmthDelta, maxWarmthForTrait, minWarmthForTrait, warmthStage, shouldUpdateBase, containsBreakupLanguage, WARMTH_BREAKUP_PENALTY, traitWarmthModifier, customTraitWarmthModifier } from './relationship'
@@ -302,10 +304,7 @@ async function mergeMemoryItems(
   const stats: MergeMemoryStats = { added: 0, updated: 0, skipped: 0 }
   if (newItems.length === 0) return stats
 
-  const existing = await db.contactMemories
-    .where('contactId')
-    .equals(contactId)
-    .toArray()
+  const existing = await api.contactMemories.list({ contactId })
 
   // Index existing by kind for fast lookup.
   const byKind = new Map<string, (typeof existing)>([])
@@ -397,11 +396,12 @@ async function mergeMemoryItems(
   }
 
   if (toUpdate.length > 0) {
-    await db.contactMemories.bulkPut(toUpdate)
+    await api.contactMemories.bulkPut(toUpdate)
   }
   if (toAdd.length > 0) {
-    await db.contactMemories.bulkAdd(toAdd)
+    await api.contactMemories.bulkPut(toAdd)
   }
+  if (toUpdate.length > 0 || toAdd.length > 0) invalidate('contactMemories')
 
   return stats
 }
@@ -455,10 +455,10 @@ export async function maybeUpdateMemory(
   settings: AppSettings,
 ): Promise<MemoryUpdateDebug | null> {
   try {
-    const contact = await db.contacts.get(contactId)
+    const contact = await getOrUndef(api.contacts.get(contactId))
     if (!contact) return null
 
-    const allMessages = await db.messages.where('conversationId').equals(conversationId).sortBy('createdAt')
+    const allMessages = (await api.messages.list({ conversationId })).sort((a, b) => a.createdAt - b.createdAt)
     const cursor = contact.memoryMessageCursor ?? 0
     const newMessages = allMessages.slice(cursor)
     if (newMessages.length < MEMORY_UPDATE_INTERVAL) return null
@@ -553,7 +553,7 @@ export async function maybeUpdateMemory(
       }))
     const allAddedPlans = [...addedPlans, ...promisePlans]
 
-    await db.contacts.update(contact.id, {
+    await api.contacts.patch(contact.id, {
       memoryMessageCursor: allMessages.length,
       ...(memoryPromptEnabled ? {
         memoryFacts: factsUpdated ? updated.facts : contact.memoryFacts,
@@ -568,6 +568,7 @@ export async function maybeUpdateMemory(
         ? { warmth: newWarmth, relationshipDynamic: dynamic, relationshipBase: base }
         : {}),
     })
+    invalidate('contacts')
     return {
       applied: true,
       factsUpdated,
@@ -599,10 +600,7 @@ export async function recentMemoriesTextByScope(
 ): Promise<string> {
   try {
     const now = Date.now()
-    let items = await db.contactMemories
-      .where('contactId')
-      .equals(contactId)
-      .toArray()
+    let items = await api.contactMemories.list({ contactId })
     const include = opts.includeScopes ? new Set(opts.includeScopes) : null
     const exclude = opts.excludeScopes ? new Set(opts.excludeScopes) : null
     items = items.filter((item) => {
@@ -625,14 +623,11 @@ export async function recentMemoriesTextByScope(
     const top = scored.slice(0, limit).map((s) => s.item)
 
     // Update lastUsedAt and usageCount for the retrieved items (fire-and-forget).
-    const ids = top.map((item) => item.id)
-    db.contactMemories
-      .where('id')
-      .anyOf(ids)
-      .modify((item) => {
-        item.lastUsedAt = now
-        item.usageCount = (item.usageCount ?? 0) + 1
-      })
+    Promise.all(top.map((item) => api.contactMemories.patch(item.id, {
+      lastUsedAt: now,
+      usageCount: (item.usageCount ?? 0) + 1,
+    })))
+      .then(() => invalidate('contactMemories'))
       .catch(() => {
         // best-effort — don't block the chat turn on usage tracking
       })
@@ -685,12 +680,11 @@ export async function nonGroupScopedMemoriesText(contactId: string, limit = 12):
 
 export async function contactRelationMemoryText(contactId: string): Promise<string> {
   try {
-    const links = await db.contactRelations
+    const links = (await api.contactRelations.list())
       .filter((link) => link.fromContactId === contactId || link.toContactId === contactId)
-      .toArray()
     if (links.length === 0) return ''
     const otherIds = Array.from(new Set(links.map((link) => (link.fromContactId === contactId ? link.toContactId : link.fromContactId))))
-    const contacts = await db.contacts.bulkGet(otherIds)
+    const contacts = await Promise.all(otherIds.map((id) => getOrUndef(api.contacts.get(id))))
     const contactById = new Map(contacts.filter((c): c is Contact => !!c).map((c) => [c.id, c]))
     const lines = uniqueRelationPairs(links)
       .map((link) => {
@@ -718,8 +712,8 @@ export async function rememberInitialContactRelation(opts: {
 }): Promise<void> {
   const now = opts.now ?? Date.now()
   const [from, to] = await Promise.all([
-    db.contacts.get(opts.fromContactId),
-    db.contacts.get(opts.toContactId),
+    getOrUndef(api.contacts.get(opts.fromContactId)),
+    getOrUndef(api.contacts.get(opts.toContactId)),
   ])
   if (!from || !to) return
   const makeItem = (contactId: string, other: Contact): ContactMemory => ({
@@ -739,21 +733,25 @@ export async function rememberInitialContactRelation(opts: {
     updatedAt: now,
     usageCount: 0,
   })
-  await db.contactMemories.bulkAdd([
+  await api.contactMemories.bulkPut([
     makeItem(opts.fromContactId, to),
     makeItem(opts.toContactId, from),
   ])
+  invalidate('contactMemories')
 }
 
 export async function resetMemory(contactId: string): Promise<void> {
-  await db.contacts.update(contactId, {
+  await api.contacts.patch(contactId, {
     memoryFacts: '',
     memoryStyle: '',
     memoryUpdatedAt: 0,
     memoryMessageCursor: 0,
     upcomingPlans: [],
   })
-  await db.contactMemories.where('contactId').equals(contactId).delete()
+  invalidate('contacts')
+  const memories = await api.contactMemories.list({ contactId })
+  if (memories.length > 0) await api.contactMemories.bulkDelete(memories.map((item) => item.id))
+  invalidate('contactMemories')
 }
 
 // ---- group chat memory ----
@@ -865,10 +863,10 @@ export async function maybeUpdateGroupMemory(
 ): Promise<void> {
   try {
     if (!promptModuleEnabled(settings, 'memory')) return
-    const group = await db.groups.get(groupId)
+    const group = await getOrUndef(api.groups.get(groupId))
     if (!group) return
 
-    const allMessages = await db.messages.where('conversationId').equals(conversationId).sortBy('createdAt')
+    const allMessages = (await api.messages.list({ conversationId })).sort((a, b) => a.createdAt - b.createdAt)
     const cursor = group.memoryMessageCursor ?? 0
     const newMessages = allMessages.slice(cursor)
     if (newMessages.length < MEMORY_UPDATE_INTERVAL) return
@@ -896,7 +894,8 @@ export async function maybeUpdateGroupMemory(
     const targets = members
 
     if (targets.length === 0) {
-      await db.groups.update(groupId, { memoryMessageCursor: allMessages.length })
+      await api.groups.patch(groupId, { memoryMessageCursor: allMessages.length })
+      invalidate('groups')
       return
     }
 
@@ -925,7 +924,8 @@ export async function maybeUpdateGroupMemory(
 
     const updates = parseGroupMemoryResponse(raw, targets.length)
     if (!updates) {
-      await db.groups.update(groupId, { memoryMessageCursor: allMessages.length })
+      await api.groups.patch(groupId, { memoryMessageCursor: allMessages.length })
+      invalidate('groups')
       return
     }
 
@@ -964,11 +964,13 @@ export async function maybeUpdateGroupMemory(
         memoryUpdatedAt: now,
         upcomingPlans: mergePlans(contact.upcomingPlans ?? [], [...update.plans, ...promisePlans], now),
       }
-      await db.contacts.update(contact.id, directParticipantIds.has(contact.id)
+      await api.contacts.patch(contact.id, directParticipantIds.has(contact.id)
         ? { ...sharedPatch, memoryFacts: update.facts, memoryStyle: update.style }
         : sharedPatch)
+      invalidate('contacts')
     }
-    await db.groups.update(groupId, { memoryMessageCursor: allMessages.length })
+    await api.groups.patch(groupId, { memoryMessageCursor: allMessages.length })
+    invalidate('groups')
   } catch {
     // best-effort only
   }

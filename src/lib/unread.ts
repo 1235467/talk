@@ -1,7 +1,6 @@
-import { useEffect } from 'react'
-import { liveQuery } from 'dexie'
-import { create } from 'zustand'
-import { db } from '../db/db'
+import { useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { api } from './api/resources'
 import type { Message } from '../types'
 import { isAiTestId } from './aiTestIsolation'
 
@@ -20,24 +19,21 @@ interface UnreadCounts {
 const EMPTY_COUNTS: UnreadCounts = { byConversation: new Map(), lastMessageByConversation: new Map(), total: 0 }
 
 /**
- * Shared unread counts computed by a single Dexie liveQuery subscription — previously every consumer
+ * Shared unread counts computed from two react-query subscriptions — previously every consumer
  * (BottomNav + MessagesPage + SearchOverlay) ran its own `db.messages.toArray()` full-table scan on
- * each message change. Now the scan + grouping happens once and all consumers read from this store.
+ * each Dexie change. Now the scan + grouping happens once per query invalidation and all consumers
+ * read the same cached query data (query keys match the table names used by invalidate()).
  */
-const useUnreadStore = create<UnreadCounts>(() => EMPTY_COUNTS)
-
-let subscribed = false
-function startUnreadTracking() {
-  if (subscribed) return
-  subscribed = true
-  liveQuery(async () => {
-    const [conversations, messages] = await Promise.all([
-      db.conversations.toArray().then((items) => items.filter((item) => !isAiTestId(item.id))),
-      db.messages.toArray().then((items) => items.filter((item) => !isAiTestId(item.conversationId))),
-    ])
+function useUnreadCounts(): UnreadCounts {
+  const { data: conversations } = useQuery({ queryKey: ['conversations'], queryFn: () => api.conversations.list() })
+  const { data: messages } = useQuery({ queryKey: ['messages'], queryFn: () => api.messages.list() })
+  return useMemo(() => {
+    if (!conversations || !messages) return EMPTY_COUNTS
+    const visibleConversations = conversations.filter((item) => !isAiTestId(item.id))
+    const visibleMessages = messages.filter((item) => !isAiTestId(item.conversationId))
     const messagesByConv = new Map<string, Message[]>()
     const lastMessageByConversation = new Map<string, Message>()
-    for (const m of messages) {
+    for (const m of visibleMessages) {
       const arr = messagesByConv.get(m.conversationId)
       if (arr) arr.push(m)
       else messagesByConv.set(m.conversationId, [m])
@@ -46,29 +42,26 @@ function startUnreadTracking() {
     }
     const byConversation = new Map<string, number>()
     let total = 0
-    for (const c of conversations) {
+    for (const c of visibleConversations) {
       const n = unreadCountFor(c.lastReadAt, messagesByConv.get(c.id) ?? [])
       byConversation.set(c.id, n)
       total += n
     }
     return { byConversation, lastMessageByConversation, total }
-  }).subscribe((value) => useUnreadStore.setState(value))
+  }, [conversations, messages])
 }
 
-/** Total unread across all conversations. Backed by the shared single-scan subscription. */
+/** Total unread across all conversations. Backed by the shared query cache. */
 export function useTotalUnread(): number {
-  useEffect(startUnreadTracking, [])
-  return useUnreadStore((s) => s.total)
+  return useUnreadCounts().total
 }
 
-/** Per-conversation unread counts from the same singleton message-table subscription. */
+/** Per-conversation unread counts from the same shared queries. */
 export function useUnreadByConversation(): Map<string, number> {
-  useEffect(startUnreadTracking, [])
-  return useUnreadStore((s) => s.byConversation)
+  return useUnreadCounts().byConversation
 }
 
 /** Latest message for each conversation, computed during the same scan as unread counts. */
 export function useLastMessageByConversation(): Map<string, Message> {
-  useEffect(startUnreadTracking, [])
-  return useUnreadStore((s) => s.lastMessageByConversation)
+  return useUnreadCounts().lastMessageByConversation
 }

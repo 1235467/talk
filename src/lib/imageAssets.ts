@@ -1,5 +1,7 @@
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { getOrUndef, hasAiAccess } from './api/client'
+import { invalidate } from './api/keys'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { useChatUiStore } from '../store/useChatUiStore'
 import type { AiImageKind, AppSettings, Contact, MediaAsset } from '../types'
@@ -7,7 +9,6 @@ import { chatCompletionText } from './deepseek'
 import { traceTurnEvent } from './deepseek'
 import { appFetch } from './appFetch'
 import { generateRemoteImage } from './remoteMedia'
-import { hasAiAccess } from './api/client'
 
 const active = new Set<string>()
 const identityWork = new Map<string, Promise<string>>()
@@ -67,7 +68,8 @@ export async function ensureContactVisualIdentity(contact: Contact, settings: Ap
   }
   const visualIdentity = contact.visualIdentity?.trim() || await work
   const visualSeed = typeof contact.visualSeed === 'number' ? contact.visualSeed : Math.floor(Math.random() * 2_147_483_647)
-  await db.contacts.update(contact.id, { visualIdentity, visualSeed })
+  await api.contacts.patch(contact.id, { visualIdentity, visualSeed })
+  invalidate('contacts')
   identityWork.delete(key)
   return { ...contact, visualIdentity, visualSeed }
 }
@@ -163,7 +165,8 @@ export async function createMediaAsset(input: CreateMediaAssetInput): Promise<Me
     size: input.size || (input.settings.imageProvider === 'atlas' ? input.settings.imageProviders.atlas.size : undefined),
     attempt: 0, createdAt: now, updatedAt: now,
   }
-  await db.mediaAssets.add(asset)
+  await api.mediaAssets.put(asset)
+  invalidate('mediaAssets')
   return asset
 }
 
@@ -191,29 +194,30 @@ async function persistResult(url: string): Promise<Pick<MediaAsset, 'dataUrl' | 
 
 async function notifyChatImageCompleted(asset: MediaAsset): Promise<void> {
   if (asset.origin !== 'chat' || !asset.conversationId || useChatUiStore.getState().activeConversationId === asset.conversationId) return
-  const conversation = await db.conversations.get(asset.conversationId)
+  const conversation = await getOrUndef(api.conversations.get(asset.conversationId))
   if (!conversation) return
   if (conversation.groupId) {
-    const group = await db.groups.get(conversation.groupId)
+    const group = await getOrUndef(api.groups.get(conversation.groupId))
     if (!group) return
     useChatUiStore.getState().showNotification({ id: uuid(), conversationId: conversation.id, contactName: group.name, contactAvatar: group.avatar, contactAvatarColor: group.avatarColor, preview: '图片已生成' })
     return
   }
-  const message = await db.messages.get(asset.originId)
-  const contact = await db.contacts.get(message?.speakerContactId || conversation.contactId || asset.ownerContactIds[0])
+  const message = await getOrUndef(api.messages.get(asset.originId))
+  const contactId = message?.speakerContactId || conversation.contactId || asset.ownerContactIds[0]
+  const contact = contactId ? await getOrUndef(api.contacts.get(contactId)) : undefined
   if (!contact) return
   useChatUiStore.getState().showNotification({ id: uuid(), conversationId: conversation.id, contactName: contact.remark || contact.nickname || contact.name, contactAvatar: contact.avatar, contactAvatarColor: contact.avatarColor, preview: '图片已生成' })
 }
 
 async function runAsset(assetId: string): Promise<void> {
-  const asset = await db.mediaAssets.get(assetId)
+  const asset = await getOrUndef(api.mediaAssets.get(assetId))
   if (!asset || asset.status === 'completed') return
   const startedAt = Date.now()
   const settings = useSettingsStore.getState()
   let prompt = asset.prompt
   let seed = asset.seed
   if (asset.attempt === 0) {
-    const contacts = (await Promise.all(asset.ownerContactIds.map((id) => db.contacts.get(id)))).filter((value): value is Contact => !!value)
+    const contacts = (await Promise.all(asset.ownerContactIds.map((id) => getOrUndef(api.contacts.get(id))))).filter((value): value is Contact => !!value)
     const stableContacts = await Promise.all(contacts.map((contact) => ensureContactVisualIdentity(contact, settings)))
     const user = asset.includeUser ? await ensureUserVisualIdentity(settings) : undefined
     prompt = composeImagePrompt({ scene: asset.scene, kind: asset.kind, contacts: stableContacts, includeUser: !!asset.includeUser, settings, userIdentity: user?.visualIdentity, provider: asset.provider, stylePrompt: asset.stylePrompt })
@@ -221,7 +225,8 @@ async function runAsset(assetId: string): Promise<void> {
     const identitySeeds = [...stableContacts.map((contact) => contact.visualSeed!), ...(user ? [user.visualSeed] : [])]
     seed = identitySeeds.length ? combinedSeed(identitySeeds) : Math.floor(Math.random() * 2_147_483_647)
   }
-  await db.mediaAssets.update(assetId, { status: asset.predictionId ? 'polling' : 'submitting', phase: asset.predictionId ? 'polling' : 'submitting', prompt, seed, attempt: asset.attempt + 1, updatedAt: Date.now(), error: undefined })
+  await api.mediaAssets.patch(assetId, { status: asset.predictionId ? 'polling' : 'submitting', phase: asset.predictionId ? 'polling' : 'submitting', prompt, seed, attempt: asset.attempt + 1, updatedAt: Date.now(), error: undefined })
+  invalidate('mediaAssets')
   const imageProviders = structuredClone(settings.imageProviders)
   if (asset.provider === 'atlas') {
     if (asset.modelId) imageProviders.atlas.model = asset.modelId
@@ -231,12 +236,13 @@ async function runAsset(assetId: string): Promise<void> {
   const result = await generateRemoteImage({ imageProvider: asset.provider, imageProviders }, prompt, {
     predictionId: asset.predictionId,
     seed,
-    onPredictionId: (predictionId) => db.mediaAssets.update(assetId, { predictionId, status: 'polling', phase: 'polling', updatedAt: Date.now() }).then(() => undefined),
-    onProgress: (progress) => { void db.mediaAssets.update(assetId, { status: progress.stage === 'queued' ? 'polling' : progress.stage === 'submitting' ? 'submitting' : 'generating', phase: progress.stage === 'queued' ? 'polling' : progress.stage === 'submitting' ? 'submitting' : 'generating', updatedAt: Date.now() }) },
+    onPredictionId: (predictionId) => api.mediaAssets.patch(assetId, { predictionId, status: 'polling', phase: 'polling', updatedAt: Date.now() }).then(() => invalidate('mediaAssets')),
+    onProgress: (progress) => { void api.mediaAssets.patch(assetId, { status: progress.stage === 'queued' ? 'polling' : progress.stage === 'submitting' ? 'submitting' : 'generating', phase: progress.stage === 'queued' ? 'polling' : progress.stage === 'submitting' ? 'submitting' : 'generating', updatedAt: Date.now() }).then(() => invalidate('mediaAssets')) },
   })
   if (!result) throw new Error('生图服务没有返回图片')
   const persisted = await persistResult(result.url)
-  await db.mediaAssets.update(assetId, { ...persisted, status: 'completed', phase: 'completed', completedAt: Date.now(), updatedAt: Date.now(), error: undefined })
+  await api.mediaAssets.patch(assetId, { ...persisted, status: 'completed', phase: 'completed', completedAt: Date.now(), updatedAt: Date.now(), error: undefined })
+  invalidate('mediaAssets')
   void traceTurnEvent({ turnId: asset.turnId, conversationId: asset.conversationId, stage: 'image_generation', input: prompt, output: `生成完成：assetId=${assetId}\n${persisted.dataUrl ? '[本地图片已保存]' : persisted.remoteUrl ?? '无图片地址'}`, durationMs: Date.now() - startedAt, diagnostics: { assetId, provider: asset.provider, remoteUrl: persisted.remoteUrl } })
   await notifyChatImageCompleted(asset)
 }
@@ -245,22 +251,26 @@ export function startMediaAsset(assetId: string): void {
   if (active.has(assetId)) return
   active.add(assetId)
   void runAsset(assetId)
-    .catch((error) => db.mediaAssets.update(assetId, { status: 'failed', phase: 'failed', error: error instanceof Error ? error.message : String(error), updatedAt: Date.now() }))
+    .catch((error) => api.mediaAssets.patch(assetId, { status: 'failed', phase: 'failed', error: error instanceof Error ? error.message : String(error), updatedAt: Date.now() }).then(() => invalidate('mediaAssets')))
     .finally(() => active.delete(assetId))
 }
 
 export async function retryMediaAsset(assetId: string): Promise<void> {
-  const asset = await db.mediaAssets.get(assetId)
+  const asset = await getOrUndef(api.mediaAssets.get(assetId))
   if (!asset) return
   const terminal = /生图失败|标记任务完成|没有返回图片/i.test(asset.error || '')
-  await db.mediaAssets.update(assetId, { status: 'queued', phase: 'queued', error: undefined, ...(terminal ? { predictionId: undefined } : {}), updatedAt: Date.now() })
+  await api.mediaAssets.patch(assetId, { status: 'queued', phase: 'queued', error: undefined, ...(terminal ? { predictionId: undefined } : {}), updatedAt: Date.now() })
+  invalidate('mediaAssets')
   startMediaAsset(assetId)
 }
 
 export async function resumeMediaAssets(): Promise<void> {
-  const pending = await db.mediaAssets.where('status').anyOf('queued', 'submitting', 'polling', 'generating').toArray()
+  const pending = (await api.mediaAssets.list()).filter((asset) => ['queued', 'submitting', 'polling', 'generating'].includes(asset.status))
   for (const asset of pending) {
     if (asset.provider === 'atlas' || asset.status === 'queued') startMediaAsset(asset.id)
-    else await db.mediaAssets.update(asset.id, { status: 'failed', phase: 'failed', error: '应用关闭时任务尚未完成，请手动重试', updatedAt: Date.now() })
+    else {
+      await api.mediaAssets.patch(asset.id, { status: 'failed', phase: 'failed', error: '应用关闭时任务尚未完成，请手动重试', updatedAt: Date.now() })
+      invalidate('mediaAssets')
+    }
   }
 }

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { db } from '../db/db'
+import { resetFakeServer } from '../test/setup'
+import { api } from './api/resources'
 import { useSettingsStore } from '../store/useSettingsStore'
 import type { AppSettings, Contact } from '../types'
 import { composeImagePrompt, createMediaAsset } from './imageAssets'
@@ -27,8 +28,7 @@ function settings(style: AppSettings['imageProviders']['atlas']['visualStyle'] =
 }
 
 beforeEach(async () => {
-  await db.open()
-  await db.mediaAssets.clear()
+  resetFakeServer()
 })
 
 describe('persistent image assets and prompt orchestration', () => {
@@ -65,7 +65,7 @@ describe('persistent image assets and prompt orchestration', () => {
     const configured = settings()
     configured.imageProviders.atlas.apiKey = 'secret-key-that-must-not-be-stored'
     const asset = await createMediaAsset({ origin: 'chat', originId: 'message-1', conversationId: 'conversation-1', ownerContactIds: ['a'], scene: 'a quiet cafe', settings: configured })
-    const stored = await db.mediaAssets.get(asset.id)
+    const stored = await api.mediaAssets.get(asset.id)
     expect(stored?.status).toBe('queued')
     expect(JSON.stringify(stored)).not.toContain('secret-key-that-must-not-be-stored')
   })

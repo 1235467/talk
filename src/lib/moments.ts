@@ -1,5 +1,7 @@
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { getOrUndef } from './api/client'
+import { invalidate, invalidateAll } from './api/keys'
 import { isAiTestId } from './aiTestIsolation'
 import { parseJsonLoose } from './aiProtocol'
 import { chatCompletionText as chatCompletion } from './deepseek'
@@ -105,7 +107,7 @@ export function momentNoveltyIssue(content: string, history: Pick<Moment, 'conte
 }
 
 async function recentMomentsFor(contactId: string, now = Date.now()): Promise<Moment[]> {
-  const rows = await db.moments.where('contactId').equals(contactId).toArray()
+  const rows = await api.moments.list({ contactId })
   return rows.filter((item) => item.createdAt >= now - MOMENT_HISTORY_WINDOW_MS).sort((a, b) => b.createdAt - a.createdAt).slice(0, MOMENT_HISTORY_LIMIT)
 }
 
@@ -140,12 +142,8 @@ interface ReactorPlan {
 
 /** For one posting contact, decides (via the relationship graph + dice rolls, not the LLM) which of their linked friends react, and whether each reaction includes a comment. */
 async function planReactors(poster: Contact, contactsById: Map<string, Contact>): Promise<ReactorPlan[]> {
-  const relationRows = await db.contactRelations
-    .where('fromContactId')
-    .equals(poster.id)
-    .or('toContactId')
-    .equals(poster.id)
-    .toArray()
+  const relationRows = (await api.contactRelations.list())
+    .filter((link) => link.fromContactId === poster.id || link.toContactId === poster.id)
   const links = uniqueRelationPairs(relationRows)
 
   const candidates: { contact: Contact; relationLabel: string; link: { label: import('../types').ContactRelationLabel; affinity?: number; familiarity?: number; tension?: number; dynamicSummary?: string } }[] = []
@@ -234,7 +232,7 @@ function parseMomentsResponse(raw: string, expected: number[]): ParsedMoment[] |
 /** Moments need their own review pass: broad feed context makes repeated hooks easy to miss. */
 async function reviewMomentPayload(settings: AppSettings, raw: string, expectedShape: string, personaContext = ''): Promise<string> {
   try {
-    const recent = await db.moments.orderBy('createdAt').reverse().limit(18).toArray()
+    const recent = (await api.moments.list()).slice(0, 18)
     const history = recent.map((moment) => moment.content).join('\n').slice(0, 2200)
     const editableReview = getPromptTemplate(settings, 'moments', 'review', {
       personaContext: personaContext || '(无)',
@@ -299,7 +297,7 @@ export interface RefreshMomentsResult {
 export async function runMomentTestSandbox(contact: Contact, settings: AppSettings, testInstruction: string): Promise<{ raw: string; reviewedRaw: string; parsed: unknown }> {
   if (!settings.apiKey) throw new Error('还没有配置API Key')
   if (!promptModuleEnabled(settings, 'moments')) throw new Error('朋友圈提示词模块已屏蔽')
-  const stickerNames = (await db.stickers.toArray()).map((item) => item.name)
+  const stickerNames = (await api.stickers.list()).map((item) => item.name)
   const [privateMemories, socialMemories, events, originalContext] = await Promise.all([
     recentMemoriesText(contact.id, 4),
     socialMemoriesText(contact.id, 4),
@@ -334,7 +332,7 @@ export async function runMomentTestSandbox(contact: Contact, settings: AppSettin
 export async function refreshMoments(settings: AppSettings): Promise<RefreshMomentsResult> {
   if (!promptModuleEnabled(settings, 'moments')) return { postedCount: 0, message: '朋友圈提示词模块已屏蔽' }
   const startedAt = performance.now()
-  const contacts = (await db.contacts.toArray()).filter((item) => !isAiTestId(item.id))
+  const contacts = (await api.contacts.list()).filter((item) => !isAiTestId(item.id))
   if (contacts.length === 0) return { postedCount: 0, message: '还没有联系人' }
   if (!settings.apiKey) return { postedCount: 0, message: '还没有配置API Key' }
 
@@ -354,7 +352,7 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
     entries.push({ poster, commenters, willHavePhoto: Math.random() < MOMENT_PHOTO_PROBABILITY })
   }
 
-  const stickerNames = (await db.stickers.toArray()).map((s) => s.name)
+      const stickerNames = (await api.stickers.list()).map((s) => s.name)
   const involved = Array.from(new Set(entries.flatMap((entry) => [entry.poster, ...entry.commenters.map((commenter) => commenter.contact)])))
   const contextRows = await Promise.all(involved.map(async (contact) => {
     const [privateMemories, socialMemories, events, originalContext] = await Promise.all([
@@ -460,7 +458,7 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
       } catch {}
     }
 
-    await db.moments.add({
+    await api.moments.put({
       id: momentId,
       contactId: poster.id,
       content,
@@ -470,6 +468,7 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
       imagePhotographer,
       imagePhotographerUrl,
     })
+    invalidate('moments')
     if (imageAssetId) startMediaAsset(imageAssetId)
     publishedCount++
     await recordSocialEvent({
@@ -481,12 +480,14 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
       importance: 1,
       createdAt: now + i,
     })
-    await db.contacts.update(poster.id, { lastMomentAt: now })
+    await api.contacts.patch(poster.id, { lastMomentAt: now })
+    invalidate('contacts')
 
     let commentIndex = 0
     for (const reactor of commenters) {
       // everyone in the reactor plan reacts with at least a like
-      await db.momentLikes.add({ id: uuid(), momentId, likerId: reactor.contact.id, createdAt: now })
+      await api.momentLikes.put({ id: uuid(), momentId, likerId: reactor.contact.id, createdAt: now })
+      invalidate('momentLikes')
       await recordSocialEvent({
         type: 'moment_liked',
         actorId: reactor.contact.id,
@@ -500,13 +501,14 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
       if (reactor.willComment) {
         const commentText = comments[commentIndex++]
         if (commentText) {
-          await db.momentComments.add({
+          await api.momentComments.put({
             id: uuid(),
             momentId,
             authorContactId: reactor.contact.id,
             content: commentText,
             createdAt: now,
           })
+          invalidate('momentComments')
           await recordSocialEvent({
             type: 'moment_commented',
             actorId: reactor.contact.id,
@@ -528,10 +530,10 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
 /** Replaces an AI-authored post after the user gives a direction. Its old interaction
  * thread is intentionally reset: comments about the old text must not survive. */
 export async function regenerateMoment(momentId: string, requirement: string, settings: AppSettings): Promise<void> {
-  const moment = await db.moments.get(momentId)
+  const moment = await getOrUndef(api.moments.get(momentId))
   if (!moment || moment.contactId === 'user') throw new Error('只能重新生成 AI 发布的动态')
   if (!settings.apiKey) throw new Error('还没有配置 API Key')
-  const poster = await db.contacts.get(moment.contactId)
+  const poster = await getOrUndef(api.contacts.get(moment.contactId))
   if (!poster) throw new Error('找不到动态发布者')
   const history = (await recentMomentsFor(poster.id)).filter((item) => item.id !== moment.id)
   const contexts = new Map([[poster.id, `【用户对本次重生成的要求】${requirement.trim() || '保持人设自然，换一个更合适的公开表达。'}\n【近期本人动态：必须避让】\n${recentMomentHistoryText(history)}`]])
@@ -550,23 +552,28 @@ export async function regenerateMoment(momentId: string, requirement: string, se
     parsed = null
   }
   if (!parsed?.[0]) throw new Error('重生成未能得到不重复的动态，请换一个要求再试')
-  await db.transaction('rw', db.moments, db.momentComments, db.momentLikes, db.socialEvents, async () => {
-    const commentIds = await db.momentComments.where('momentId').equals(momentId).primaryKeys()
-    await db.momentComments.where('momentId').equals(momentId).delete()
-    await db.momentLikes.where('momentId').equals(momentId).delete()
-    const eventIds = await db.socialEvents.filter((event) => event.momentId === momentId || (!!event.messageId && commentIds.includes(event.messageId))).primaryKeys()
-    if (eventIds.length) await db.socialEvents.bulkDelete(eventIds as string[])
-    await db.moments.update(momentId, { content: parsed![0].content, imageUrl: undefined, imagePhotographer: undefined, imagePhotographerUrl: undefined })
-    await recordSocialEvent({ type: 'moment_posted', actorId: poster.id, relatedContactIds: [poster.id], momentId, summary: `${poster.name}重新发布了一条朋友圈: ${parsed![0].content}`, importance: 1, createdAt: Date.now() })
-  })
+  // Formerly one Dexie rw transaction; now sequential API calls (single-user
+  // app, relaxed atomicity is acceptable).
+  const commentRows = await api.momentComments.list({ momentId })
+  const commentIds = commentRows.map((comment) => comment.id)
+  if (commentIds.length) await api.momentComments.bulkDelete(commentIds)
+  const likeRows = await api.momentLikes.list({ momentId })
+  if (likeRows.length) await api.momentLikes.bulkDelete(likeRows.map((like) => like.id))
+  const eventIds = (await api.socialEvents.list())
+    .filter((event) => event.momentId === momentId || (!!event.messageId && commentIds.includes(event.messageId)))
+    .map((event) => event.id)
+  if (eventIds.length) await api.socialEvents.bulkDelete(eventIds)
+  await api.moments.patch(momentId, { content: parsed[0].content, imageUrl: undefined, imagePhotographer: undefined, imagePhotographerUrl: undefined })
+  invalidate('moments', 'momentComments', 'momentLikes', 'socialEvents')
+  await recordSocialEvent({ type: 'moment_posted', actorId: poster.id, relatedContactIds: [poster.id], momentId, summary: `${poster.name}重新发布了一条朋友圈: ${parsed[0].content}`, importance: 1, createdAt: Date.now() })
 }
 
 /** Rewrites one AI comment and clears replies that were written against its old text. */
 export async function regenerateMomentComment(commentId: string, requirement: string, settings: AppSettings): Promise<void> {
-  const comment = await db.momentComments.get(commentId)
+  const comment = await getOrUndef(api.momentComments.get(commentId))
   if (!comment || comment.authorContactId === 'user') throw new Error('只能重新生成 AI 跟评')
   if (!settings.apiKey) throw new Error('还没有配置 API Key')
-  const [moment, author, allComments, contacts] = await Promise.all([db.moments.get(comment.momentId), db.contacts.get(comment.authorContactId), db.momentComments.where('momentId').equals(comment.momentId).sortBy('createdAt'), db.contacts.toArray()])
+  const [moment, author, allComments, contacts] = await Promise.all([getOrUndef(api.moments.get(comment.momentId)), getOrUndef(api.contacts.get(comment.authorContactId)), api.momentComments.list({ momentId: comment.momentId }), api.contacts.list()])
   if (!moment || !author) throw new Error('找不到原评论上下文')
   const names = new Map(contacts.map((contact) => [contact.id, contact.name]))
   const thread = allComments.map((item) => `${item.authorContactId === 'user' ? settings.userNickname || '用户' : names.get(item.authorContactId) || '某人'}: ${item.content}`).join('\n')
@@ -576,13 +583,16 @@ export async function regenerateMomentComment(commentId: string, requirement: st
   })
   const content = cleanPlainReply(raw).slice(0, 180)
   if (!content) throw new Error('没有生成有效跟评')
-  await db.transaction('rw', db.momentComments, db.socialEvents, async () => {
-    const descendants = allComments.filter((item) => item.replyToCommentId === commentId)
-    if (descendants.length) await db.momentComments.bulkDelete(descendants.map((item) => item.id))
-    const eventIds = await db.socialEvents.filter((event) => event.messageId === commentId || descendants.some((item) => item.id === event.messageId)).primaryKeys()
-    if (eventIds.length) await db.socialEvents.bulkDelete(eventIds as string[])
-    await db.momentComments.update(commentId, { content })
-  })
+  // Formerly one Dexie rw transaction; now sequential API calls (single-user
+  // app, relaxed atomicity is acceptable).
+  const descendants = allComments.filter((item) => item.replyToCommentId === commentId)
+  if (descendants.length) await api.momentComments.bulkDelete(descendants.map((item) => item.id))
+  const eventIds = (await api.socialEvents.list())
+    .filter((event) => event.messageId === commentId || descendants.some((item) => item.id === event.messageId))
+    .map((event) => event.id)
+  if (eventIds.length) await api.socialEvents.bulkDelete(eventIds)
+  await api.momentComments.patch(commentId, { content })
+  invalidate('momentComments', 'socialEvents')
 }
 
 /** How likely a contact is to react to the user's own moment — driven by warmth. */
@@ -635,10 +645,11 @@ function parseCommentsResponse(raw: string, expectedCount: number): string[] | n
 export async function postUserMoment(content: string, settings: AppSettings): Promise<void> {
   const now = Date.now()
   const momentId = uuid()
-  await db.moments.add({ id: momentId, contactId: 'user', content, createdAt: now })
+  await api.moments.put({ id: momentId, contactId: 'user', content, createdAt: now })
+  invalidate('moments')
 
   if (!settings.apiKey || !promptModuleEnabled(settings, 'moments')) return
-  const contacts = (await db.contacts.toArray()).filter((item) => !isAiTestId(item.id))
+  const contacts = (await api.contacts.list()).filter((item) => !isAiTestId(item.id))
   if (contacts.length === 0) return
 
   const plans = planUserMomentReactors(contacts)
@@ -648,7 +659,7 @@ export async function postUserMoment(content: string, settings: AppSettings): Pr
   let comments: string[] = []
   if (commenterPlans.length > 0) {
     try {
-      const stickerNames = (await db.stickers.toArray()).map((s) => s.name)
+  const stickerNames = (await api.stickers.list()).map((s) => s.name)
       const contextRows = await Promise.all(commenterPlans.map(async ({ contact }) => {
         const [memories, social, events, originalContext] = await Promise.all([
           recentMemoriesText(contact.id, 4), socialMemoriesText(contact.id, 4), recentSocialEventsText([contact.id], 2, false),
@@ -693,8 +704,9 @@ export async function postUserMoment(content: string, settings: AppSettings): Pr
 
   let commentIndex = 0
   for (const plan of plans) {
-    if (!await db.moments.get(momentId)) return
-    await db.momentLikes.add({ id: uuid(), momentId, likerId: plan.contact.id, createdAt: now })
+    if (!await getOrUndef(api.moments.get(momentId))) return
+    await api.momentLikes.put({ id: uuid(), momentId, likerId: plan.contact.id, createdAt: now })
+    invalidate('momentLikes')
     await recordSocialEvent({
       type: 'moment_liked',
       actorId: plan.contact.id,
@@ -708,13 +720,14 @@ export async function postUserMoment(content: string, settings: AppSettings): Pr
     if (plan.willComment) {
       const text = comments[commentIndex++]
       if (text) {
-        await db.momentComments.add({
+        await api.momentComments.put({
           id: uuid(),
           momentId,
           authorContactId: plan.contact.id,
           content: text,
           createdAt: now,
         })
+        invalidate('momentComments')
         await recordSocialEvent({
           type: 'moment_commented',
           actorId: plan.contact.id,
@@ -775,13 +788,13 @@ export async function generateMomentReply(
 ): Promise<void> {
   try {
     if (!settings.apiKey || !promptModuleEnabled(settings, 'moments')) return
-    const moment = await db.moments.get(momentId)
+    const moment = await getOrUndef(api.moments.get(momentId))
     if (!moment) return
 
     const [allContacts, existingComments, stickers, privateMemories, socialMemories, events, originalContext] = await Promise.all([
-      db.contacts.toArray().then((items) => items.filter((item) => !isAiTestId(item.id))),
-      db.momentComments.where('momentId').equals(momentId).sortBy('createdAt'),
-      db.stickers.toArray(),
+      api.contacts.list().then((items) => items.filter((item) => !isAiTestId(item.id))),
+      api.momentComments.list({ momentId }),
+      api.stickers.list(),
       recentMemoriesText(poster.id, 4),
       socialMemoriesText(poster.id, 4),
       recentSocialEventsText([poster.id], 3, false),
@@ -825,9 +838,9 @@ export async function generateMomentReply(
     })
     const cleaned = cleanPlainReply(raw)
     if (!cleaned) return
-    if (!await db.moments.get(momentId)) return
+    if (!await getOrUndef(api.moments.get(momentId))) return
 
-    await db.momentComments.add({
+    await api.momentComments.put({
       id: uuid(),
       momentId,
       authorContactId: poster.id,
@@ -835,6 +848,7 @@ export async function generateMomentReply(
       createdAt: Date.now(),
       replyToCommentId: triggeringCommentId,
     })
+    invalidate('momentComments')
     await recordSocialEvent({
       type: 'moment_commented',
       actorId: poster.id,
@@ -863,7 +877,7 @@ export async function generateMomentDiscussion(
   try {
     if (!settings.apiKey || !promptModuleEnabled(settings, 'moments')) return
     const [moment, contacts, comments] = await Promise.all([
-      db.moments.get(momentId), db.contacts.toArray().then((items) => items.filter((item) => !isAiTestId(item.id))), db.momentComments.where('momentId').equals(momentId).sortBy('createdAt'),
+      getOrUndef(api.moments.get(momentId)), api.contacts.list().then((items) => items.filter((item) => !isAiTestId(item.id))), api.momentComments.list({ momentId }),
     ])
     if (!moment) return
     const byId = new Map(contacts.map((contact) => [contact.id, contact]))
@@ -920,9 +934,10 @@ export async function generateMomentDiscussion(
     }).slice(0, 3)
     if (directId && directId !== 'user' && candidateIds.includes(directId) && !output.some((item) => item.authorId === directId)) return
     for (const item of output) {
-      if (!await db.moments.get(momentId)) return
+      if (!await getOrUndef(api.moments.get(momentId))) return
       const id = uuid()
-      await db.momentComments.add({ id, momentId, authorContactId: item.authorId, content: item.content, replyToCommentId: item.replyToCommentId, createdAt: Date.now() })
+      await api.momentComments.put({ id, momentId, authorContactId: item.authorId, content: item.content, replyToCommentId: item.replyToCommentId, createdAt: Date.now() })
+      invalidate('momentComments')
       await recordSocialEvent({ type: 'moment_commented', actorId: item.authorId, targetId: posterContactId, relatedContactIds: Array.from(new Set([item.authorId, ...(posterContactId ? [posterContactId] : [])])), momentId, messageId: id, summary: `${names.get(item.authorId) || '某人'}参与了朋友圈讨论: ${item.content}`, importance: 2 })
     }
   } catch {
@@ -936,21 +951,10 @@ function commentIdMarker(id: string | undefined): string {
 
 /** Removes a moment and every piece of derived social data attached to it. */
 export async function deleteMomentCompletely(momentId: string): Promise<boolean> {
-  const moment = await db.moments.get(momentId)
+  const moment = await getOrUndef(api.moments.get(momentId))
   if (!moment) return false
-  await db.transaction('rw', [db.moments, db.momentComments, db.momentLikes, db.socialEvents, db.contacts, db.mediaAssets], async () => {
-    await db.momentComments.where('momentId').equals(momentId).delete()
-    await db.momentLikes.where('momentId').equals(momentId).delete()
-    const eventIds = await db.socialEvents.filter((event) => event.momentId === momentId).primaryKeys()
-    if (eventIds.length > 0) await db.socialEvents.bulkDelete(eventIds as string[])
-    await db.moments.delete(momentId)
-    if (moment.imageAssetId) await db.mediaAssets.delete(moment.imageAssetId)
-    if (moment.contactId !== 'user') {
-      const remaining = await db.moments.where('contactId').equals(moment.contactId).toArray()
-      const lastMomentAt = remaining.reduce((latest, item) => Math.max(latest, item.createdAt), 0)
-      await db.contacts.update(moment.contactId, { lastMomentAt: lastMomentAt || undefined })
-    }
-  })
+  await api.batch.deleteMoment(momentId)
+  invalidateAll()
   // The album also collects images used by Moments. Preserve this image as a
   // standalone album item before its only remaining reference is removed.
   if (moment.imageUrl) {
@@ -982,23 +986,6 @@ export async function deleteMomentCompletely(momentId: string): Promise<boolean>
  * without touching other contacts' moments themselves.
  */
 export async function cascadeDeleteContactSocialData(contactId: string): Promise<void> {
-  const ownMoments = await db.moments.where('contactId').equals(contactId).toArray()
-  for (const m of ownMoments) {
-    await db.momentComments.where('momentId').equals(m.id).delete()
-    await db.momentLikes.where('momentId').equals(m.id).delete()
-    if (m.imageAssetId) await db.mediaAssets.delete(m.imageAssetId)
-  }
-  await db.moments.where('contactId').equals(contactId).delete()
-
-  await db.momentComments.where('authorContactId').equals(contactId).delete()
-  await db.momentLikes.where('likerId').equals(contactId).delete()
-
-  await db.contactRelations.where('fromContactId').equals(contactId).delete()
-  await db.contactRelations.where('toContactId').equals(contactId).delete()
-  const experiences = await db.contactExperiences.where('contactIds').equals(contactId).toArray()
-  for (const experience of experiences) {
-    const contactIds = experience.contactIds.filter((id) => id !== contactId)
-    if (contactIds.length === 0) await db.contactExperiences.delete(experience.id)
-    else await db.contactExperiences.update(experience.id, { contactIds })
-  }
+  await api.batch.deleteContact(contactId)
+  invalidateAll()
 }

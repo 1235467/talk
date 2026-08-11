@@ -1,10 +1,11 @@
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { invalidate } from './api/keys'
 import { chatCompletionText as chatCompletion } from './deepseek'
 import { tavilySearch, type WebSearchResult } from './webSearch'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { toDateKey } from './time'
-import type { AppSettings, KnowledgeEntry } from '../types'
+import type { AppSettings, KnowledgeEntry, LibraryItem } from '../types'
 import { featureActive, getPromptTemplate } from './promptModules'
 import { parseJsonLoose } from './aiProtocol'
 
@@ -62,8 +63,45 @@ function resolveSourceQuery(claimed: string, queries: string[]): string {
   return queries.length === 1 ? queries[0] : claimed
 }
 
+/**
+ * knowledgeEntries has no dedicated server resource — it merged into
+ * libraryItems server-side. Web-search knowledge rows live there with
+ * sourceType 'web', keeping the KnowledgeEntry shape (sourceQuery/topic)
+ * alongside the LibraryItem fields so dedup still compares sourceQuery.
+ */
+type StoredKnowledgeRow = LibraryItem & { sourceQuery?: string; topic?: string }
+
+function rowToKnowledgeEntry(item: StoredKnowledgeRow): KnowledgeEntry {
+  return {
+    id: item.id,
+    topic: item.topic ?? item.title,
+    content: item.content,
+    sourceQuery: item.sourceQuery ?? item.keywords[0] ?? '',
+    fetchedAt: item.fetchedAt ?? item.createdAt,
+  }
+}
+
+async function listKnowledgeEntries(): Promise<KnowledgeEntry[]> {
+  const rows = await api.libraryItems.list({ sourceType: 'web' })
+  return rows.map((row) => rowToKnowledgeEntry(row as StoredKnowledgeRow))
+}
+
+function knowledgeRow(id: string, e: ParsedKnowledgeEntry, now: number): StoredKnowledgeRow {
+  return {
+    id, sourceType: 'web', title: e.topic, content: e.content,
+    keywords: e.sourceQuery ? [e.sourceQuery] : [], sourceLabel: 'Tavily 联网搜索',
+    fetchedAt: now, createdAt: now, updatedAt: now,
+    sourceQuery: e.sourceQuery, topic: e.topic,
+  }
+}
+
 async function pruneOldKnowledgeEntries(now: number): Promise<void> {
-  await db.knowledgeEntries.where('fetchedAt').below(now - MAX_ENTRY_AGE_MS).delete()
+  const stale = (await api.libraryItems.list({ sourceType: 'web' }))
+    .filter((item) => (item.fetchedAt ?? item.createdAt) < now - MAX_ENTRY_AGE_MS)
+  if (stale.length > 0) {
+    await api.libraryItems.bulkDelete(stale.map((item) => item.id))
+    invalidate('libraryItems')
+  }
 }
 
 function normalizeTopic(s: string): string {
@@ -130,7 +168,7 @@ export async function resolveKnowledgeQueries(queries: string[], settings: AppSe
   try {
     if (queries.length === 0) return { text: '', keywords: [], searched: false }
 
-    const existing = await db.knowledgeEntries.toArray()
+    const existing = await listKnowledgeEntries()
     const seen = new Set<string>()
     const newTopics: string[] = []
     for (const q of queries) {
@@ -145,15 +183,15 @@ export async function resolveKnowledgeQueries(queries: string[], settings: AppSe
       const entries = await searchAndStore(newTopics.map((q) => ({ query: q })), settings)
       if (entries.length > 0) {
         const now = Date.now()
-        for (const e of entries) await db.knowledgeEntries.add({ id: uuid(), sourceQuery: e.sourceQuery, topic: e.topic, content: e.content, fetchedAt: now })
-        for (const e of entries) await db.libraryItems.add({ id: uuid(), sourceType: 'web', title: e.topic, content: e.content, keywords: e.sourceQuery ? [e.sourceQuery] : [], sourceLabel: 'Tavily 联网搜索', fetchedAt: now, createdAt: now, updatedAt: now })
+        await api.libraryItems.bulkPut(entries.map((e) => knowledgeRow(uuid(), e, now)))
+        invalidate('libraryItems')
         await pruneOldKnowledgeEntries(now)
         recordKnowledgeQueriesSent(newTopics.length)
         searched = true
       }
     }
 
-    const all = await db.knowledgeEntries.toArray()
+    const all = await listKnowledgeEntries()
     const matched = all.filter(e => queries.some(q => hasKnowledgeForQuery(q, [e])))
     const text = matched.slice(-6).map(e => `关键词「${e.sourceQuery}」\n${e.topic}: ${e.content}`).join('\n\n')
     return { text, keywords: queries, searched }
@@ -183,10 +221,8 @@ export async function searchKnowledgeTopic(topic: string, settings: AppSettings)
   if (entries.length === 0) return { addedCount: 0, message: '搜索或整理失败 请再试一次' }
 
   const now = Date.now()
-  for (const e of entries) {
-    await db.knowledgeEntries.add({ id: uuid(), sourceQuery: e.sourceQuery, topic: e.topic, content: e.content, fetchedAt: now })
-    await db.libraryItems.add({ id: uuid(), sourceType: 'web', title: e.topic, content: e.content, keywords: e.sourceQuery ? [e.sourceQuery] : [], sourceLabel: 'Tavily 联网搜索', fetchedAt: now, createdAt: now, updatedAt: now })
-  }
+  await api.libraryItems.bulkPut(entries.map((e) => knowledgeRow(uuid(), e, now)))
+  invalidate('libraryItems')
   await pruneOldKnowledgeEntries(now)
   return { addedCount: entries.length }
 }

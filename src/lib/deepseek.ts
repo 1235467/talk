@@ -4,7 +4,7 @@ export interface ChatMessage {
 }
 import { assertAutomaticAiBudget, estimateTokens, recordAiUsage } from './aiUsage'
 import { v4 as uuid } from 'uuid'
-import { db } from '../db/db'
+import { api } from './api/resources'
 import type { AdminAiTraceStage, AiUsagePurpose } from '../types'
 import { friendlyConnectionError, httpFailureMessage, parseJsonText, requireApiKey, requireHttpUrl } from './connectionError'
 import { useSettingsStore } from '../store/useSettingsStore'
@@ -41,12 +41,7 @@ export function coalesceConsecutiveRoles(messages: ChatMessage[]): ChatMessage[]
 
 async function traceAiCall(opts: { purpose: AiUsagePurpose; model: string; messages: ChatMessage[]; output?: string; error?: string; inputTokens: number; outputTokens: number; durationMs?: number; turnId?: string; stage?: AdminAiTraceStage; conversationId?: string; diagnostics?: Record<string, unknown> }) {
   try {
-    await db.adminAiTraces.add({ id: uuid(), ...opts, createdAt: Date.now() })
-    const count = await db.adminAiTraces.count()
-    if (count > 500) {
-      const staleIds = await db.adminAiTraces.orderBy('createdAt').limit(count - 500).primaryKeys()
-      if (staleIds.length) await db.adminAiTraces.bulkDelete(staleIds)
-    }
+    void api.aiTurns.put({ id: uuid(), createdAt: Date.now(), ...opts } as never).catch(() => undefined)
   } catch {}
 }
 

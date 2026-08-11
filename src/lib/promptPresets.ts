@@ -1,6 +1,7 @@
 import type { AppSettings, Contact, PromptModuleSettings, PromptPreset } from '../types'
 import { createDefaultPromptModules, normalizePromptModules } from './promptModules'
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { invalidate } from './api/keys'
 
 export const SYSTEM_DEFAULT_PROMPT_PRESET_ID = 'system-default-prompt'
 
@@ -57,16 +58,16 @@ export function promptModulesForContact(contact: Contact, settings: Pick<AppSett
 
 /** One-time compatibility snapshot so future global edits never mutate legacy contacts. */
 export async function ensureContactPromptSnapshots(settings: Pick<AppSettings, 'promptModules' | 'promptPresets' | 'activePromptPresetId'>): Promise<void> {
-  const missing = await db.contacts.filter((contact) => !contact.promptModulesSnapshot).toArray()
+  const missing = (await api.contacts.list()).filter((contact) => !contact.promptModulesSnapshot)
   if (!missing.length) return
   const preset = activePromptPreset(settings)
   const now = Date.now()
-  await db.transaction('rw', db.contacts, async () => {
-    for (const contact of missing) await db.contacts.update(contact.id, {
-      promptModulesSnapshot: clonePromptModules(settings.promptModules),
-      promptPresetSourceId: preset.id,
-      promptPresetSourceName: '升级前提示词',
-      promptSnapshotUpdatedAt: now,
-    })
+  // Single-user app: the old Dexie transaction becomes plain sequential writes.
+  for (const contact of missing) await api.contacts.patch(contact.id, {
+    promptModulesSnapshot: clonePromptModules(settings.promptModules),
+    promptPresetSourceId: preset.id,
+    promptPresetSourceName: '升级前提示词',
+    promptSnapshotUpdatedAt: now,
   })
+  invalidate('contacts')
 }

@@ -1,5 +1,6 @@
-import { db } from '../db/db'
 import { v4 as uuid } from 'uuid'
+import { api } from './api/resources'
+import { invalidate } from './api/keys'
 import { displayName } from './contact'
 import type { Contact, ContactRelationLabel } from '../types'
 
@@ -30,27 +31,31 @@ export function relationSentiment(label: ContactRelationLabel): RelationSentimen
 /** Create or replace one symmetric social contract. Both contacts always receive the same label. */
 export async function setPairedContactRelation(fromContactId: string, toContactId: string, label: ContactRelationLabel): Promise<void> {
   if (fromContactId === toContactId) return
-  const existing = await db.contactRelations.filter((link) =>
+  const existing = (await api.contactRelations.list()).filter((link) =>
     (link.fromContactId === fromContactId && link.toContactId === toContactId) ||
     (link.fromContactId === toContactId && link.toContactId === fromContactId),
-  ).toArray()
+  )
   const pairId = existing[0]?.pairId || uuid()
   const now = Date.now()
-  if (existing.length) await db.contactRelations.bulkDelete(existing.map((link) => link.id))
-  await db.contactRelations.bulkAdd([
+  if (existing.length) await api.contactRelations.bulkDelete(existing.map((link) => link.id))
+  await api.contactRelations.bulkPut([
     { id: uuid(), pairId, fromContactId, toContactId, label, createdAt: now },
     { id: uuid(), pairId, fromContactId: toContactId, toContactId: fromContactId, label, createdAt: now },
   ])
+  invalidate('contactRelations')
 }
 
 /** Remove both directions of one user-authored AI-to-AI relationship. */
 export async function removePairedContactRelation(fromContactId: string, toContactId: string): Promise<void> {
   if (fromContactId === toContactId) return
-  const existing = await db.contactRelations.filter((link) =>
+  const existing = (await api.contactRelations.list()).filter((link) =>
     (link.fromContactId === fromContactId && link.toContactId === toContactId) ||
     (link.fromContactId === toContactId && link.toContactId === fromContactId),
-  ).toArray()
-  if (existing.length) await db.contactRelations.bulkDelete(existing.map((link) => link.id))
+  )
+  if (existing.length) {
+    await api.contactRelations.bulkDelete(existing.map((link) => link.id))
+    invalidate('contactRelations')
+  }
 }
 
 /** A single canonical record per pair for UI and scene selection. */
@@ -67,7 +72,7 @@ export function uniqueRelationPairs(links: import('../types').ContactRelationLin
 export async function aiRelationshipPrompt(contacts: Contact[]): Promise<string> {
   const ids = new Set(contacts.map((c) => c.id))
   const byId = new Map(contacts.map((c) => [c.id, c]))
-  const links = uniqueRelationPairs((await db.contactRelations.toArray()).filter((l) => ids.has(l.fromContactId) && ids.has(l.toContactId)))
+  const links = uniqueRelationPairs((await api.contactRelations.list()).filter((l) => ids.has(l.fromContactId) && ids.has(l.toContactId)))
   const lines = links.map((link) => {
     const a = byId.get(link.fromContactId)
     const b = byId.get(link.toContactId)
@@ -82,17 +87,18 @@ export async function applyExplicitRelationshipEvent(fromContactId: string, toCo
   const broken = /已经分手|确认分手|离婚|已经绝交|断绝联系/.test(text)
   if (!confirmed && !broken) return
   const label: ContactRelationLabel = confirmed ? '恋人' : '普通朋友'
-  const links = await db.contactRelations.filter((link) =>
+  const links = (await api.contactRelations.list()).filter((link) =>
     (link.fromContactId === fromContactId && link.toContactId === toContactId) ||
     (link.fromContactId === toContactId && link.toContactId === fromContactId),
-  ).toArray()
+  )
   if (links.length === 0) return
   const now = Date.now()
-  for (const link of links) await db.contactRelations.update(link.id, {
+  for (const link of links) await api.contactRelations.patch(link.id, {
     label,
     dynamicSummary: broken ? '已分手/关系破裂' : '确认恋爱关系',
     lastInteractionAt: now,
   })
+  invalidate('contactRelations')
 }
 
 /** Whether a relationship is close/positive enough that the two might plausibly interact on each other's moments at all — bad ones never do. */
@@ -144,18 +150,17 @@ export async function applyInterpersonalMemorySignals(
       (acc, delta) => ({ affinity: acc.affinity + delta.affinity, tension: acc.tension + delta.tension, summary: delta.summary }),
       { affinity: 0, tension: 0, summary: '最近有共同互动' },
     )
-    const links = await db.contactRelations
-      .filter((link) =>
-        (link.fromContactId === fromContactId && link.toContactId === relatedId)
-        || (link.fromContactId === relatedId && link.toContactId === fromContactId),
-      )
-      .toArray()
+    const links = (await api.contactRelations.list()).filter((link) =>
+      (link.fromContactId === fromContactId && link.toContactId === relatedId)
+      || (link.fromContactId === relatedId && link.toContactId === fromContactId),
+    )
     for (const link of links) {
       const affinity = Math.max(-100, Math.min(100, (link.affinity ?? 0) + signal.affinity))
       const familiarity = Math.max(0, Math.min(100, (link.familiarity ?? 0) + relatedItems.length * 2))
       const tension = Math.max(0, Math.min(100, (link.tension ?? 0) + signal.tension))
-      await db.contactRelations.update(link.id, { affinity, familiarity, tension, dynamicSummary: signal.summary, lastInteractionAt: now })
+      await api.contactRelations.patch(link.id, { affinity, familiarity, tension, dynamicSummary: signal.summary, lastInteractionAt: now })
     }
+    if (links.length > 0) invalidate('contactRelations')
     for (const item of relatedItems) {
       if (item.kind === 'relationship_event' && (item.confidence ?? 0) >= 0.85) {
         await applyExplicitRelationshipEvent(fromContactId, relatedId, item.content)

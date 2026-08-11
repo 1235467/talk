@@ -1,4 +1,6 @@
-import { db } from '../db/db'
+import { api } from './api/resources'
+import { getOrUndef } from './api/client'
+import { invalidate } from './api/keys'
 import { useSettingsStore } from '../store/useSettingsStore'
 import type { WorldbookCollection, WorldbookEntry } from '../types'
 
@@ -40,7 +42,7 @@ export function rankWorldbookEntries(entries: WorldbookEntry[], query: string): 
 }
 
 async function enabledEntries(worldviewId?: string): Promise<{ entries: WorldbookEntry[]; collections: Map<string, WorldbookCollection> }> {
-  const [collectionsList, entries] = await Promise.all([db.worldbookCollections.toArray(), db.worldbookEntries.toArray()])
+  const [collectionsList, entries] = await Promise.all([api.worldbookCollections.list(), api.worldbookEntries.list()])
   const collections = new Map(collectionsList.map((collection) => [collection.id, collection]))
   const selectedId = worldviewId || useSettingsStore.getState().defaultWorldviewId || collectionsList.find((collection) => collection.enabled)?.id || collectionsList[0]?.id
   return {
@@ -115,7 +117,11 @@ export async function retrieveWorldbookContext(query: string, opts: WorldbookRet
 
 export async function selectedWorldbookEntriesText(ids: string[]) {
   if (!ids.length) return ''
-  const [libraryItems, entries, collectionsList] = await Promise.all([db.libraryItems.bulkGet(ids), db.worldbookEntries.bulkGet(ids), db.worldbookCollections.toArray()])
+  const [libraryItems, entries, collectionsList] = await Promise.all([
+    Promise.all(ids.map((id) => getOrUndef(api.libraryItems.get(id)))),
+    Promise.all(ids.map((id) => getOrUndef(api.worldbookEntries.get(id)))),
+    api.worldbookCollections.list(),
+  ])
   const collections = new Map(collectionsList.map((collection) => [collection.id, collection]))
   const libraryText = libraryItems.filter((item): item is NonNullable<typeof item> => !!item).map((item) => `【资料库 / ${item.title}】\n${item.content}`)
   const legacyText = entries.filter((entry): entry is WorldbookEntry => !!entry).map((entry) => renderEntry(entry, collections))
@@ -124,7 +130,7 @@ export async function selectedWorldbookEntriesText(ids: string[]) {
 
 export async function ensureLegacyWorldviewMigrated(): Promise<void> {
   const settings = useSettingsStore.getState()
-  const existingCollections = await db.worldbookCollections.toArray()
+  const existingCollections = await api.worldbookCollections.list()
   if (settings.worldbookMigrationCompleted && existingCollections.length) {
     if (!settings.defaultWorldviewId) settings.setSettings({ defaultWorldviewId: existingCollections.find((item) => item.enabled)?.id || existingCollections[0].id })
     return
@@ -133,15 +139,15 @@ export async function ensureLegacyWorldviewMigrated(): Promise<void> {
   const now = Date.now()
   const collectionId = existingCollections[0]?.id || 'default-worldbook'
   if (!existingCollections.length || content) {
-    await db.transaction('rw', db.worldbookCollections, db.worldbookEntries, async () => {
-      await db.worldbookCollections.put({
-        id: collectionId, name: existingCollections[0]?.name || '默认现实世界', enabled: true, sourceType: 'manual', createdAt: existingCollections[0]?.createdAt || now, updatedAt: now,
-      })
-      if (content) await db.worldbookEntries.put({
-        id: 'legacy-worldview', collectionId, title: '旧世界设定', content, keywords: [], enabled: true,
-        foundationalWorldview: true, priority: 100, createdAt: now, updatedAt: now,
-      })
+    // Single-user app: the old Dexie transaction becomes plain sequential writes.
+    await api.worldbookCollections.put({
+      id: collectionId, name: existingCollections[0]?.name || '默认现实世界', enabled: true, sourceType: 'manual', createdAt: existingCollections[0]?.createdAt || now, updatedAt: now,
     })
+    if (content) await api.worldbookEntries.put({
+      id: 'legacy-worldview', collectionId, title: '旧世界设定', content, keywords: [], enabled: true,
+      foundationalWorldview: true, priority: 100, createdAt: now, updatedAt: now,
+    })
+    invalidate('worldbookCollections', 'worldbookEntries')
   }
   settings.setSettings({ worldview: '', worldbookMigrationCompleted: true, defaultWorldviewId: settings.defaultWorldviewId || collectionId })
 }
