@@ -182,7 +182,7 @@ async function fakeApiFetch(path: string, options: { method?: string; body?: any
     }
     if (method === 'POST') {
       if (state.presets.has(options.body.name)) throw new FakeApiError(409, 'exists')
-      const row = { name: options.body.name, isFactory: false, modules: options.body.modules, createdAt: Date.now(), updatedAt: Date.now() }
+      const row = { name: options.body.name, isFactory: options.body.isFactory === true, modules: options.body.modules, createdAt: Date.now(), updatedAt: Date.now() }
       state.presets.set(row.name, row)
       return { ok: true }
     }

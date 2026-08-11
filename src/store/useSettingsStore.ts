@@ -11,7 +11,7 @@ import {
 import { createDefaultSpeechProviders, normalizeSpeechProviders } from '../lib/speechProviders'
 import type { AppSettings } from '../types'
 import { createDefaultPromptModules, normalizePromptModules } from '../lib/promptModules'
-import { SYSTEM_DEFAULT_PROMPT_PRESET_ID, normalizePromptPresets } from '../lib/promptPresets'
+
 import { normalizeChatPageSize } from '../lib/chatPagination'
 import type { AiProviderId } from '../lib/aiProviders'
 import { normalizeUiTheme } from '../lib/uiTheme'
@@ -81,8 +81,6 @@ export const useSettingsStore = create<SettingsState>()(
       utilityModel: 'deepseek-v4-flash',
       globalSystemPrompt: DEFAULT_STYLE_PROMPT,
       promptModules: createDefaultPromptModules(),
-      promptPresets: normalizePromptPresets(undefined, createDefaultPromptModules()),
-      activePromptPresetId: SYSTEM_DEFAULT_PROMPT_PRESET_ID,
       userNickname: '我',
       userAvatar: '🙂',
       userGender: '',
@@ -230,11 +228,8 @@ export const useSettingsStore = create<SettingsState>()(
         if (version < 16 && Array.isArray(next.enabledModules) && !next.enabledModules.includes('location')) next.enabledModules = [...next.enabledModules, 'location']
         next.uiTheme = normalizeUiTheme(next.uiTheme)
         next.promptModules = normalizePromptModules(next.promptModules, next.globalSystemPrompt)
-        const normalizedPresets = normalizePromptPresets(next.promptPresets, next.promptModules)
-        next.promptPresets = normalizedPresets
-        if (!normalizedPresets.some((preset) => preset.id === next.activePromptPresetId)) {
-          next.activePromptPresetId = normalizedPresets.find((preset) => !preset.systemDefault)?.id ?? SYSTEM_DEFAULT_PROMPT_PRESET_ID
-        }
+        // Legacy prompt archives migrate to the server preset table by
+        // ensureServerPresets(); nothing to fix up locally anymore.
         return next
       },
     },

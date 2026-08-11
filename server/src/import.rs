@@ -123,6 +123,63 @@ pub async fn import_value(pool: &SqlitePool, backup: &serde_json::Value) -> anyh
             summary.push(format!("promptPresets: {count} presets"));
         }
     }
+
+    // Legacy per-contact prompt snapshots → named presets. Identical snapshots
+    // (they were all clones of the same global config) collapse into one
+    // preset; contacts then reference it by name and drop the snapshot keys.
+    let snapshot_contacts: Vec<(String, String)> = sqlx::query_as("SELECT id, data FROM contacts")
+        .fetch_all(pool)
+        .await?;
+    let mut groups: std::collections::HashMap<String, (serde_json::Value, Vec<String>)> = std::collections::HashMap::new();
+    for (contact_id, data) in &snapshot_contacts {
+        let mut value: serde_json::Value = serde_json::from_str(data)?;
+        let has_preset = value.get("presetName").and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty());
+        let Some(snapshot) = value.get("promptModulesSnapshot").cloned() else { continue };
+        let key = serde_json::to_string(&snapshot)?;
+        let entry = groups.entry(key).or_insert_with(|| (snapshot.clone(), Vec::new()));
+        if !has_preset {
+            entry.1.push(contact_id.clone());
+        }
+        // Even contacts that already have a preset lose the snapshot keys.
+        for dead_key in ["promptModulesSnapshot", "promptPresetSourceId", "promptPresetSourceName", "promptSnapshotUpdatedAt"] {
+            if let Some(obj) = value.as_object_mut() {
+                obj.remove(dead_key);
+            }
+        }
+        let res = &crate::resources::contacts::RES;
+        crate::crud::upsert(pool, res, value).await?;
+    }
+    let mut converted = 0usize;
+    for (index, (_key, (modules, contact_ids))) in groups.into_iter().enumerate() {
+        if contact_ids.is_empty() {
+            continue;
+        }
+        let name = if index == 0 { "迁移快照".to_string() } else { format!("迁移快照 {}", index + 1) };
+        let name = {
+            let mut candidate = name;
+            let mut suffix = 2;
+            while (sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM prompt_presets WHERE name = ?").bind(&candidate).fetch_one(pool).await?).0 > 0 {
+                candidate = format!("迁移快照 {suffix}");
+                suffix += 1;
+            }
+            candidate
+        };
+        sqlx::query("INSERT INTO prompt_presets (name, is_factory, modules) VALUES (?, 0, ?)")
+            .bind(&name)
+            .bind(serde_json::to_string(&modules)?)
+            .execute(pool)
+            .await?;
+        for contact_id in &contact_ids {
+            let res = &crate::resources::contacts::RES;
+            let mut contact = crate::crud::get(pool, res, contact_id).await?;
+            contact["presetName"] = serde_json::Value::String(name.clone());
+            crate::crud::upsert(pool, res, contact).await?;
+            converted += 1;
+        }
+    }
+    if converted > 0 {
+        summary.push(format!("promptModulesSnapshot→presets: {converted} contacts converted"));
+    }
     Ok(summary)
 }
 

@@ -1,6 +1,7 @@
 import type { AppSettings, Contact, PromptModuleSettings, PromptPreset } from '../types'
 import { createDefaultPromptModules, normalizePromptModules } from './promptModules'
 import { api } from './api/resources'
+import { getOrUndef } from './api/client'
 import { invalidate } from './api/keys'
 
 export const SYSTEM_DEFAULT_PROMPT_PRESET_ID = 'system-default-prompt'
@@ -46,28 +47,40 @@ export function normalizePromptPresets(value: unknown, legacyModules?: PromptMod
   return [fallback, ...withoutSystem]
 }
 
-export function activePromptPreset(settings: Pick<AppSettings, 'promptPresets' | 'activePromptPresetId' | 'promptModules'>): PromptPreset {
-  return settings.promptPresets?.find((preset) => preset.id === settings.activePromptPresetId)
-    ?? settings.promptPresets?.[0]
-    ?? { ...systemDefaultPromptPreset(), modules: clonePromptModules(settings.promptModules) }
+export const FACTORY_PRESET_NAME = '出厂默认'
+
+/**
+ * Resolve the prompt modules for a contact in the two-layer model:
+ * presetName → server preset (live by name) → legacy per-contact snapshot →
+ * factory default. Group turns pass a bare "contact-less" resolution via
+ * resolvePromptModules(undefined) which lands on the factory preset.
+ */
+export async function resolveContactPromptModules(contact: Contact | undefined, settings: Pick<AppSettings, 'promptModules'>): Promise<PromptModuleSettings> {
+  if (contact?.presetName) {
+    const preset = await getOrUndef(api.presets.get(contact.presetName))
+    if (preset) return normalizePromptModules(preset.modules)
+  }
+  const factory = await getOrUndef(api.presets.get(FACTORY_PRESET_NAME))
+  if (factory) return normalizePromptModules(factory.modules)
+  return normalizePromptModules(settings.promptModules)
 }
 
-export function promptModulesForContact(contact: Contact, settings: Pick<AppSettings, 'promptModules'>): PromptModuleSettings {
-  return contact.promptModulesSnapshot ? normalizePromptModules(contact.promptModulesSnapshot) : normalizePromptModules(settings.promptModules)
-}
-
-/** One-time compatibility snapshot so future global edits never mutate legacy contacts. */
-export async function ensureContactPromptSnapshots(settings: Pick<AppSettings, 'promptModules' | 'promptPresets' | 'activePromptPresetId'>): Promise<void> {
-  const missing = (await api.contacts.list()).filter((contact) => !contact.promptModulesSnapshot)
-  if (!missing.length) return
-  const preset = activePromptPreset(settings)
-  const now = Date.now()
-  // Single-user app: the old Dexie transaction becomes plain sequential writes.
-  for (const contact of missing) await api.contacts.patch(contact.id, {
-    promptModulesSnapshot: clonePromptModules(settings.promptModules),
-    promptPresetSourceId: preset.id,
-    promptPresetSourceName: '升级前提示词',
-    promptSnapshotUpdatedAt: now,
-  })
-  invalidate('contacts')
+/**
+ * Seed the server preset table: the read-only factory preset from code, plus
+ * any user presets the legacy settings carried. Idempotent by name.
+ */
+export async function ensureServerPresets(settings: Pick<AppSettings, 'promptPresets' | 'promptModules'>): Promise<void> {
+  const { isServerConfigured } = await import('./api/client')
+  if (!isServerConfigured()) return
+  const existing = new Set((await api.presets.list()).map((preset) => preset.name))
+  if (!existing.has(FACTORY_PRESET_NAME)) {
+    await api.presets.create(FACTORY_PRESET_NAME, createDefaultPromptModules(), true).catch(() => undefined)
+    existing.add(FACTORY_PRESET_NAME)
+  }
+  for (const preset of normalizePromptPresets(settings.promptPresets, settings.promptModules)) {
+    if (preset.systemDefault || existing.has(preset.name)) continue
+    await api.presets.create(preset.name, preset.modules).catch(() => undefined)
+    existing.add(preset.name)
+  }
+  invalidate('presets')
 }

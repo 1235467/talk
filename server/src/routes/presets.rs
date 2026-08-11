@@ -45,6 +45,9 @@ pub async fn get_one(State(state): State<AppState>, Path(name): Path<String>) ->
 pub struct UpsertPreset {
     name: String,
     modules: serde_json::Value,
+    /// Trusted single-user server: the client's hydration seeds factory
+    /// presets through the same endpoint.
+    is_factory: Option<bool>,
 }
 
 pub async fn create(State(state): State<AppState>, Json(body): Json<UpsertPreset>) -> AppResult<Json<serde_json::Value>> {
@@ -56,8 +59,9 @@ pub async fn create(State(state): State<AppState>, Json(body): Json<UpsertPreset
     if exists.is_some() {
         return Err(AppError::Conflict(format!("预设 \"{name}\" 已存在，请换一个名字或选择原地保存")));
     }
-    sqlx::query("INSERT INTO prompt_presets (name, is_factory, modules) VALUES (?, 0, ?)")
+    sqlx::query("INSERT INTO prompt_presets (name, is_factory, modules) VALUES (?, ?, ?)")
         .bind(name)
+        .bind(if body.is_factory == Some(true) { 1 } else { 0 })
         .bind(serde_json::to_string(&body.modules)?)
         .execute(&state.db)
         .await?;

@@ -25,7 +25,7 @@ import { previewForMessage } from './messagePreview'
 import { recentSocialEventsText } from './socialEvents'
 import { recentSharedOriginalContext } from './sharedRecentContext'
 import { useChatUiStore } from '../store/useChatUiStore'
-import { promptModulesForContact } from './promptPresets'
+import { resolveContactPromptModules } from './promptPresets'
 import { USER_WALLET_ID, getBalance, reserveRedPacket, transferFunds } from './finance'
 import { trackRemoteStickerSend } from './remoteMedia'
 import { resolveBubbleMedia } from './bubbleMedia'
@@ -378,7 +378,7 @@ async function runAiTurn(
       }
     }
 
-    const contactPromptModules = promptModulesForContact(contact, settings)
+    const contactPromptModules = await resolveContactPromptModules(contact, settings)
     const contactPromptSettings = { ...settings, promptModules: contactPromptModules }
 
     // Cold-start warmth evaluation: 好感度 is enabled but this contact

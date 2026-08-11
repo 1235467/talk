@@ -16,7 +16,7 @@ import { ensureWallets } from './lib/finance'
 import { ensureLegacyWorldviewMigrated } from './lib/worldbook'
 import { syncContactLocationsAt } from './lib/locations'
 import { initializeContactGenerationTasks } from './lib/contactGenerationTasks'
-import { ensureContactPromptSnapshots } from './lib/promptPresets'
+import { ensureServerPresets } from './lib/promptPresets'
 import { resumeMediaAssets } from './lib/imageAssets'
 // Tab pages are the landing screen — keep them eager. Everything else is
 // route-level code-split (lazy) so the initial bundle stays small; matches
@@ -159,7 +159,7 @@ function App() {
   useEffect(() => { void ensureWallets() }, [enabledModules])
   useEffect(() => { void ensureLegacyWorldviewMigrated() }, [])
   useEffect(() => { void initializeContactGenerationTasks() }, [])
-  useEffect(() => { void ensureContactPromptSnapshots(useSettingsStore.getState()) }, [])
+  useEffect(() => { void ensureServerPresets(useSettingsStore.getState()) }, [])
   useEffect(() => {
     if (!desktop) return
     // Warm the routes people open most often after the desktop shell settles.

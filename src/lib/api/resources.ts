@@ -109,7 +109,7 @@ export const api = {
   presets: {
     list: () => apiFetch<ServerPromptPreset[]>('/presets'),
     get: (name: string) => apiFetch<ServerPromptPreset>(`/presets/${encodeURIComponent(name)}`),
-    create: (name: string, modules: unknown) => apiFetch('/presets', { method: 'POST', body: { name, modules } }),
+    create: (name: string, modules: unknown, isFactory = false) => apiFetch('/presets', { method: 'POST', body: { name, modules, isFactory } }),
     update: (name: string, modules: unknown) => apiFetch(`/presets/${encodeURIComponent(name)}`, { method: 'PUT', body: { modules } }),
     delete: (name: string) => apiFetch(`/presets/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   },

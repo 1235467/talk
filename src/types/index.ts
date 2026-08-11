@@ -80,11 +80,8 @@ export interface Contact {
   worldviewId?: string
   /** End of the latest time range already covered by offline experience completion. */
   experienceCursorAt?: number
-  /** Fixed prompt templates copied from the selected global archive. Never live-linked. */
-  promptModulesSnapshot?: PromptModuleSettings
-  promptPresetSourceId?: string
-  promptPresetSourceName?: string
-  promptSnapshotUpdatedAt?: number
+  /** Named prompt preset reference — resolved from the server preset table at prompt-build time. */
+  presetName?: string
   /** @deprecated Legacy rows may still carry this; the audit prompt in responseQuality.ts owns the protocol now and nothing reads this field. */
   jsonProtocolOverride?: string
 }
@@ -874,10 +871,10 @@ export interface AppSettings {
   globalSystemPrompt: string
   /** Global, user-editable original prompt templates shared by all relevant model calls. */
   promptModules: PromptModuleSettings
-  /** Named fixed-prompt archives. Contacts receive independent snapshots when created/applied. */
-  promptPresets: PromptPreset[]
-  /** Archive copied into newly-created contacts by default. */
-  activePromptPresetId: string
+  /** @deprecated Presets live in the server preset table now; kept only so legacy persisted settings migrate through normalizePromptPresets once. */
+  promptPresets?: PromptPreset[]
+  /** Default preset name assigned to newly created contacts (resolved on the server preset table). */
+  defaultPresetName?: string
   userNickname: string
   userAvatar: string
   userGender: string
@@ -1479,9 +1476,8 @@ export interface ContactGenerationTask {
   baseUrl: string
   model: string
   utilityModel: string
-  promptModulesSnapshot?: PromptModuleSettings
-  promptPresetSourceId?: string
-  promptPresetSourceName?: string
+  /** Named prompt preset used for this generation; the contact inherits it. */
+  presetName?: string
   partialFields?: Record<string, unknown>
   worldbookText?: string
   canon?: unknown

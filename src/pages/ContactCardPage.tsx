@@ -33,7 +33,7 @@ import { buildOccupationPrompt, parseOccupation, employmentPatch, OCCUPATION_OPT
 import { formatCurrency } from '../lib/wallet'
 import { setWalletBalance } from '../lib/finance'
 import { switchContactWorldview } from '../lib/scopedSaves'
-import { promptModulesForContact } from '../lib/promptPresets'
+import { resolveContactPromptModules } from '../lib/promptPresets'
 import { contactSpeechVoice, isSpeechProviderReady, speechProviderName, speechVoiceOptions } from '../lib/speechProviders'
 import { synthesizeSpeech } from '../lib/speechSynthesis'
 import { ArrowUpFromLine, ChevronLeft, ChevronRight, ClipboardList, Phone, PhoneOff } from 'lucide-react'
@@ -427,6 +427,11 @@ export function ContactCardPage() {
   const pendingEvents = contact.pendingEvents ?? []
   const previewActiveIntents = isModuleEnabled('intent') ? activeIntents(contact, now.getTime()) : []
   // ---- admin-mode prompt preview (two-step pipeline) ----
+  const { data: contactPromptModules } = useQuery({
+    queryKey: ['contactPromptModules', contact?.id ?? '', contact?.presetName ?? ''],
+    enabled: adminEnabled && !!contact,
+    queryFn: () => resolveContactPromptModules(contact!, settings),
+  })
   const mainModelPromptParts = adminEnabled
     ? buildRawChatPromptParts({
         name: contact.name,
@@ -434,7 +439,7 @@ export function ContactCardPage() {
         personaConstraints: contact.personaConstraints,
         personaProfile: contact.personaProfile,
         stylePrompt: settings.globalSystemPrompt,
-        promptModules: promptModulesForContact(contact, settings),
+        promptModules: contactPromptModules ?? settings.promptModules,
         personalityTrait: personalityEnabled ? contact.personalityTrait : undefined,
         personalityWarmth: relEnabled ? (contact.warmth ?? 0) : undefined,
         worldviewText: isModuleEnabled('worldview') ? '【运行时按当前对话检索世界书条目；此预览不固定命中结果】' : undefined,
@@ -737,7 +742,7 @@ export function ContactCardPage() {
 
       {adminEnabled && (
         <section className="mt-3 bg-white px-4 py-4">
-          <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-xs font-medium text-gray-400">提示词预览（管理员模式）</h3><p className="mt-1 text-[10px] text-gray-400">来源：{contact.promptPresetSourceName || '升级前提示词'}{contact.promptSnapshotUpdatedAt ? ` · ${new Date(contact.promptSnapshotUpdatedAt).toLocaleString()}` : ''}</p></div><button type="button" onClick={() => navigate(`/contact/${contactId}/admin`)} className="shrink-0 rounded-lg bg-gray-900 px-3 py-2 text-xs text-white">编辑全部资料</button></div>
+          <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-xs font-medium text-gray-400">提示词预览（管理员模式）</h3><p className="mt-1 text-[10px] text-gray-400">来源：{contact.presetName || '出厂默认'}（按名引用服务器预设）</p></div><button type="button" onClick={() => navigate(`/contact/${contactId}/admin`)} className="shrink-0 rounded-lg bg-gray-900 px-3 py-2 text-xs text-white">编辑全部资料</button></div>
 
           <div className="space-y-4">
             {/* Step 1: main model */}

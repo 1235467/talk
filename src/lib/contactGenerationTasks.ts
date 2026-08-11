@@ -29,7 +29,7 @@ import { randomAvatarColor } from './colors'
 import { employmentPatch } from './career'
 import { displayName } from './contact'
 import { syncContactLocationsAt } from './locations'
-import { activePromptPreset, clonePromptModules } from './promptPresets'
+import { FACTORY_PRESET_NAME, resolveContactPromptModules } from './promptPresets'
 
 const ACTIVE_STATUSES: ContactGenerationStatus[] = [
   'preparing', 'retrieving_context', 'extracting_canon', 'generating', 'validating', 'fetching_avatar', 'committing',
@@ -64,7 +64,7 @@ export async function createContactGenerationTask(options: {
   await initializeContactGenerationTasks()
   const settings = useSettingsStore.getState()
   const now = Date.now()
-  const promptPreset = activePromptPreset(settings)
+  const presetName = settings.defaultPresetName || FACTORY_PRESET_NAME
   const task: ContactGenerationTask = {
     id: uuid(),
     experienceMode: options.experienceMode ?? settings.experienceMode,
@@ -76,9 +76,7 @@ export async function createContactGenerationTask(options: {
     baseUrl: settings.baseUrl,
     model: settings.model,
     utilityModel: settings.utilityModel,
-    promptModulesSnapshot: clonePromptModules(promptPreset.modules),
-    promptPresetSourceId: promptPreset.id,
-    promptPresetSourceName: promptPreset.name,
+    presetName,
     personaDraft: options.personaDraft ? structuredClone(options.personaDraft) : undefined,
     attempt: 0,
     createdAt: now,
@@ -327,7 +325,7 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
     draftMode: task.method === 'precision',
     extra: personaExtra,
     occupation: input.occupation,
-  }, avatarCategory, task.promptModulesSnapshot ?? settings.promptModules, [worldbookText, canonText].filter(Boolean).join('\n\n'), voiceContext)
+  }, avatarCategory, await resolveContactPromptModules({ presetName: task.presetName } as Contact, settings), [worldbookText, canonText].filter(Boolean).join('\n\n'), voiceContext)
   if (!prompt.trim()) throw codedError('PROMPT_DISABLED', '女娲创建提示词模块已屏蔽', false)
 
   await setStage(task, 'generating', { rawOutput: '', partialFields: {}, validationRepairAttempted: false })
@@ -531,10 +529,7 @@ async function commitTask(task: ContactGenerationTask) {
       worldviewId: input.worldviewId,
       worldbookEntryIds: boundWorldbookEntryIds,
       experienceCursorAt: now,
-      promptModulesSnapshot: clonePromptModules(task.promptModulesSnapshot ?? useSettingsStore.getState().promptModules),
-      promptPresetSourceId: task.promptPresetSourceId,
-      promptPresetSourceName: task.promptPresetSourceName,
-      promptSnapshotUpdatedAt: now,
+      presetName: task.presetName,
       ...(input.careerEnabled && (input.occupation || parsed.occupation) ? employmentPatch(input.occupation || parsed.occupation || '', parsed.monthlySalary ?? 6000) : {}),
     }
     await api.contacts.put(contact)

@@ -1,21 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocalQuery } from '../lib/useLocalQuery'
 import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
 import { TopBar } from '../components/TopBar'
-import { ToggleSwitch } from '../components/ToggleSwitch'
 import { db } from '../db/unmigrated'
 import { api } from '../lib/api/resources'
 import { getOrUndef } from '../lib/api/client'
 import { invalidate } from '../lib/api/keys'
-import { PROMPT_MODULE_DEFINITIONS, unknownPromptPlaceholders } from '../lib/promptModules'
-import { clonePromptModules, promptModulesForContact } from '../lib/promptPresets'
 import { suggestContactAdminEdit, type ContactAdminSuggestion } from '../lib/contactAdminAssistant'
 import { useSettingsStore } from '../store/useSettingsStore'
-import type { Contact, ContactExperience, ContactLifeState, ContactMemory, ContactRelationLink, PromptModuleId, PromptModuleSettings, SocialEvent, WalletAccount, WalletTransaction } from '../types'
+import type { Contact, ContactExperience, ContactLifeState, ContactMemory, ContactRelationLink, SocialEvent, WalletAccount, WalletTransaction } from '../types'
 import { regenerateContactVisualIdentity } from '../lib/imageAssets'
 
-const CONTACT_RUNTIME_MODULES = new Set<PromptModuleId>(['chat', 'relationship', 'memory', 'intent', 'personalityTraits', 'worldview'])
 const EMPTY_MEMORIES: ContactMemory[] = []
 const EMPTY_RELATIONS: ContactRelationLink[] = []
 const EMPTY_EXPERIENCES: ContactExperience[] = []
@@ -77,11 +73,11 @@ export function ContactAdminPage() {
     queryFn: () => getOrUndef(api.contactLifeStates.get(contactId!)),
     enabled: !!contactId,
   })
+  const { data: presets } = useQuery({ queryKey: ['presets'], queryFn: () => api.presets.list() })
   const wallet = useLocalQuery(() => contactId ? db.walletAccounts.get(contactId) : undefined, [contactId])
   const transactions = useLocalQuery(() => contactId ? db.walletTransactions.filter((row: any) => row.fromOwnerId === contactId || row.toOwnerId === contactId).toArray() : EMPTY_TRANSACTIONS, [contactId]) ?? EMPTY_TRANSACTIONS
 
   const [draft, setDraft] = useState<Contact | null>(null)
-  const [promptDraft, setPromptDraft] = useState<PromptModuleSettings | null>(null)
   const [profileJson, setProfileJson] = useState('null')
   const [moodJson, setMoodJson] = useState('null')
   const [intentJson, setIntentJson] = useState('[]')
@@ -104,7 +100,6 @@ export function ContactAdminPage() {
   useEffect(() => {
     if (!contact || initializedId === contact.id) return
     setDraft(structuredClone(contact))
-    setPromptDraft(clonePromptModules(promptModulesForContact(contact, settings)))
     setProfileJson(pretty(contact.personaProfile))
     setMoodJson(pretty(contact.mood))
     setIntentJson(pretty(contact.intentQueue ?? []))
@@ -121,23 +116,15 @@ export function ContactAdminPage() {
   useEffect(() => { if (contact && initializedId === contact.id) setWalletJson(pretty(wallet)) }, [contact, initializedId, wallet])
   useEffect(() => { if (contact && initializedId === contact.id) setTransactionJson(pretty(transactions)) }, [contact, initializedId, transactions])
 
-  const definitions = useMemo(() => PROMPT_MODULE_DEFINITIONS.filter((definition) => CONTACT_RUNTIME_MODULES.has(definition.id)), [])
   const patchDraft = (patch: Partial<Contact>) => setDraft((current) => current ? { ...current, ...patch } : current)
 
-  function validatePromptModules(modules: PromptModuleSettings) {
-    for (const definition of definitions) for (const template of definition.templates) {
-      const unknown = unknownPromptPlaceholders(definition.id, template.id, modules[definition.id]?.templates?.[template.id] ?? '')
-      if (unknown.length) throw new Error(`${definition.name}／${template.name}含未知占位符：${unknown.join('、')}`)
-    }
-  }
 
   async function saveAll() {
-    if (!contactId || !contact || !draft || !promptDraft) return
+    if (!contactId || !contact || !draft) return
     setStatus('')
     try {
       if (!draft.name.trim()) throw new Error('联系人名称不能为空')
       if (draft.birthday && !/^\d{4}-\d{2}-\d{2}$/.test(draft.birthday)) throw new Error('生日必须使用 YYYY-MM-DD')
-      validatePromptModules(promptDraft)
       const nextMemories = parseArray<ContactMemory>('AI记忆', memoryJson).map((row) => ({ ...row, contactId }))
       const personaProfile = parseObject<Contact['personaProfile']>('结构化人设', profileJson)
       const mood = parseObject<NonNullable<Contact['mood']>>('当前心情', moodJson)
@@ -154,7 +141,7 @@ export function ContactAdminPage() {
       const oldExperienceIds = new Set(experiences.map((row) => row.id))
       const nextExperienceIds = new Set(nextExperiences.map((row) => row.id))
 
-      await api.contacts.put({ ...draft, id: contact.id, createdAt: contact.createdAt, personaProfile: personaProfile ?? undefined, mood: mood ?? undefined, intentQueue, schedule, scheduleOverrides, customPersonalityTraits, promptModulesSnapshot: clonePromptModules(promptDraft), promptPresetSourceName: '联系人单独修改', promptSnapshotUpdatedAt: Date.now() })
+      await api.contacts.put({ ...draft, id: contact.id, createdAt: contact.createdAt, personaProfile: personaProfile ?? undefined, mood: mood ?? undefined, intentQueue, schedule, scheduleOverrides, customPersonalityTraits })
       invalidate('contacts')
       const oldMemories = await api.contactMemories.list({ contactId })
       if (oldMemories.length) await api.contactMemories.bulkDelete(oldMemories.map((row) => row.id))
@@ -182,25 +169,25 @@ export function ContactAdminPage() {
       await db.walletTransactions.filter((row: any) => row.fromOwnerId === contactId || row.toOwnerId === contactId).delete()
       if (nextTransactions.length) await db.walletTransactions.bulkPut(nextTransactions)
       setStatus('已保存，下一轮聊天会使用新资料。')
-      setDraft((current) => current ? { ...current, promptModulesSnapshot: clonePromptModules(promptDraft), promptSnapshotUpdatedAt: Date.now() } : current)
+      setDraft((current) => current)
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error))
     }
   }
 
   async function askAi() {
-    if (!contact || !draft || !promptDraft || !aiInstruction.trim()) return
+    if (!contact || !draft || !aiInstruction.trim()) return
     if (!settings.apiKey) { setStatus('请先配置 API Key'); return }
     setAiBusy(true); setStatus(''); setSuggestion(null)
     try {
-      const result = await suggestContactAdminEdit({ settings, contact: draft, promptModules: promptDraft, experiences: parseArray<ContactExperience>('经历', experienceJson), instruction: aiInstruction.trim() })
+      const result = await suggestContactAdminEdit({ settings, contact: draft, experiences: parseArray<ContactExperience>('经历', experienceJson), instruction: aiInstruction.trim() })
       setSuggestion(result)
     } catch (error) { setStatus(error instanceof Error ? error.message : String(error)) }
     finally { setAiBusy(false) }
   }
 
   function applySuggestion() {
-    if (!suggestion || !draft || !promptDraft) return
+    if (!suggestion || !draft) return
     const unsafe = suggestion.contactPatch ?? {}
     const { id: _id, createdAt: _createdAt, ...safePatch } = unsafe
     void _id; void _createdAt
@@ -211,14 +198,6 @@ export function ContactAdminPage() {
     if ('schedule' in safePatch) setScheduleJson(pretty(safePatch.schedule ?? []))
     if ('scheduleOverrides' in safePatch) setScheduleOverrideJson(pretty(safePatch.scheduleOverrides ?? []))
     if ('customPersonalityTraits' in safePatch) setTraitJson(pretty(safePatch.customPersonalityTraits ?? []))
-    if (suggestion.promptModulePatches) {
-      const next = clonePromptModules(promptDraft)
-      for (const [moduleId, patch] of Object.entries(suggestion.promptModulePatches)) {
-        if (!patch || !next[moduleId as PromptModuleId]) continue
-        next[moduleId as PromptModuleId] = { ...next[moduleId as PromptModuleId], ...patch, templates: { ...next[moduleId as PromptModuleId].templates, ...(patch.templates ?? {}) } }
-      }
-      setPromptDraft(next)
-    }
     if (suggestion.experiencePatches?.length) {
       const patches = new Map(suggestion.experiencePatches.map((row) => [row.id, row]))
       const rows = parseArray<ContactExperience>('经历', experienceJson).map((row) => ({ ...row, ...(patches.get(row.id) ?? {}), id: row.id }))
@@ -229,7 +208,7 @@ export function ContactAdminPage() {
   }
 
   if (!settings.adminModeEnabled) return <div className="flex h-[var(--app-height)] flex-col overflow-hidden bg-[#f4f4f6]"><TopBar title="管理员编辑" showBack /><p className="p-8 text-center text-sm text-gray-400">请先开启管理员模式</p></div>
-  if (!contact || !draft || !promptDraft) return null
+  if (!contact || !draft) return null
 
   return <div className="flex h-[var(--app-height)] flex-col overflow-hidden bg-[#f4f4f6]">
     <TopBar title="编辑全部资料" showBack />
@@ -240,7 +219,7 @@ export function ContactAdminPage() {
 
       <section className="mt-3 space-y-3 bg-white px-4 py-4"><h2 className="text-sm font-medium text-gray-900">关系、状态与生活</h2><div className="grid grid-cols-2 gap-3"><Field label="关系定位" value={draft.relationshipBase} onChange={(value) => patchDraft({ relationshipBase: value })} /><Field label="好感度 -100~100" type="number" value={draft.warmth ?? 0} onChange={(value) => patchDraft({ warmth: Math.max(-100, Math.min(100, Number(value))) })} /><Field label="职业" value={draft.occupation ?? ''} onChange={(value) => patchDraft({ occupation: value })} /><Field label="月薪" type="number" value={draft.monthlySalary ?? 0} onChange={(value) => patchDraft({ monthlySalary: Number(value) })} /><Field label="当前位置ID" value={draft.currentLocationId ?? ''} onChange={(value) => patchDraft({ currentLocationId: value })} /><Field label="当前活动" value={draft.currentActivity ?? ''} onChange={(value) => patchDraft({ currentActivity: value })} /></div><Area label="关系动态" value={draft.relationshipDynamic} onChange={(value) => patchDraft({ relationshipDynamic: value })} /><Area label="当前心情 JSON" value={moodJson} onChange={setMoodJson} rows={4} mono /><Area label="AI 内部意图 JSON" value={intentJson} onChange={setIntentJson} rows={8} mono /><Area label="固定日程 JSON" value={scheduleJson} onChange={setScheduleJson} rows={10} mono /><Area label="特殊日程 JSON" value={scheduleOverrideJson} onChange={setScheduleOverrideJson} rows={8} mono /><Area label="自定义性格特质 JSON" value={traitJson} onChange={setTraitJson} rows={8} mono /><Area label="世界书条目ID（每行一个）" value={(draft.worldbookEntryIds ?? []).join('\n')} onChange={(value) => patchDraft({ worldbookEntryIds: value.split('\n').map((line) => line.trim()).filter(Boolean) })} /></section>
 
-      <section className="mt-3 bg-white px-4 py-4"><h2 className="text-sm font-medium text-gray-900">当前联系人固定提示词</h2><p className="mt-1 text-[11px] text-gray-400">这里只修改当前联系人，不会反向修改全局存档。</p><div className="mt-3 space-y-3">{definitions.map((definition) => { const config = promptDraft[definition.id]; if (!config) return null; return <details key={definition.id} className="rounded-xl border border-gray-200 p-3"><summary className="flex cursor-pointer list-none items-center gap-3"><span className="min-w-0 flex-1 text-sm font-medium text-gray-800">{definition.name}</span><ToggleSwitch checked={config.enabled} onChange={(enabled) => setPromptDraft((current) => current ? { ...current, [definition.id]: { ...current[definition.id], enabled } } : current)} ariaLabel={`切换${definition.name}`} /></summary><div className="mt-3 space-y-3">{definition.templates.map((template) => <Area key={template.id} label={template.name} value={config.templates[template.id] ?? ''} onChange={(value) => setPromptDraft((current) => current ? { ...current, [definition.id]: { ...current[definition.id], templates: { ...current[definition.id].templates, [template.id]: value } } } : current)} rows={8} mono note={template.placeholders.length ? `可用占位符：${template.placeholders.map((key) => `{{${key}}}`).join('、')}` : undefined} />)}</div></details> })}</div></section>
+      <section className="mt-3 bg-white px-4 py-4"><h2 className="text-sm font-medium text-gray-900">提示词预设</h2><p className="mt-1 text-[11px] text-gray-400">联系人按名字引用预设；改预设内容请去"全局提示词模块"页，所有引用同一预设的联系人会一起生效。</p><select value={draft.presetName ?? ''} onChange={(event) => patchDraft({ presetName: event.target.value || undefined })} className="mt-3 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800"><option value="">出厂默认</option>{(presets ?? []).map((preset) => <option key={preset.name} value={preset.name}>{preset.name}{preset.isFactory ? '（出厂）' : ''}</option>)}</select></section>
 
 
 
