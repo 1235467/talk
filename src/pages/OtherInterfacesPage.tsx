@@ -24,7 +24,6 @@ export function OtherInterfacesPage() {
   async function testTavily() {
     setTesting('tavily'); setStatus(null)
     try {
-      setSettings({ tavilyApiKey: tavilyKey.trim() })
       const results = await tavilySearch(tavilyKey.trim(), '今日天气')
       setStatus({ kind: 'tavily', ok: true, text: `连接成功，搜到 ${results.length} 条结果` })
     } catch (error) {
@@ -36,7 +35,6 @@ export function OtherInterfacesPage() {
     setTesting('pexels'); setStatus(null)
     try {
       await testPexelsConnection(pexelsKey.trim())
-      setSettings({ pexelsApiKey: pexelsKey.trim() })
       setStatus({ kind: 'pexels', ok: true, text: `连接成功（${apiKeyFingerprint(pexelsKey)}）` })
     } catch (error) {
       setStatus({ kind: 'pexels', ok: false, text: friendlyConnectionError(error, 'Pexels') })
@@ -100,8 +98,8 @@ export function OtherInterfacesPage() {
 
         <section className="mt-3 bg-white px-4 py-4">
           <h2 className="mb-3 text-xs font-medium text-gray-400">Pexels 实拍图库</h2>
-          <div className="relative"><input value={pexelsKey} onChange={(e) => setPexelsKey(e.target.value)} onBlur={() => setSettings({ pexelsApiKey: pexelsKey.trim() })} type={visible.pexels ? 'text' : 'password'} placeholder="Pexels API Key" className={`${inputClass} pr-16`} /><button type="button" onClick={() => setVisible((v) => ({ ...v, pexels: !v.pexels }))} className="absolute inset-y-0 right-0 px-3 text-xs text-gray-500">{visible.pexels ? '隐藏' : '显示'}</button></div>
-          <button type="button" onClick={() => void testPexels()} disabled={!pexelsKey.trim() || testing !== null} className="mt-2 w-full rounded-lg bg-gray-900 py-2.5 text-sm text-white disabled:opacity-50">{testing === 'pexels' ? '测试中…' : '测试连接'}</button>
+          <div className="relative"><input value={pexelsKey} onChange={(e) => setPexelsKey(e.target.value)} type={visible.pexels ? 'text' : 'password'} placeholder="Pexels API Key" className={`${inputClass} pr-16`} /><button type="button" onClick={() => setVisible((v) => ({ ...v, pexels: !v.pexels }))} className="absolute inset-y-0 right-0 px-3 text-xs text-gray-500">{visible.pexels ? '隐藏' : '显示'}</button></div>
+          <div className="mt-2 flex gap-2"><button type="button" onClick={() => void testPexels()} disabled={!pexelsKey.trim() || testing !== null} className="flex-1 rounded-lg bg-gray-100 py-2.5 text-sm text-gray-700 disabled:opacity-50">{testing === 'pexels' ? '测试中…' : '测试连接'}</button><button type="button" onClick={() => setSettings({ pexelsApiKey: pexelsKey.trim() })} className="flex-1 rounded-lg bg-gray-900 py-2.5 text-sm text-white">保存</button></div>
           {result('pexels')}
         </section>
 
@@ -132,8 +130,8 @@ export function OtherInterfacesPage() {
 
         <section className="mt-3 bg-white px-4 py-4">
           <h2 className="mb-3 text-xs font-medium text-gray-400">Tavily 联网搜索</h2>
-          <div className="relative"><input value={tavilyKey} onChange={(e) => setTavilyKey(e.target.value)} onBlur={() => setSettings({ tavilyApiKey: tavilyKey.trim() })} type={visible.tavily ? 'text' : 'password'} placeholder="tvly-..." className={`${inputClass} pr-16`} /><button type="button" onClick={() => setVisible((v) => ({ ...v, tavily: !v.tavily }))} className="absolute inset-y-0 right-0 px-3 text-xs text-gray-500">{visible.tavily ? '隐藏' : '显示'}</button></div>
-          <button type="button" onClick={() => void testTavily()} disabled={!tavilyKey.trim() || testing !== null} className="mt-2 w-full rounded-lg bg-gray-900 py-2.5 text-sm text-white disabled:opacity-50">{testing === 'tavily' ? '测试中…' : '测试连接'}</button>
+          <div className="relative"><input value={tavilyKey} onChange={(e) => setTavilyKey(e.target.value)} type={visible.tavily ? 'text' : 'password'} placeholder="tvly-..." className={`${inputClass} pr-16`} /><button type="button" onClick={() => setVisible((v) => ({ ...v, tavily: !v.tavily }))} className="absolute inset-y-0 right-0 px-3 text-xs text-gray-500">{visible.tavily ? '隐藏' : '显示'}</button></div>
+          <div className="mt-2 flex gap-2"><button type="button" onClick={() => void testTavily()} disabled={!tavilyKey.trim() || testing !== null} className="flex-1 rounded-lg bg-gray-100 py-2.5 text-sm text-gray-700 disabled:opacity-50">{testing === 'tavily' ? '测试中…' : '测试连接'}</button><button type="button" onClick={() => setSettings({ tavilyApiKey: tavilyKey.trim() })} className="flex-1 rounded-lg bg-gray-900 py-2.5 text-sm text-white">保存</button></div>
           {result('tavily')}
         </section>
       </div>
