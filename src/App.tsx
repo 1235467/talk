@@ -155,7 +155,7 @@ function App() {
   const experienceMode = useSettingsStore((s) => s.experienceMode)
   const location = useLocation()
   const desktop = Boolean(window.talkDesktop)
-  useEffect(() => { void ensureWallets() }, [enabledModules])
+  useEffect(() => { ensureWallets().catch((error) => console.warn('[finance] ensureWallets failed', error)) }, [enabledModules])
   useEffect(() => { void ensureLegacyWorldviewMigrated() }, [])
   useEffect(() => { void initializeContactGenerationTasks() }, [])
   useEffect(() => { void ensureServerPresets(useSettingsStore.getState()) }, [])

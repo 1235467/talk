@@ -193,28 +193,27 @@ pub async fn claim_red_packet(State(state): State<AppState>, Json(body): Json<Cl
     Ok(ok(value))
 }
 
+/// Read a kv value inside the caller's transaction — never from the pool
+/// while a write transaction is open (avoids dual-connection lock games).
+async fn kv_value(tx: &mut Tx<'_>, key: &str) -> AppResult<Option<serde_json::Value>> {
+    let row: Option<(String,)> = sqlx::query_as("SELECT value FROM kv WHERE key = ?")
+        .bind(key)
+        .fetch_optional(&mut **tx)
+        .await?;
+    Ok(row.and_then(|(v,)| serde_json::from_str::<serde_json::Value>(&v).ok()))
+}
+
 /// Ensure wallet rows exist for the user and every contact; migrate the
 /// legacy settings.balance into the user wallet exactly once.
 pub async fn ensure(State(state): State<AppState>) -> AppResult<Json<serde_json::Value>> {
     let mut tx = state.db.begin().await?;
     let now = now_ms();
 
-    let kv_get = |key: &str| {
-        let db = state.db.clone();
-        let key = key.to_string();
-        async move {
-            let row: Option<(String,)> = sqlx::query_as("SELECT value FROM kv WHERE key = ?")
-                .bind(&key)
-                .fetch_optional(&db)
-                .await?;
-            Ok::<_, sqlx::Error>(row.and_then(|(v,)| serde_json::from_str::<serde_json::Value>(&v).ok()))
-        }
-    };
-    let migrated = kv_get("walletMigrated").await?.and_then(|v| v.as_bool()).unwrap_or(false);
+    let migrated = kv_value(&mut tx, "walletMigrated").await?.and_then(|v| v.as_bool()).unwrap_or(false);
     let legacy = if migrated {
         0
     } else {
-        kv_get("walletBalance").await?.and_then(|v| v.as_i64()).filter(|v| *v > 0).unwrap_or(0)
+        kv_value(&mut tx, "walletBalance").await?.and_then(|v| v.as_i64()).filter(|v| *v > 0).unwrap_or(0)
     };
 
     if read_balance(&mut tx, USER_WALLET_ID).await?.is_none() {
@@ -358,19 +357,8 @@ pub async fn claim_daily_salaries(State(state): State<AppState>, Json(body): Jso
     let date = body.date;
     let mut tx = state.db.begin().await?;
 
-    let kv_get = |key: &str| {
-        let db = state.db.clone();
-        let key = key.to_string();
-        async move {
-            let row: Option<(String,)> = sqlx::query_as("SELECT value FROM kv WHERE key = ?")
-                .bind(&key)
-                .fetch_optional(&db)
-                .await?;
-            Ok::<_, sqlx::Error>(row.and_then(|(v,)| serde_json::from_str::<serde_json::Value>(&v).ok()))
-        }
-    };
-    let occupation = kv_get("userOccupation").await?.and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
-    let monthly = kv_get("userMonthlySalary").await?.and_then(|v| v.as_i64()).unwrap_or(0);
+    let occupation = kv_value(&mut tx, "userOccupation").await?.and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+    let monthly = kv_value(&mut tx, "userMonthlySalary").await?.and_then(|v| v.as_i64()).unwrap_or(0);
     if occupation.is_empty() || monthly <= 0 {
         return Err(AppError::BadRequest("需要先入职才能领取工资".into()));
     }
