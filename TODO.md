@@ -20,7 +20,7 @@
 1. [x] **finance**（walletAccounts/walletTransactions/loans；2026-08 完成：0006_finance.sql + `/api/finance/*` 原子端点（幂等键保留）+ lib/finance.ts 转 api；5 处假 bug 已消（ContactAdminPage saveAll、backup restore、App.tsx ensureWallets、MePage/DesktopLayout 死查询、SettingsPage 余额区）；chatEngine 转账气泡已接线但仍由 career 模块门控）
 2. [x] **shop/warehouse**（inventory/shopPurchaseHistory；2026-08 完成：0007_shop.sql + `/api/finance/purchase` 原子购买端点 + inventory.ts 转 api；模块已重新启用（DORMANT_MODULES 移除 shop/warehouse）；linkApps 提示词注入恢复仍是可选增强，见下）
 3. [x] **career**（jobListings/interviews；2026-08 完成：0008_career.sql + 纯 CRUD + WorkPage/InterviewPage 转 api；career 模块重新启用，ChatPage 金融簇/工资/职业行/引擎金钱气泡同步解锁）
-4. **scopedSaves 存档**（contactStorylines/contactSaveSnapshots/globalSaveSnapshots/saveSlots；多表快照做成批处理端点）
+4. [x] **scopedSaves 存档**（2026-08 完成：0009_scoped_saves.sql + `/api/saves/{restore-contact,restore-global,switch-worldview}` 多表原子端点 + scopedSaves.ts/SaveLoadPage 转 api；saveLoad 模块重新启用——DORMANT_MODULES 已清空；saveSlots 无任何消费方，保持 SKIPPED 待随 aiTest 期清理；新增 scopedSaves.test.ts 6 例）
 
 ## 3. 删除不迁移（稳定化）
 

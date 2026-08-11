@@ -9,7 +9,10 @@ import type {
   ContactLifeState,
   ContactMemory,
   ContactRelationLink,
+  ContactSaveSnapshot,
+  ContactStoryline,
   Conversation,
+  GlobalSaveSnapshot,
   Group,
   GroupPlan,
   InternalTask,
@@ -112,6 +115,9 @@ export const api = {
   shopPurchaseHistory: keyedResource<ShopPurchaseHistory>('/shop-purchase-history'),
   jobListings: resource<JobListing>('/job-listings'),
   interviews: resource<InterviewSession>('/interviews'),
+  contactStorylines: resource<ContactStoryline>('/contact-storylines'),
+  contactSaveSnapshots: resource<ContactSaveSnapshot>('/contact-save-snapshots'),
+  globalSaveSnapshots: resource<GlobalSaveSnapshot>('/global-save-snapshots'),
 
   /** Atomic ledger operations (balance math and idempotency live server-side). */
   finance: {
@@ -146,6 +152,14 @@ export const api = {
     deleteContact: (contactId: string) => apiFetch('/batch/delete-contact', { method: 'POST', body: { contactId } }),
     deleteMoment: (momentId: string) => apiFetch('/batch/delete-moment', { method: 'POST', body: { momentId } }),
     deleteMessage: (messageId: string) => apiFetch('/batch/delete-message', { method: 'POST', body: { messageId } }),
+  },
+
+  /** Atomic multi-table snapshot operations. */
+  saves: {
+    restoreContact: (snapshotId: string) => apiFetch('/saves/restore-contact', { method: 'POST', body: { snapshotId } }),
+    restoreGlobal: (snapshotId: string) => apiFetch('/saves/restore-global', { method: 'POST', body: { snapshotId } }),
+    switchWorldview: (contactId: string, worldviewId: string, worldName?: string) =>
+      apiFetch<ContactStoryline>('/saves/switch-worldview', { method: 'POST', body: { contactId, worldviewId, worldName } }),
   },
 
   media: {

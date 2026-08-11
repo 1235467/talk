@@ -10,15 +10,7 @@ use sqlx::SqlitePool;
 /// Backup tables that exist but belong to dormant (not-yet-migrated) features
 /// — the table-level counterpart of the client's DORMANT_MODULES list. When a
 /// feature migrates, its tables move from here into import_order().
-const SKIPPED_TABLES: &[&str] = &[
-    "adminLogs",
-    "adminAiTraces",
-    "contactStorylines",
-    "contactSaveSnapshots",
-    "globalSaveSnapshots",
-    "saveSlots",
-    "aiTestSuites",
-];
+const SKIPPED_TABLES: &[&str] = &["adminLogs", "adminAiTraces", "saveSlots", "aiTestSuites"];
 
 /// Settings keys that stay on the device and never belong in kv.
 const DEVICE_ONLY_SETTINGS: &[&str] = &["serverUrl", "serverToken", "topInsetAdjustmentPx", "setSettings"];

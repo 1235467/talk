@@ -11,6 +11,7 @@ pub mod kv;
 pub mod media;
 pub mod outbound;
 pub mod presets;
+pub mod saves;
 
 
 pub fn router(state: AppState) -> Router {
@@ -30,6 +31,9 @@ pub fn router(state: AppState) -> Router {
         .route("/finance/claim-red-packet", post(finance::claim_red_packet))
         .route("/finance/claim-daily-salaries", post(finance::claim_daily_salaries))
         .route("/finance/purchase", post(finance::purchase))
+        .route("/saves/restore-contact", post(saves::restore_contact))
+        .route("/saves/restore-global", post(saves::restore_global))
+        .route("/saves/switch-worldview", post(saves::switch_worldview))
         .route("/export", get(batch::export_all))
         .route("/import", post(import_backup))
         .merge(crate::resources::router())

@@ -132,6 +132,15 @@ pub async fn get(pool: &SqlitePool, res: &Resource, id: &str) -> AppResult<serde
 }
 
 pub async fn upsert(pool: &SqlitePool, res: &Resource, body: serde_json::Value) -> AppResult<serde_json::Value> {
+    let mut tx = pool.begin().await?;
+    let result = upsert_row(&mut tx, res, body).await?;
+    tx.commit().await?;
+    Ok(result)
+}
+
+/// The upsert core, usable inside a caller-managed transaction (e.g. the
+/// multi-table save/restore endpoints).
+pub async fn upsert_row(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, res: &Resource, body: serde_json::Value) -> AppResult<serde_json::Value> {
     let pk = body
         .get(res.pk_json)
         .and_then(|v| v.as_str())
@@ -165,29 +174,27 @@ pub async fn upsert(pool: &SqlitePool, res: &Resource, body: serde_json::Value) 
         updates.join(", ")
     );
 
-    let mut tx = pool.begin().await?;
     let mut query = sqlx::query(&sql);
     for value in &values {
         query = query.bind(value);
     }
-    query.execute(&mut *tx).await?;
+    query.execute(&mut **tx).await?;
 
     if let Some(join) = res.join {
         sqlx::query(&format!("DELETE FROM \"{}\" WHERE \"{}\" = ?", join.table, join.fk))
             .bind(&pk)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         if let Some(ids) = body.get(join.json).and_then(|v| v.as_array()) {
             for id in ids.iter().filter_map(|v| v.as_str()) {
                 sqlx::query(&format!("INSERT OR IGNORE INTO \"{}\" (\"{}\", \"{}\") VALUES (?, ?)", join.table, join.fk, id_col(join.table)))
                     .bind(&pk)
                     .bind(id)
-                    .execute(&mut *tx)
+                    .execute(&mut **tx)
                     .await?;
             }
         }
     }
-    tx.commit().await?;
     Ok(body)
 }
 

@@ -414,6 +414,33 @@ crud_routes!(interviews, "/interviews", Resource {
     default_order: "updated_at DESC",
 });
 
+crud_routes!(contact_storylines, "/contact-storylines", Resource {
+    table: "contact_storylines",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("contact_id", "contactId"), int("active", "active"), int("updated_at", "updatedAt"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "created_at DESC",
+});
+
+crud_routes!(contact_save_snapshots, "/contact-save-snapshots", Resource {
+    table: "contact_save_snapshots",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("contact_id", "contactId"), text("storyline_id", "storylineId"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "created_at DESC",
+});
+
+crud_routes!(global_save_snapshots, "/global-save-snapshots", Resource {
+    table: "global_save_snapshots",
+    pk: "id",
+    pk_json: "id",
+    cols: &[text("resource_type", "resourceType"), text("resource_id", "resourceId"), int("created_at", "createdAt")],
+    join: None,
+    default_order: "created_at DESC",
+});
+
 crud_routes!(speech_cache, "/speech-cache", Resource {
     table: "speech_cache",
     pk: "message_id",
@@ -459,6 +486,9 @@ pub fn import_order() -> Vec<(&'static str, &'static Resource)> {
         ("shopPurchaseHistory", &shop_purchase_history::RES),
         ("jobListings", &job_listings::RES),
         ("interviews", &interviews::RES),
+        ("contactStorylines", &contact_storylines::RES),
+        ("contactSaveSnapshots", &contact_save_snapshots::RES),
+        ("globalSaveSnapshots", &global_save_snapshots::RES),
         ("conversations", &conversations::RES),
         ("groups", &groups::RES),
         ("messages", &messages::RES),
@@ -532,5 +562,8 @@ pub fn router() -> Router<crate::state::AppState> {
     let r = mount!(r, "/shop-purchase-history", shop_purchase_history);
     let r = mount!(r, "/job-listings", job_listings);
     let r = mount!(r, "/interviews", interviews);
+    let r = mount!(r, "/contact-storylines", contact_storylines);
+    let r = mount!(r, "/contact-save-snapshots", contact_save_snapshots);
+    let r = mount!(r, "/global-save-snapshots", global_save_snapshots);
     mount!(r, "/speech-cache", speech_cache)
 }

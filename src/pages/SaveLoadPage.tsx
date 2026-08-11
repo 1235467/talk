@@ -1,13 +1,10 @@
-// @ts-nocheck — 未迁移的非核心功能，见 db/unmigrated.ts
 import { useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, Clock3, Database, Map, RotateCcw, Trash2 } from 'lucide-react'
 import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
-import { db } from '../db/unmigrated'
 import { api } from '../lib/api/resources'
 import { getOrUndef } from '../lib/api/client'
-import { useLocalQuery } from '../lib/useLocalQuery'
 import {
   createContactSave, createMapSave, createWorldbookSave, deleteScopedSave,
   restoreContactSave, restoreMapSave, restoreWorldbookSave,
@@ -30,9 +27,9 @@ function SnapshotActions({ busy, onRestore, onDelete }: { busy: boolean; onResto
 export function SaveLoadPage() {
   const { data: contactsRaw = [] } = useQuery({ queryKey: ['contacts'], queryFn: () => api.contacts.list() })
   const contacts = [...contactsRaw].sort((a, b) => b.createdAt - a.createdAt)
-  const storylines = useLocalQuery(() => db.contactStorylines.toArray(), []) ?? []
-  const contactSnapshots = useLocalQuery(() => db.contactSaveSnapshots.orderBy('createdAt').reverse().toArray(), []) ?? []
-  const globalSnapshots = useLocalQuery(() => db.globalSaveSnapshots.orderBy('createdAt').reverse().toArray(), []) ?? []
+  const { data: storylines = [] } = useQuery({ queryKey: ['contactStorylines'], queryFn: () => api.contactStorylines.list() })
+  const { data: contactSnapshots = [] } = useQuery({ queryKey: ['contactSaveSnapshots'], queryFn: () => api.contactSaveSnapshots.list() })
+  const { data: globalSnapshots = [] } = useQuery({ queryKey: ['globalSaveSnapshots'], queryFn: () => api.globalSaveSnapshots.list() })
   const { data: worlds = [] } = useQuery({ queryKey: ['worldbookCollections'], queryFn: () => api.worldbookCollections.list() })
   const { data: map } = useQuery({ queryKey: ['worldMaps', 'active'], queryFn: () => getOrUndef(api.worldMaps.get('active')) })
   const { data: locations = [] } = useQuery({ queryKey: ['locations'], queryFn: () => api.locations.list() })

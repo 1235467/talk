@@ -64,6 +64,9 @@ const RESOURCE_PK: Record<string, string> = {
   'shop-purchase-history': 'productKey',
   'job-listings': 'id',
   interviews: 'id',
+  'contact-storylines': 'id',
+  'contact-save-snapshots': 'id',
+  'global-save-snapshots': 'id',
 }
 
 /** camelCase backup-table name → REST path (mirrors server import_order). */
@@ -85,6 +88,8 @@ const BACKUP_TO_PATH: Record<string, string> = {
   walletAccounts: 'wallet-accounts', walletTransactions: 'wallet-transactions', loans: 'loans',
   inventory: 'inventory', shopPurchaseHistory: 'shop-purchase-history',
   jobListings: 'job-listings', interviews: 'interviews',
+  contactStorylines: 'contact-storylines', contactSaveSnapshots: 'contact-save-snapshots',
+  globalSaveSnapshots: 'global-save-snapshots',
 }
 
 interface FakeDb {
@@ -314,6 +319,72 @@ async function fakeApiFetch(path: string, options: { method?: string; body?: any
     throw new FakeApiError(404, `unknown finance endpoint ${id}`)
   }
 
+  // Scoped-save endpoints: same multi-table semantics as the real server's routes/saves.rs.
+  if (head === 'saves') {
+    if (id === 'restore-contact' && method === 'POST') {
+      const saved = table('contact-save-snapshots').get(options.body.snapshotId)
+      if (!saved) throw new FakeApiError(400, '该联系人存档不存在')
+      const snapshot = saved.snapshot as { contact: Row; conversation?: Row; messages: Row[]; memories: Row[]; mediaAssets?: Row[] }
+      const contactId = String(saved.contactId)
+      const current = [...table('conversations').values()].find((row) => row.contactId === contactId)
+      if (current) {
+        for (const [mid, message] of table('messages')) if (message.conversationId === current.id) table('messages').delete(mid)
+        for (const [aid, asset] of table('media-assets')) if (asset.conversationId === current.id) table('media-assets').delete(aid)
+        table('conversations').delete(String(current.id))
+      }
+      for (const [mid, memory] of table('contact-memories')) if (memory.contactId === contactId) table('contact-memories').delete(mid)
+      table('contacts').set(String(snapshot.contact.id), snapshot.contact)
+      if (snapshot.conversation) table('conversations').set(String(snapshot.conversation.id), snapshot.conversation)
+      for (const message of snapshot.messages) table('messages').set(String(message.id), message)
+      for (const memory of snapshot.memories) table('contact-memories').set(String(memory.id), memory)
+      for (const asset of snapshot.mediaAssets ?? []) table('media-assets').set(String(asset.id), asset)
+      for (const [lid, line] of table('contact-storylines')) {
+        if (line.contactId === contactId) table('contact-storylines').set(lid, { ...line, active: lid === saved.storylineId, updatedAt: Date.now() })
+      }
+      return { ok: true }
+    }
+    if (id === 'restore-global' && method === 'POST') {
+      const saved = table('global-save-snapshots').get(options.body.snapshotId)
+      if (!saved) throw new FakeApiError(400, '该存档不存在')
+      const snapshot = saved.snapshot as Record<string, any>
+      if (saved.resourceType === 'worldbook') {
+        table('worldbook-collections').set(String(snapshot.collection.id), snapshot.collection)
+        for (const [eid, entry] of table('worldbook-entries')) if (entry.collectionId === saved.resourceId) table('worldbook-entries').delete(eid)
+        for (const entry of (snapshot.entries ?? []) as Row[]) table('worldbook-entries').set(String(entry.id), entry)
+        return { ok: true }
+      }
+      if (saved.resourceType === 'map') {
+        table('world-maps').set(String(snapshot.map.id), snapshot.map)
+        table('locations').clear()
+        for (const location of (snapshot.locations ?? []) as Row[]) table('locations').set(String(location.id), location)
+        table('location-module-state').clear()
+        if (snapshot.state) table('location-module-state').set(String(snapshot.state.id), snapshot.state)
+        table('acoustic-edges').clear()
+        for (const edge of (snapshot.edges ?? []) as Row[]) table('acoustic-edges').set(String(edge.id), edge)
+        return { ok: true }
+      }
+      throw new FakeApiError(400, '未知的存档类型')
+    }
+    if (id === 'switch-worldview' && method === 'POST') {
+      const { contactId, worldviewId, worldName } = options.body
+      const current = [...table('conversations').values()].find((row) => row.contactId === contactId)
+      if (current) {
+        for (const [mid, message] of table('messages')) if (message.conversationId === current.id) table('messages').delete(mid)
+        for (const [aid, asset] of table('media-assets')) if (asset.conversationId === current.id) table('media-assets').delete(aid)
+      }
+      for (const [mid, memory] of table('contact-memories')) if (memory.contactId === contactId) table('contact-memories').delete(mid)
+      const contact = table('contacts').get(contactId)
+      if (contact) table('contacts').set(contactId, { ...contact, worldviewId })
+      for (const [lid, line] of table('contact-storylines')) {
+        if (line.contactId === contactId) table('contact-storylines').set(lid, { ...line, active: false, updatedAt: Date.now() })
+      }
+      const line: Row = { id: `line-${Date.now()}`, contactId, worldviewId, name: worldName ? `${worldName}剧情线` : '默认剧情线', active: true, createdAt: Date.now(), updatedAt: Date.now() }
+      table('contact-storylines').set(line.id, line)
+      return line
+    }
+    throw new FakeApiError(404, `unknown saves endpoint ${id}`)
+  }
+
   if (head === 'batch') {
     if (id === 'delete-message') {
       const messageId = options.body.messageId
@@ -374,6 +445,9 @@ async function fakeApiFetch(path: string, options: { method?: string; body?: any
       table('wallet-accounts').delete(contactId)
       for (const [tid, tx] of table('wallet-transactions')) if (tx.fromOwnerId === contactId || tx.toOwnerId === contactId) table('wallet-transactions').delete(tid)
       for (const [lid, loan] of table('loans')) if (loan.lenderId === contactId || loan.borrowerId === contactId) table('loans').delete(lid)
+      // Scoped saves belonging to the contact.
+      for (const [sid, line] of table('contact-storylines')) if (line.contactId === contactId) table('contact-storylines').delete(sid)
+      for (const [sid, snap] of table('contact-save-snapshots')) if (snap.contactId === contactId) table('contact-save-snapshots').delete(sid)
       if (!table('contacts').delete(contactId)) throw new FakeApiError(404, 'not found')
       return { ok: true }
     }

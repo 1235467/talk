@@ -64,6 +64,10 @@ pub async fn delete_contact(State(state): State<AppState>, Json(body): Json<Dele
     sqlx::query("DELETE FROM wallet_transactions WHERE from_owner_id = ? OR to_owner_id = ?").bind(id).bind(id).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM loans WHERE lender_id = ? OR borrower_id = ?").bind(id).bind(id).execute(&mut *tx).await?;
 
+    // Scoped saves: storylines and snapshots belonging to the contact.
+    sqlx::query("DELETE FROM contact_storylines WHERE contact_id = ?").bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM contact_save_snapshots WHERE contact_id = ?").bind(id).execute(&mut *tx).await?;
+
     let result = sqlx::query("DELETE FROM contacts WHERE id = ?").bind(id).execute(&mut *tx).await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound);

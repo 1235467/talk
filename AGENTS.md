@@ -40,12 +40,13 @@
 
 ## 非核心功能（休眠，不是删除）
 
-scopedSaves（存档）、aiTest 框架：**代码保留**但模块在 `enabledModules` 里被禁用，数据不迁移。它们的 db 引用指向 `src/db/unmigrated.ts`（调用即抛"尚未迁移"的 stub），文件带 `@ts-nocheck`、对应测试 `describe.skip`。恢复路径：服务器补表 → api 资源 → 启用模块。
+aiTest 框架：**代码保留**但功能已停（模块从未注册进 ALL_MODULES，相关表在服务器 SKIPPED_TABLES），数据不迁移。它的 db 引用指向 `src/db/unmigrated.ts`（调用即抛"尚未迁移"的 stub），文件带 `@ts-nocheck`、对应测试 `describe.skip`。恢复路径：服务器补表 → api 资源 → 启用模块。
 
 **已迁移（2026-08）**：
 - **finance/wallet/loans**：表 `wallet_accounts`/`wallet_transactions`（幂等键唯一索引）/`loans`；余额变动必须走原子端点 `POST /api/finance/{ensure,transfer,claim-red-packet,claim-daily-salaries,purchase}`（`routes/finance.rs`，客户端封装 `lib/finance.ts`/`lib/inventory.ts`），不要客户端多步读写余额。删联系人级联清钱包/交易/贷款。
 - **shop/warehouse**：表 `inventory`（一卡一行）/`shop_purchase_history`（按 productKey 叠加）；购买 = `/api/finance/purchase`（扣款+入卡+历史同事务）。
 - **career**：表 `job_listings`/`interviews`（纯 CRUD，无自定义端点）；WorkPage/InterviewPage 已转 api。career 模块重新启用后，ChatPage 金融按钮簇、MePage/DesktopLayout 工资、ContactCardPage 职业/钱包行、chatEngine 经济状况与 AI 金钱气泡全部随之解锁（它们一直在 career 门控后等它）。
+- **scopedSaves**：表 `contact_storylines`/`contact_save_snapshots`/`global_save_snapshots`；多表快照操作走原子端点 `POST /api/saves/{restore-contact,restore-global,switch-worldview}`（`routes/saves.rs`，复用 `crud::upsert_row`）。saveLoad 模块已重新启用，**DORMANT_MODULES 已清空**（`features/dormant.ts` 仅剩空集合，整个休眠机制可在确认无回归后拆除）。saveSlots 表无消费方，保持 SKIPPED。
 
 ## 测试
 
