@@ -4,8 +4,10 @@ import { HashRouter } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
 import App from './App.tsx'
-import { useSettingsStore } from './store/useSettingsStore'
+import { useSettingsStore, hydrateSettingsFromServer } from './store/useSettingsStore'
 import { queryClient } from './lib/api/keys'
+
+void hydrateSettingsFromServer()
 
 // See the --app-height comment in index.css: some Android WebViews don't
 // size 100dvh/100vh correctly against the real visible area, so the actual
