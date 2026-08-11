@@ -1,15 +1,11 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { TopBar } from '../components/TopBar'
-import { FileSliders, Palette } from 'lucide-react'
+import { FileSliders } from 'lucide-react'
 import { ActionSheet } from '../components/ActionSheet'
 import { ImageCropper } from '../components/ImageCropper'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { listModels, testConnection } from '../lib/deepseek'
-import { tavilySearch } from '../lib/webSearch'
-import { apiKeyFingerprint, testPexelsConnection } from '../lib/photoSearch'
-import { friendlyConnectionError } from '../lib/connectionError'
-import { isImageProviderReady } from '../lib/mediaProviders'
 import { db } from '../db/unmigrated'
 import { useLocalQuery } from '../lib/useLocalQuery'
 import { api } from '../lib/api/resources'
@@ -37,10 +33,6 @@ export function SettingsPage() {
     utilityModel,
     serverUrl,
     serverToken,
-    tavilyApiKey,
-    pexelsApiKey,
-    imageProvider,
-    imageProviders,
     animationsEnabled,
     chatBackground,
     chatPageSize,
@@ -167,12 +159,7 @@ export function SettingsPage() {
   const [baseUrlDraft, setBaseUrlDraft] = useState(baseUrl)
   const [modelDraft, setModelDraft] = useState(model)
   const [utilityModelDraft, setUtilityModelDraft] = useState(utilityModel)
-  const [tavilyKeyDraft, setTavilyKeyDraft] = useState(tavilyApiKey)
-  const [pexelsKeyDraft, setPexelsKeyDraft] = useState(pexelsApiKey)
-  const [visibleApiKeys, setVisibleApiKeys] = useState({ ai: false, tavily: false, pexels: false })
-  const pexelsDraftRef = useRef(pexelsApiKey)
-  const pexelsRequestRef = useRef(0)
-  const pexelsAbortRef = useRef<AbortController | null>(null)
+  const [visibleApiKeys, setVisibleApiKeys] = useState({ ai: false })
   const presetBackgrounds = ['#f4f4f6', '#f7f0e8', '#eef6f1', '#edf4ff', '#f5efff', '#fff3f0', '#f3f6e8', '#eef7f7']
   const currencyMode = currencyIconMode ?? 'coin'
 
@@ -182,10 +169,6 @@ export function SettingsPage() {
   const [pullError, setPullError] = useState('')
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
-  const [tavilyTesting, setTavilyTesting] = useState(false)
-  const [tavilyTestResult, setTavilyTestResult] = useState<{ ok: boolean; message: string } | null>(null)
-  const [pexelsTesting, setPexelsTesting] = useState(false)
-  const [pexelsTestResult, setPexelsTestResult] = useState<{ ok: boolean; message: string; imageUrl?: string; fingerprint: string; verifiedAt?: number } | null>(null)
 
   let chatEndpointPreview = ''
   let modelsEndpointPreview: string | null = null
@@ -235,42 +218,6 @@ export function SettingsPage() {
     const result = await testConnection(apiKeyDraft.trim(), baseUrlDraft.trim(), modelDraft.trim(), providerDraft)
     setTestResult(result)
     setTesting(false)
-  }
-
-  async function handleTavilyTest() {
-    setTavilyTesting(true)
-    setTavilyTestResult(null)
-    setSettings({ tavilyApiKey: tavilyKeyDraft.trim() })
-    try {
-      const results = await tavilySearch(tavilyKeyDraft.trim(), 'test')
-      setTavilyTestResult({ ok: true, message: `连接成功 搜到${results.length}条结果` })
-    } catch (err) {
-      setTavilyTestResult({ ok: false, message: friendlyConnectionError(err, 'Tavily') })
-    } finally {
-      setTavilyTesting(false)
-    }
-  }
-
-  async function handlePexelsTest() {
-    const key = pexelsKeyDraft.trim()
-    const fingerprint = apiKeyFingerprint(key)
-    const requestId = ++pexelsRequestRef.current
-    pexelsAbortRef.current?.abort()
-    const controller = new AbortController()
-    pexelsAbortRef.current = controller
-    setPexelsTesting(true)
-    setPexelsTestResult(null)
-    try {
-      const result = await testPexelsConnection(key, controller.signal)
-      if (requestId !== pexelsRequestRef.current || apiKeyFingerprint(pexelsDraftRef.current) !== fingerprint) return
-      setSettings({ pexelsApiKey: key })
-      setPexelsTestResult({ ok: true, message: '连接成功，已通过当前 Key 拉取测试图片', imageUrl: result.photo.url, fingerprint: result.fingerprint, verifiedAt: result.verifiedAt })
-    } catch (err) {
-      if (controller.signal.aborted || requestId !== pexelsRequestRef.current) return
-      setPexelsTestResult({ ok: false, message: friendlyConnectionError(err, 'Pexels'), fingerprint })
-    } finally {
-      if (requestId === pexelsRequestRef.current) setPexelsTesting(false)
-    }
   }
 
   return (
@@ -563,115 +510,6 @@ export function SettingsPage() {
             {testResult.message}
           </p>
         )}
-      </section>
-
-      <section className="hidden" aria-hidden="true">
-        <h2 className="mb-2 text-xs font-medium text-gray-400">联网搜索（Tavily，用于资料库联网补全）</h2>
-        <label className="mb-1 block text-xs text-gray-500">Tavily API Key</label>
-        <div className="relative mb-2">
-          <input
-            value={tavilyKeyDraft}
-            onChange={(e) => {
-              setTavilyKeyDraft(e.target.value)
-              setTavilyTestResult(null)
-            }}
-            onBlur={() => setSettings({ tavilyApiKey: tavilyKeyDraft.trim() })}
-            type={visibleApiKeys.tavily ? 'text' : 'password'}
-            placeholder="tvly-..."
-            className="w-full rounded-lg border border-gray-200 py-2 pl-3 pr-16 text-sm"
-          />
-          <button
-            type="button"
-            onClick={() => setVisibleApiKeys((current) => ({ ...current, tavily: !current.tavily }))}
-            aria-label={visibleApiKeys.tavily ? '隐藏 Tavily API Key' : '显示 Tavily API Key'}
-            aria-pressed={visibleApiKeys.tavily}
-            className="absolute inset-y-0 right-0 px-3 text-xs text-gray-500"
-          >
-            {visibleApiKeys.tavily ? '隐藏' : '显示'}
-          </button>
-        </div>
-        <button
-          onClick={handleTavilyTest}
-          disabled={tavilyTesting || !tavilyKeyDraft}
-          className="w-full rounded-lg bg-gray-900 py-2 text-sm text-white disabled:opacity-50"
-        >
-          {tavilyTesting ? '测试中…' : '测试连接'}
-        </button>
-        {tavilyTestResult && (
-          <p className={`mt-2 text-xs ${tavilyTestResult.ok ? 'text-green-600' : 'text-red-500'}`}>
-            {tavilyTestResult.ok ? '✓ ' : '✗ '}
-            {tavilyTestResult.message}
-          </p>
-        )}
-        <p className="mt-2 text-[11px] text-gray-400">
-          去 tavily.com 免费注册可以拿到一个key，用于把网络热梗、番剧、游戏和其他搜索资料保存到资料库；聊天遇到陌生词时也可以按需补全
-        </p>
-      </section>
-
-      <section className="hidden" aria-hidden="true">
-        <h2 className="mb-2 text-xs font-medium text-gray-400">图片（Pexels，头像自动配图+朋友圈配图）</h2>
-        <label className="mb-1 block text-xs text-gray-500">Pexels API Key</label>
-        <div className="relative mb-2">
-          <input
-            value={pexelsKeyDraft}
-            onChange={(e) => {
-              setPexelsKeyDraft(e.target.value)
-              pexelsDraftRef.current = e.target.value
-              pexelsRequestRef.current += 1
-              pexelsAbortRef.current?.abort()
-              setPexelsTesting(false)
-              setPexelsTestResult(null)
-            }}
-            onBlur={() => setSettings({ pexelsApiKey: pexelsKeyDraft.trim() })}
-            type={visibleApiKeys.pexels ? 'text' : 'password'}
-            placeholder="Pexels API Key"
-            className="w-full rounded-lg border border-gray-200 py-2 pl-3 pr-16 text-sm"
-          />
-          <button
-            type="button"
-            onClick={() => setVisibleApiKeys((current) => ({ ...current, pexels: !current.pexels }))}
-            aria-label={visibleApiKeys.pexels ? '隐藏 Pexels API Key' : '显示 Pexels API Key'}
-            aria-pressed={visibleApiKeys.pexels}
-            className="absolute inset-y-0 right-0 px-3 text-xs text-gray-500"
-          >
-            {visibleApiKeys.pexels ? '隐藏' : '显示'}
-          </button>
-        </div>
-        <button
-          onClick={handlePexelsTest}
-          disabled={pexelsTesting || !pexelsKeyDraft}
-          className="w-full rounded-lg bg-gray-900 py-2 text-sm text-white disabled:opacity-50"
-        >
-          {pexelsTesting ? '测试中…' : '测试连接'}
-        </button>
-        {pexelsTestResult && (
-          <div className={`mt-2 rounded-lg p-2 text-xs ${pexelsTestResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-500'}`}>
-            <div className="flex items-center gap-3">
-              {pexelsTestResult.imageUrl && <img src={pexelsTestResult.imageUrl} alt="Pexels 测试图片" className="h-14 w-14 shrink-0 rounded-lg object-cover" />}
-              <div className="min-w-0">
-                <p>{pexelsTestResult.ok ? '✓ ' : '✗ '}{pexelsTestResult.message}</p>
-                <p className="mt-1 font-mono text-[10px] opacity-70">Key {pexelsTestResult.fingerprint}</p>
-                {pexelsTestResult.verifiedAt && <p className="mt-0.5 text-[10px] opacity-70">验证时间：{new Date(pexelsTestResult.verifiedAt).toLocaleString()}</p>}
-              </div>
-            </div>
-          </div>
-        )}
-        <p className="mt-2 text-[11px] text-gray-400">
-          去 pexels.com/api 免费注册可以拿到一个key 用于创建联系人时自动配一张符合性格的头像照片、以及朋友圈动态偶尔配的插图 动漫风格头像走的是另一个不需要key的免费接口
-        </p>
-      </section>
-
-      <section className="hidden" aria-hidden="true">
-        <button type="button" onClick={() => navigate('/settings/other-interfaces')} className="flex w-full items-center gap-3 px-4 py-4 text-left">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-[var(--ui-special-ink)]"><Palette size={20} /></div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm text-gray-900">其他接口</p>
-            <p className={`mt-0.5 text-xs ${isImageProviderReady({ imageProvider, imageProviders }) ? 'text-green-600' : 'text-gray-400'}`}>
-              图像、语音、Pexels、Tavily 与动漫图库
-            </p>
-          </div>
-          <span className="text-lg text-gray-300">›</span>
-        </button>
       </section>
 
       <section className="mt-3 bg-white">
