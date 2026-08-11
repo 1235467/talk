@@ -1,0 +1,35 @@
+# systemd unit for talk-server. Copy to /etc/systemd/system/talk-server.service
+# (or adapt into your NixOS configuration), then:
+#   systemctl daemon-reload && systemctl enable --now talk-server
+
+[Unit]
+Description=Talk server (axum + SQLite)
+After=network.target
+
+[Service]
+Type=simple
+# Build output of `nix build ./server` (or `cargo build --release`).
+ExecStart=/var/lib/talk/talk-server serve
+
+# The only required secret. Settings/keys live in the database, not here.
+Environment=TALK_TOKEN=change-me-to-a-long-random-string
+Environment=TALK_DATABASE_PATH=/var/lib/talk/talk.db
+Environment=TALK_MEDIA_DIR=/var/lib/talk/media
+Environment=TALK_ADDRESS_PORT=127.0.0.1:3300
+Environment=TALK_LOG=info,tower_http=info
+
+WorkingDirectory=/var/lib/talk
+StateDirectory=talk
+StateDirectoryMode=0750
+Restart=on-failure
+RestartSec=2
+
+# Reasonable hardening for a single-user backend.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/talk
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
