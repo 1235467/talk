@@ -40,11 +40,14 @@
 - [x] `listModels`（拉模型）走代理——2026-08 完成：deepseek.ts 改用 `outboundFetch`（零服务器改动，草稿 key 语义保留，/api/outbound 透传 Authorization 头）
 - [x] 全量 wipe 端点——2026-08 完成：`POST /api/batch/wipe-data` 单事务删全部数据表+speech_cache 并 sweep 孤儿媒体文件；**kv（apiKey/布局/个人资料）与 prompt_presets 明确保留**；客户端一键调用，设置页文案同步修正
 - [x] 出厂预设更新策略——2026-08 完成：服务器新增 `PUT /presets/factory`（唯一允许写出厂行的端点，upsert 语义）；客户端 `ensureServerPresets` 按 kv `factoryPresetHash` 门控刷新，app 升级模板变化自动渗透，import 覆盖出厂行后下次启动自愈
-- [ ] 引擎层 orchestration 单测
-- [ ] **生图服务端落盘**（消除"下载到前端再上传"的字节绕行）：A) 新增 `POST /api/media/from-url`（SSRF 校验复用 outbound 规则 + content-type 必须 image + 大小上限），服务器自取 URL 落盘返回 `/media/<file>`；`persistResult` 的 URL 分支改调它（Atlas CDN 链接等不再过浏览器）；B) 火山引擎 `response_format` 改 `'url'`，配合 A 让 b64 也不过浏览器（24h 临时链接无所谓，服务器立即取）。C 方案（/api/outbound 响应按 JSON 路径改写）明确不做——哑管道保持哑
+- [ ] ~~引擎层 orchestration 单测~~（并入第 6 节引擎迁移：现在用 TS 写会在 Rust 移植后作废，届时引擎从第一天带测试）
+- [ ] ~~生图服务端落盘 A+B~~（2026-08 决策：**跳过，被第 6 节引擎迁移吸收**——引擎上服务器后 provider 由服务器直调、生成物直落盘，字节绕行在根上消失；A 的 from-url 端点和 B 的火山 url 模式在终局里都是临时工程。C 方案（/api/outbound 响应改写）永久否决：哑管道保持哑）
 - [ ] `next` 分支版本号/versionCode 策略（与 master 0.1.51 线分开）——暂缓（建议方案：next 跳 0.2.0，versionCode 公式不变 → 200 > 151）
 
 ## 6. 架构二期（新功能，稳定后再做）
 
 - [ ] **Tauri 2**：手机 + 桌面统一壳（Electron/RN 均不做），server.url 指向服务器后 app 免更新
 - [ ] **服务端 AI turn 编排**：POST /conversations/:id/turns + SSE；引擎挪服务端后才有"app 关着 AI 也在生活", 以及误关闭/app后台被杀继续生成文本
+  - **媒体链路随之净化（吸收原第 5 节"生图落盘 A+B"）**：引擎调 provider 不再需要 /api/outbound 转发——服务器就是调用方；生成图（b64 或 URL）在服务器内部直接写 media/ 文件、行里只留 `/media/` 引用，浏览器全程不碰字节。/api/outbound 退出热路径，只服务设置页测试按钮等辅助调用；POST /api/media 仅保留给用户主动上传本地文件（头像/封面/贴纸——数据真正的产地）
+  - **编排层测试随迁移落地**：Rust 引擎从第一天带单测（提示词装配、气泡解析、副作用执行均可脱离前端测），不写注定作废的 TS 版
+  - 迁移范围预告：chatEngine/groupChatEngine 编排、记忆管线、日程/位置副作用、金融/媒体副作用执行；前端回归纯渲染 + 用户输入（与 UI/UX 大改同周进行，顺序正好：先定引擎边界，再重塑界面）
