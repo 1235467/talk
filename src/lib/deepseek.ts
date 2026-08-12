@@ -1,6 +1,23 @@
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant'
+  role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+  tool_call_id?: string
+  tool_calls?: ChatToolCall[]
+}
+
+export interface ChatToolCall {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
+export interface ChatToolDefinition {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: Record<string, unknown>
+  }
 }
 import { assertAutomaticAiBudget, estimateTokens, recordAiUsage } from './aiUsage'
 import { v4 as uuid } from 'uuid'
@@ -31,7 +48,9 @@ export function coalesceConsecutiveRoles(messages: ChatMessage[]): ChatMessage[]
   const result: ChatMessage[] = []
   for (const m of messages) {
     const last = result[result.length - 1]
-    if (last && last.role === m.role) {
+    // Tool-call exchanges must keep their exact message boundaries: merging
+    // would break the assistant.tool_calls ↔ tool.tool_call_id pairing.
+    if (last && last.role === m.role && !last.tool_calls && !m.tool_calls && !last.tool_call_id && !m.tool_call_id) {
       last.content = `${last.content}\n${m.content}`
     } else {
       result.push({ ...m })
@@ -141,6 +160,7 @@ export interface ChatCompletionResult {
   provider: AiProviderId
   rawShapeSummary: Record<string, unknown>
   retried?: boolean
+  toolCalls?: ChatToolCall[]
 }
 
 export interface ChatCompletionOptions {
@@ -165,6 +185,8 @@ export interface ChatCompletionOptions {
   trace?: { turnId: string; stage: AdminAiTraceStage; conversationId?: string }
   /** Never issue an empty-response retry. Reserved for explicit diagnostics. */
   singleRequest?: boolean
+  tools?: ChatToolDefinition[]
+  toolChoice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } }
 }
 
 /**
@@ -245,16 +267,26 @@ function extractCompletion(json: Record<string, any>, provider: AiProviderId): C
     || message?.refusal && !separated.content
   const length = ['length', 'max_tokens', 'max_completion_tokens'].includes(normalizedFinish)
   const recognizable = !!message || typeof choice?.text === 'string' || typeof json.output_text === 'string'
+  const toolCalls: ChatToolCall[] = Array.isArray(message?.tool_calls)
+    ? message.tool_calls.flatMap((candidate: unknown) => {
+        if (!candidate || typeof candidate !== 'object') return []
+        const call = candidate as Record<string, any>
+        const fn = call.function
+        if (typeof call.id !== 'string' || !fn || typeof fn !== 'object' || typeof fn.name !== 'string' || typeof fn.arguments !== 'string') return []
+        return [{ id: call.id, type: 'function' as const, function: { name: fn.name, arguments: fn.arguments } }]
+      })
+    : []
+  // A tool-calling reply may legitimately have no visible content.
   const status: ChatCompletionStatus = blocked
     ? 'blocked'
     : length
       ? 'length'
       : !recognizable
         ? 'malformed'
-        : separated.content.trim()
+        : separated.content.trim() || toolCalls.length > 0
           ? 'ok'
           : 'empty'
-  return { status, content: separated.content, reasoning, finishReason, usage, provider, rawShapeSummary: rawShapeSummary(json) }
+  return { status, content: separated.content, reasoning, finishReason, usage, provider, rawShapeSummary: rawShapeSummary(json), toolCalls }
 }
 
 function completionStatusMessage(result: ChatCompletionResult): string {
@@ -282,6 +314,10 @@ function requestBody(opts: ChatCompletionOptions, messages: ChatMessage[], provi
   // emitting visible text, and billing is per actual output anyway.
   const cap = profile?.maxOutputTokens ?? 8096
   body[tokenParameter] = overrides.emptyRetry ? Math.ceil(cap * 1.35) : cap
+  if (opts.tools?.length) {
+    body.tools = opts.tools
+    body.tool_choice = opts.toolChoice ?? 'auto'
+  }
   // auto = send nothing at all (provider default; thinking models default to
   // on). off = explicitly disable. Boolean-style adapters treat any actual
   // effort level as "on".
