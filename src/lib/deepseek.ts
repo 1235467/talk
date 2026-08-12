@@ -128,12 +128,8 @@ export async function testConnection(
       baseUrl,
       model,
       provider,
-      // Do not impose a tiny output cap here. Reasoning-capable models can
-      // consume it before emitting visible text, turning a healthy endpoint
-      // into a false-negative connection test.
       messages: [{ role: 'user', content: '请只回复 OK，不要解释。' }],
       signal: controller.signal,
-      temperature: 0.2,
       purpose: 'other',
     })
     if (result.status === 'length' && !result.content.trim()) {
