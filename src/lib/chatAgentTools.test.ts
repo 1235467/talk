@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetFakeServer } from '../test/setup'
+import { useSettingsStore } from '../store/useSettingsStore'
 import { generateGroupAgentTurn, generatePrivateAgentTurn, parseGroupToolCalls, parsePrivateToolCalls } from './chatAgentTools'
+import { chatCompletion } from './deepseek'
 import type { ChatToolCall } from './deepseek'
 
 const BASE_OPTS = {
@@ -131,7 +133,64 @@ describe('generatePrivateAgentTurn', () => {
   })
 })
 
+describe('streaming tool_calls folding', () => {
+  beforeEach(() => {
+    resetFakeServer()
+    useSettingsStore.setState({ generationByProvider: { deepseek: { streamEnabled: true } } })
+  })
+  afterEach(() => {
+    useSettingsStore.setState({ generationByProvider: undefined })
+    vi.unstubAllGlobals()
+  })
+
+  function sseResponse(events: Record<string, unknown>[]): Response {
+    const text = events.map((event) => `data: ${JSON.stringify(event)}\n`).join('\n') + '\ndata: [DONE]\n'
+    return new Response(text, { headers: { 'Content-Type': 'text/event-stream' } })
+  }
+
+  it('folds per-index tool_call fragments (id/name first fragment, argument pieces concatenated)', async () => {
+    const mock = vi.fn().mockResolvedValue(sseResponse([
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_abc', type: 'function', function: { name: 'send_text', arguments: '' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"content":"晚上' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '好","thought":"t","mood":"开心"}' } }] } }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+    ]))
+    vi.stubGlobal('fetch', mock)
+    const result = await chatCompletion({ apiKey: 'sk-test', baseUrl: 'https://api.example.com/v1', model: 'k3', provider: 'deepseek', messages: [{ role: 'user', content: 'hi' }], tools: [] })
+    expect(result.toolCalls).toEqual([{ id: 'call_abc', type: 'function', function: { name: 'send_text', arguments: '{"content":"晚上好","thought":"t","mood":"开心"}' } }])
+  })
+
+  it('a streamed agent turn with tool calls is native (no utility fallback)', async () => {
+    const mock = vi.fn().mockResolvedValue(sseResponse([
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_x', type: 'function', function: { name: 'send_text', arguments: '{"content":"好","thought":"t","mood":"平静"}' } }] } }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+    ]))
+    vi.stubGlobal('fetch', mock)
+    const turn = await generatePrivateAgentTurn(BASE_OPTS)
+    expect(turn.native).toBe(true)
+    expect(turn.parsed.bubbles).toEqual([{ type: 'text', content: '好' }])
+    expect(mock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('tool_calls parsing tolerance', () => {
+  beforeEach(() => resetFakeServer())
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('accepts object-shaped arguments and synthesizes missing ids', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(completionResponse({
+      content: '',
+      tool_calls: [{ type: 'function', function: { name: 'send_text', arguments: { content: '对象参数', thought: 't', mood: '平静' } } }],
+    })))
+    const result = await chatCompletion({ apiKey: 'sk-test', baseUrl: 'https://api.example.com/v1', model: 'm', provider: 'deepseek', messages: [{ role: 'user', content: 'hi' }], tools: [] })
+    expect(result.toolCalls).toHaveLength(1)
+    expect(result.toolCalls![0].id).toBe('call_0')
+    expect(JSON.parse(result.toolCalls![0].function.arguments)).toMatchObject({ content: '对象参数' })
+  })
+})
+
 describe('generateGroupAgentTurn', () => {
+
   beforeEach(() => resetFakeServer())
   afterEach(() => vi.unstubAllGlobals())
 

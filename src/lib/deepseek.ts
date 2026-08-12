@@ -263,14 +263,21 @@ function extractCompletion(json: Record<string, any>, provider: AiProviderId): C
   const length = ['length', 'max_tokens', 'max_completion_tokens'].includes(normalizedFinish)
   const recognizable = !!message || typeof choice?.text === 'string' || typeof json.output_text === 'string'
   const toolCalls: ChatToolCall[] = Array.isArray(message?.tool_calls)
-    ? message.tool_calls.flatMap((candidate: unknown) => {
+    ? message.tool_calls.flatMap((candidate: unknown, index: number) => {
         if (!candidate || typeof candidate !== 'object') return []
         const call = candidate as Record<string, any>
         const fn = call.function
-        if (typeof call.id !== 'string' || !fn || typeof fn !== 'object' || typeof fn.name !== 'string' || typeof fn.arguments !== 'string') return []
-        return [{ id: call.id, type: 'function' as const, function: { name: fn.name, arguments: fn.arguments } }]
+        if (!fn || typeof fn !== 'object' || typeof fn.name !== 'string') return []
+        // Spec shape is a JSON string; some APIs hand back a parsed object.
+        const args = typeof fn.arguments === 'string' ? fn.arguments : fn.arguments && typeof fn.arguments === 'object' ? JSON.stringify(fn.arguments) : null
+        if (args === null) return []
+        const id = typeof call.id === 'string' && call.id ? call.id : `call_${index}`
+        return [{ id, type: 'function' as const, function: { name: fn.name, arguments: args } }]
       })
     : []
+  if (toolCalls.length === 0 && /tool_calls/i.test(String(choice?.finish_reason ?? ''))) {
+    console.warn('[ai-call] finish_reason=tool_calls 但没有解析出有效调用，原始形状:', rawShapeSummary(json))
+  }
   // A tool-calling reply may legitimately have no visible content.
   const status: ChatCompletionStatus = blocked
     ? 'blocked'
@@ -354,6 +361,9 @@ async function readStreamingCompletion(body: ReadableStream<Uint8Array>): Promis
   let reasoning = ''
   let finishReason: string | undefined
   let usage: Record<string, unknown> | undefined
+  // Tool calls stream as per-index fragments: id/name arrive in the first
+  // fragment, arguments stream as string pieces to concatenate.
+  const toolParts = new Map<number, { id: string; name: string; arguments: string }>()
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -371,12 +381,26 @@ async function readStreamingCompletion(body: ReadableStream<Uint8Array>): Promis
         if (typeof delta?.content === 'string') content += delta.content
         if (typeof delta?.reasoning_content === 'string') reasoning += delta.reasoning_content
         if (typeof delta?.reasoning === 'string') reasoning += delta.reasoning
+        if (Array.isArray(delta?.tool_calls)) {
+          for (const part of delta.tool_calls) {
+            if (!part || typeof part !== 'object') continue
+            const index = typeof part.index === 'number' ? part.index : 0
+            const acc = toolParts.get(index) ?? { id: '', name: '', arguments: '' }
+            if (typeof part.id === 'string') acc.id = part.id
+            if (typeof part.function?.name === 'string') acc.name = part.function.name
+            if (typeof part.function?.arguments === 'string') acc.arguments += part.function.arguments
+            toolParts.set(index, acc)
+          }
+        }
         if (typeof choice?.finish_reason === 'string') finishReason = choice.finish_reason
         if (chunk?.usage && typeof chunk.usage === 'object') usage = chunk.usage
       } catch {}
     }
   }
-  return { choices: [{ message: { content, reasoning_content: reasoning || undefined }, finish_reason: finishReason }], usage }
+  const toolCalls = [...toolParts.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([index, part]) => ({ id: part.id || `call_${index}`, type: 'function', function: { name: part.name, arguments: part.arguments } }))
+  return { choices: [{ message: { content, reasoning_content: reasoning || undefined, tool_calls: toolCalls.length ? toolCalls : undefined }, finish_reason: finishReason }], usage }
 }
 
 /**
