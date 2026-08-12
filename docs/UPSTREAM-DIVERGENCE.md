@@ -8,10 +8,10 @@
 - 本地：`scopedSaves`（`contact_storylines`/`contact_save_snapshots`/`global_save_snapshots` 表 + `/api/saves/{restore-contact,restore-global,switch-worldview}` 多表原子端点）。
 - 理由：本地数据源在服务器（单副本），多表原子操作由服务器事务保证；上游方案是 IndexedDB 架构下的表级打包，两者模型不可通约。
 
-## 2. 级联管线退役：不留死文件
+## 2. 级联管线：保留为非 agent 模式的活路径
 
-- 上游 ca4b559 用工具调用替换三模型级联（主模型 → insertToolCallsIntoRawTurn → auditAndRepairRawTurn）后，`responseQuality.ts` 变成零引用死文件仍留在仓库。
-- 本地：工具管线落地时**直接删除** `responseQuality.ts` 及全部引用。
+- 上游 ca4b559 用工具调用替换三模型级联（主模型 → insertToolCallsIntoRawTurn → auditAndRepairRawTurn）后，`responseQuality.ts` 变成零引用死文件仍留在仓库——决策失误。
+- 本地：级联**保留为 agent 模式关闭时的正式管线**。引擎按 `generationByProvider[provider].agentMode`（默认开）二选一：开 = 工具调用管线；关 = 级联。部分 API 不支持或极差地支持工具调用，也有用户就是想关——不做自动探测，用户自己判定。
 
 ## 3. mood 文本化：方向跟随，措辞不抄
 

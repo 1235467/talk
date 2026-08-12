@@ -1,6 +1,8 @@
 # Talk 视觉规范
 
-这份文件是 Talk 所有新页面、组件和视觉修改的强制入口。目标是：功能布局保持稳定，通过一套组件规范和语义令牌统一手机、浏览器与 Electron 桌面端。
+这份文件是 Talk 所有新页面、组件和视觉修改的强制入口。目标是：功能布局保持稳定，通过一套组件规范和语义令牌统一手机、浏览器与桌面端。
+
+> 外壳说明：当前 Android 走 Capacitor、桌面另有 Electron 壳；目标形态是 Tauri 2（Linux + Android）+ Firefox web，Flutter 为备选。本规范因此只约束"语义令牌 + 一套代码"的原则，不绑定任何具体外壳或内核——若未来换 Flutter 原生重写，本文件的主题/令牌纪律原样适用，CSS 类实现则随之废弃。
 
 ## 主题与默认值
 
@@ -75,11 +77,11 @@
 
 1. 在最小 DOM 根节点显式添加 `data-ui-scope="special"`，禁止靠注释或文件名隐式约定。
 2. 在本文件补充用途；不能用 `special` 规避主题适配。
-3. 特殊组件仍需支持深色背景下的可读性和 Chromium 99。
+3. 特殊组件仍需支持深色背景下的可读性，并遵守下文的兼容性底线。
 
 ## 兼容性底线
 
-项目需要兼容 Chromium 99 的 Android WebView。主题颜色必须写为 hex 或 `rgb/rgba`，不得使用 `oklch()`、`color-mix()` 等旧内核无法解析的颜色语法。避免把关键界面建立在 `backdrop-filter` 等可能失效的合成特性上。
+以当前壳的实际渲染能力为准：web 目标是现代 Firefox，Tauri 2 Linux 是 WebKitGTK（三端中最弱一环），Tauri 2 Android 是系统 WebView。出于 WebKitGTK 的滞后性，主题颜色写为 hex 或 `rgb/rgba`，不使用 `oklch()`、`color-mix()` 等新语法；关键界面不建立在 `backdrop-filter` 等可能失效的合成特性上。换壳（含 Flutter 重写）时按新壳能力重新评估本节。
 
 新增独立整页路由必须使用：根容器 `h-[var(--app-height)] flex flex-col overflow-hidden`，内部滚动区 `flex-1 overflow-y-auto`。不要改回 `min-h-full`。
 

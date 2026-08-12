@@ -23,7 +23,9 @@
 
 ## 请求路径（设备端唯一秘密 = server token）
 
-- AI 聊天：`deepseek.ts` → `/api/ai-proxy`。客户端算出目标 URL（provider adapter），**key 由服务器每次现读 kv 的 `apiKey`**——任何设备在设置页改 key/端点即时全局生效。**没有 TALK_AI_* 环境变量**。
+- AI 聊天：`deepseek.ts` → `/api/ai-proxy`。客户端算出目标 URL（provider adapter），**key 由服务器每次现读 kv 的 `apiKey`**——任何设备在设置页改 key/端点即时全局生效。**没有 TALK_AI_* 环境变量**。payload 不透明转发（tools/tool_calls 等字段自动透传）。
+- 生成参数按 provider 绑定在 `settings.generationByProvider`（仿 baseUrls 模式）：maxOutputTokens（默认 8096，唯一上限源）/ reasoningEffort（auto=不传，off=显式禁用，low~max 透传）/ streamEnabled / agentMode（工具调用管线开关，默认开；关闭走 responseQuality.ts 级联）/ temperature（默认 1.0）/ topP / topK。**无模型名特判**（isK3Model 已删除）。回复超时 `chatResponseTimeoutMs` 默认 5 分钟。
+- 与上游（0.1.51 后的 master 线）的功能分歧全部记录在 `docs/UPSTREAM-DIVERGENCE.md`——上游功能只作规格参考，本地对等功能重写，不拷实现。
 - 第三方（Pexels/Tavily/Giphy/生图/TTS）：`outboundFetch` → `/api/outbound`（SSRF 防护的通用转发）。key 同样走 kv 同步。
 - 媒体：一切本地产生的媒体（生图/贴纸/头像/封面/语音）→ `api.media.upload(dataUrl)` → 服务器存文件返回 `/media/<file>`，**DB 行里只存这个引用**；客户端写库前统一过 `src/lib/api/media.ts` 的 `uploadDataUrlIfNeeded`，渲染统一过 `mediaUrl()`（`/media/` 拼 serverBase，其余原样）。
 
