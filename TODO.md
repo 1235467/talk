@@ -41,6 +41,7 @@
 - [x] 全量 wipe 端点——2026-08 完成：`POST /api/batch/wipe-data` 单事务删全部数据表+speech_cache 并 sweep 孤儿媒体文件；**kv（apiKey/布局/个人资料）与 prompt_presets 明确保留**；客户端一键调用，设置页文案同步修正
 - [x] 出厂预设更新策略——2026-08 完成：服务器新增 `PUT /presets/factory`（唯一允许写出厂行的端点，upsert 语义）；客户端 `ensureServerPresets` 按 kv `factoryPresetHash` 门控刷新，app 升级模板变化自动渗透，import 覆盖出厂行后下次启动自愈
 - [ ] 引擎层 orchestration 单测
+- [ ] **生图服务端落盘**（消除"下载到前端再上传"的字节绕行）：A) 新增 `POST /api/media/from-url`（SSRF 校验复用 outbound 规则 + content-type 必须 image + 大小上限），服务器自取 URL 落盘返回 `/media/<file>`；`persistResult` 的 URL 分支改调它（Atlas CDN 链接等不再过浏览器）；B) 火山引擎 `response_format` 改 `'url'`，配合 A 让 b64 也不过浏览器（24h 临时链接无所谓，服务器立即取）。C 方案（/api/outbound 响应按 JSON 路径改写）明确不做——哑管道保持哑
 - [ ] `next` 分支版本号/versionCode 策略（与 master 0.1.51 线分开）——暂缓（建议方案：next 跳 0.2.0，versionCode 公式不变 → 200 > 151）
 
 ## 6. 架构二期（新功能，稳定后再做）
