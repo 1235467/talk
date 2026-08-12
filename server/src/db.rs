@@ -13,3 +13,11 @@ pub async fn connect(database_path: &str) -> Result<SqlitePool, sqlx::Error> {
 pub async fn migrate(pool: &SqlitePool) -> Result<(), sqlx::migrate::MigrateError> {
     sqlx::migrate!("./migrations").run(pool).await
 }
+
+/// Begin a write transaction with BEGIN IMMEDIATE: the write lock is taken up
+/// front, where busy_timeout is allowed to wait. A deferred BEGIN that reads
+/// first and writes later fails instantly with SQLITE_BUSY_SNAPSHOT when
+/// another writer commits in between — no busy_timeout applies there.
+pub async fn begin_write(pool: &SqlitePool) -> Result<sqlx::Transaction<'static, sqlx::Sqlite>, sqlx::Error> {
+    pool.begin_with("BEGIN IMMEDIATE").await
+}

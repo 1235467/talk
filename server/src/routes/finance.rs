@@ -149,7 +149,7 @@ async fn apply_transfer(tx: &mut Tx<'_>, body: &TransferBody) -> AppResult<serde
 }
 
 pub async fn transfer(State(state): State<AppState>, Json(body): Json<TransferBody>) -> AppResult<Json<serde_json::Value>> {
-    let mut tx = state.db.begin().await?;
+    let mut tx = crate::db::begin_write(&state.db).await?;
     let row = apply_transfer(&mut tx, &body).await?;
     tx.commit().await?;
     Ok(ok(row))
@@ -163,7 +163,7 @@ pub struct ClaimRedPacketBody {
 }
 
 pub async fn claim_red_packet(State(state): State<AppState>, Json(body): Json<ClaimRedPacketBody>) -> AppResult<Json<serde_json::Value>> {
-    let mut tx = state.db.begin().await?;
+    let mut tx = crate::db::begin_write(&state.db).await?;
     let row: Option<(String, i64, String, String)> = sqlx::query_as("SELECT data, amount, kind, status FROM wallet_transactions WHERE id = ?")
         .bind(&body.transaction_id)
         .fetch_optional(&mut *tx)
@@ -206,7 +206,7 @@ async fn kv_value(tx: &mut Tx<'_>, key: &str) -> AppResult<Option<serde_json::Va
 /// Ensure wallet rows exist for the user and every contact; migrate the
 /// legacy settings.balance into the user wallet exactly once.
 pub async fn ensure(State(state): State<AppState>) -> AppResult<Json<serde_json::Value>> {
-    let mut tx = state.db.begin().await?;
+    let mut tx = crate::db::begin_write(&state.db).await?;
     let now = now_ms();
 
     let migrated = kv_value(&mut tx, "walletMigrated").await?.and_then(|v| v.as_bool()).unwrap_or(false);
@@ -270,7 +270,7 @@ pub async fn purchase(State(state): State<AppState>, Json(body): Json<PurchaseBo
     if body.price <= 0 {
         return Err(AppError::BadRequest("金额必须是正整数".into()));
     }
-    let mut tx = state.db.begin().await?;
+    let mut tx = crate::db::begin_write(&state.db).await?;
     let now = now_ms();
     apply_transfer(
         &mut tx,
@@ -355,7 +355,7 @@ struct ClaimSalariesResult {
 /// so a retry after a partial run repairs the payroll instead of double-paying.
 pub async fn claim_daily_salaries(State(state): State<AppState>, Json(body): Json<ClaimSalariesBody>) -> AppResult<Json<serde_json::Value>> {
     let date = body.date;
-    let mut tx = state.db.begin().await?;
+    let mut tx = crate::db::begin_write(&state.db).await?;
 
     let occupation = kv_value(&mut tx, "userOccupation").await?.and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
     let monthly = kv_value(&mut tx, "userMonthlySalary").await?.and_then(|v| v.as_i64()).unwrap_or(0);

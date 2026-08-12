@@ -132,7 +132,7 @@ pub async fn get(pool: &SqlitePool, res: &Resource, id: &str) -> AppResult<serde
 }
 
 pub async fn upsert(pool: &SqlitePool, res: &Resource, body: serde_json::Value) -> AppResult<serde_json::Value> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::begin_write(pool).await?;
     let result = upsert_row(&mut tx, res, body).await?;
     tx.commit().await?;
     Ok(result)

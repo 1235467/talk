@@ -17,7 +17,7 @@ pub struct DeleteContact {
 }
 
 pub async fn delete_contact(State(state): State<AppState>, Json(body): Json<DeleteContact>) -> AppResult<Json<serde_json::Value>> {
-    let mut tx = state.db.begin().await?;
+    let mut tx = crate::db::begin_write(&state.db).await?;
     let id = &body.contact_id;
 
     // 1:1 conversation and everything hanging off it.
@@ -151,7 +151,7 @@ pub struct DeleteMoment {
 }
 
 pub async fn delete_moment(State(state): State<AppState>, Json(body): Json<DeleteMoment>) -> AppResult<Json<serde_json::Value>> {
-    let mut tx = state.db.begin().await?;
+    let mut tx = crate::db::begin_write(&state.db).await?;
     let row: Option<(String, String)> = sqlx::query_as("SELECT contact_id, data FROM moments WHERE id = ?")
         .bind(&body.moment_id)
         .fetch_optional(&mut *tx)
@@ -209,7 +209,7 @@ pub struct DeleteMessage {
 }
 
 pub async fn delete_message(State(state): State<AppState>, Json(body): Json<DeleteMessage>) -> AppResult<Json<serde_json::Value>> {
-    let mut tx = state.db.begin().await?;
+    let mut tx = crate::db::begin_write(&state.db).await?;
     let row: Option<(String,)> = sqlx::query_as("SELECT data FROM messages WHERE id = ?")
         .bind(&body.message_id)
         .fetch_optional(&mut *tx)

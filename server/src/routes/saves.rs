@@ -33,7 +33,7 @@ pub struct RestoreContactBody {
 /// Roll one contact back to a snapshot: wipe their current conversation,
 /// memories and media, restore the snapshot rows, reactivate its storyline.
 pub async fn restore_contact(State(state): State<AppState>, Json(body): Json<RestoreContactBody>) -> AppResult<Json<serde_json::Value>> {
-    let mut tx = state.db.begin().await?;
+    let mut tx = crate::db::begin_write(&state.db).await?;
     let saved: Option<(String, String, String)> = sqlx::query_as("SELECT contact_id, storyline_id, data FROM contact_save_snapshots WHERE id = ?")
         .bind(&body.snapshot_id)
         .fetch_optional(&mut *tx)
@@ -98,7 +98,7 @@ pub struct RestoreGlobalBody {
 
 /// Roll a shared worldbook or the shared map back to a snapshot.
 pub async fn restore_global(State(state): State<AppState>, Json(body): Json<RestoreGlobalBody>) -> AppResult<Json<serde_json::Value>> {
-    let mut tx = state.db.begin().await?;
+    let mut tx = crate::db::begin_write(&state.db).await?;
     let saved: Option<(String, String, String)> = sqlx::query_as("SELECT resource_type, resource_id, data FROM global_save_snapshots WHERE id = ?")
         .bind(&body.snapshot_id)
         .fetch_optional(&mut *tx)
@@ -158,7 +158,7 @@ pub struct SwitchWorldviewBody {
 /// wipe the contact's conversation/memories and open a fresh storyline in the
 /// new world.
 pub async fn switch_worldview(State(state): State<AppState>, Json(body): Json<SwitchWorldviewBody>) -> AppResult<Json<serde_json::Value>> {
-    let mut tx = state.db.begin().await?;
+    let mut tx = crate::db::begin_write(&state.db).await?;
     let now = now_ms();
 
     if let Some((conversation_id,)) = sqlx::query_as::<_, (String,)>("SELECT id FROM conversations WHERE contact_id = ?")
