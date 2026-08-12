@@ -29,7 +29,7 @@ describe('group chat local draft parser', () => {
         type: 'text',
         content: '你这不是说了等于没说吗',
         thought: '这回答也太敷衍了，我想先吐槽一句',
-        mood: '😈',
+        mood: '兴奋',
       },
       {
         speakerIndex: 2,
@@ -37,7 +37,7 @@ describe('group chat local draft parser', () => {
         type: 'text',
         content: '至少态度很诚恳。',
         thought: '她吐槽得正好，我顺手补一刀',
-        mood: '😀',
+        mood: '开心',
       },
     ])
     expect(JSON.parse(serializeGroupTurn(parsed)).messages).toHaveLength(2)

@@ -334,7 +334,7 @@ export function parseGroupRawDraft(
     if (!speakerIndex) return { ...empty, reason: `第${index + 1}行使用了非本轮发言人` }
 
     const thought = match[2].trim().slice(0, 100)
-    const mood = match[3].trim().slice(0, 10)
+    const mood = normalizeMood(match[3])
     const content = match[4].trim()
     const common = {
       speakerIndex,

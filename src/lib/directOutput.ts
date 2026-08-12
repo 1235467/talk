@@ -14,7 +14,7 @@ export function buildDirectOutputInstruction(locations: LocationNode[]): string 
   return `【实验：一次调用直出】
 忽略上文关于纯文本草稿、行协议和“不要输出JSON”的要求。本轮只输出一个合法 JSON 对象，不要 Markdown，不要代码围栏，不要 JSON 之外的文字。
 你要在一次输出里完成自然回复、内部自审和特殊任务判断。固定结构：
-{"messages":[{"type":"text","content":"自然聊天内容"}],"mood":"简短心情","thought":"不超过100字的真实想法","knowledgeQueries":[],"review":{"valid":true,"reason":"已检查人设、时间因果、已知事实、地点和承诺边界"},"specialTask":{"decision":"none","reason":"没有形成需要实际执行的线下安排"}}
+{"messages":[{"type":"text","content":"自然聊天内容"}],"mood":"自然的中文词语心情（如开心、担心、期待、平静），不要用emoji","thought":"不超过100字的真实想法","knowledgeQueries":[],"review":{"valid":true,"reason":"已检查人设、时间因果、已知事实、地点和承诺边界"},"specialTask":{"decision":"none","reason":"没有形成需要实际执行的线下安排"}}
 
 messages 可使用现有协议类型：text、sticker、link、image、transfer、redPacket、loanRequest、loanDecision、giftPurchase。保持聊天气泡简短自然。
 review 必须先自查再填写。若草稿违反人物硬设定、时间因果、已知事实或凭空声称去过/看过未知事物，先在同一次生成中修正，最终通常应输出 valid=true；确实无法安全回答才输出 valid=false 和原因。
