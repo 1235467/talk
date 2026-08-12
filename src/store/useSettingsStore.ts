@@ -15,7 +15,6 @@ import { createDefaultPromptModules, normalizePromptModules } from '../lib/promp
 import { normalizeChatPageSize } from '../lib/chatPagination'
 import { AI_PROVIDERS, type AiProviderId } from '../lib/ai/providers'
 import { normalizeUiTheme } from '../lib/uiTheme'
-import { filterDormantModules } from '../features/dormant'
 
 /** Everything syncs to the server kv store by default — only genuinely
  * device-bound values stay local: how to reach the server, and this device's
@@ -47,11 +46,6 @@ export async function hydrateSettingsFromServer(): Promise<number> {
     }
     if (patch.baseUrls === undefined && typeof patch.baseUrl === 'string' && patch.baseUrl && typeof patch.aiProvider === 'string') {
       patch.baseUrls = { [patch.aiProvider]: patch.baseUrl }
-    }
-    // kv may carry pre-dormancy module lists; apply the same dormancy filter
-    // as the persist migration so disabled features never resurrect db calls.
-    if (Array.isArray(patch.enabledModules)) {
-      patch.enabledModules = filterDormantModules(patch.enabledModules as string[])
     }
     // kv written by older builds may lack newer nested fields (e.g. a new
     // provider block) — normalize structured settings exactly like the
@@ -188,11 +182,6 @@ export const useSettingsStore = create<SettingsState>()(
         }
         if (!next.apiKeys || typeof next.apiKeys !== 'object') {
           next.apiKeys = next.apiKey && next.aiProvider ? { [next.aiProvider]: next.apiKey } as SettingsState['apiKeys'] : {}
-        }
-        // Non-core features are dormant until they migrate to the server;
-        // strip them from any persisted list (see features/dormant.ts).
-        if (Array.isArray(next.enabledModules)) {
-          next.enabledModules = filterDormantModules(next.enabledModules)
         }
         if (next.experienceMode !== 'immersive' && next.experienceMode !== 'free') next.experienceMode = 'free'
         if (!['deepseek', 'openai', 'gemini', 'anthropic', 'xai', 'qwen', 'glm', 'minimax', 'kimi', 'custom'].includes(String(next.aiProvider))) {

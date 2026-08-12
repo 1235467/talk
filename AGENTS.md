@@ -42,13 +42,13 @@
 
 ## 非核心功能（休眠机制已落幕）
 
-aiTest 框架已整删（2026-08，见 TODO 第 3 节）；finance/shop/warehouse/career/scopedSaves 已全部迁移回服务器，`DORMANT_MODULES` 为空集合、`src/db/unmigrated.ts` 已删除。保留的唯一前缀机制：`src/lib/aiTestIsolation.ts` 的 `isAiTestId`/`excludeAiTestRows`——过滤旧备份里可能残留的 `ai-test-` 前缀行（18+ 个活跃文件在用，服务器 finance 路由内也有同款前缀常量）。
+aiTest 框架已整删（2026-08，见 TODO 第 3 节）；finance/shop/warehouse/career/scopedSaves 已全部迁移回服务器，休眠机制已随迁移完成整体拆除（`features/dormant.ts`、`src/db/unmigrated.ts` 均已删除）。保留的唯一前缀机制：`src/lib/aiTestIsolation.ts` 的 `isAiTestId`/`excludeAiTestRows`——过滤旧备份里可能残留的 `ai-test-` 前缀行（18+ 个活跃文件在用，服务器 finance 路由内也有同款前缀常量）。
 
 **已迁移（2026-08）**：
 - **finance/wallet/loans**：表 `wallet_accounts`/`wallet_transactions`（幂等键唯一索引）/`loans`；余额变动必须走原子端点 `POST /api/finance/{ensure,transfer,claim-red-packet,claim-daily-salaries,purchase}`（`routes/finance.rs`，客户端封装 `lib/finance.ts`/`lib/inventory.ts`），不要客户端多步读写余额。删联系人级联清钱包/交易/贷款。
 - **shop/warehouse**：表 `inventory`（一卡一行）/`shop_purchase_history`（按 productKey 叠加）；购买 = `/api/finance/purchase`（扣款+入卡+历史同事务）。
 - **career**：表 `job_listings`/`interviews`（纯 CRUD，无自定义端点）；WorkPage/InterviewPage 已转 api。career 模块重新启用后，ChatPage 金融按钮簇、MePage/DesktopLayout 工资、ContactCardPage 职业/钱包行、chatEngine 经济状况与 AI 金钱气泡全部随之解锁（它们一直在 career 门控后等它）。
-- **scopedSaves**：表 `contact_storylines`/`contact_save_snapshots`/`global_save_snapshots`；多表快照操作走原子端点 `POST /api/saves/{restore-contact,restore-global,switch-worldview}`（`routes/saves.rs`，复用 `crud::upsert_row`）。saveLoad 模块已重新启用，**DORMANT_MODULES 已清空**（`features/dormant.ts` 仅剩空集合，整个休眠机制可在确认无回归后拆除）。saveSlots 表无消费方，保持 SKIPPED。
+- **scopedSaves**：表 `contact_storylines`/`contact_save_snapshots`/`global_save_snapshots`；多表快照操作走原子端点 `POST /api/saves/{restore-contact,restore-global,switch-worldview}`（`routes/saves.rs`，复用 `crud::upsert_row`）。saveLoad 模块已重新启用，休眠机制已拆除。saveSlots 表无消费方，保持 SKIPPED。
 
 ## 测试
 
