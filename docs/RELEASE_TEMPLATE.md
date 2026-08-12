@@ -8,7 +8,7 @@
 
 ## 下载与安装
 
-从下方 Assets 下载 `app-debug.apk`。当前 APK 使用 debug 签名，适合直接安装体验，不是应用商店正式签名。
+从下方 Assets 下载 `app-debug.apk`。当前 APK 使用 github action 中的keystore 签名，签名固定可正常覆盖更新.
 
 本应用需要连接自建的 talk-server（部署方式见 README）。首次打开后请在"我 → 设置"中填写服务器地址和 token；业务数据保存在服务器上，APK 升级或重装不影响数据。
 
