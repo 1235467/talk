@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
+import { v4 as uuid } from 'uuid'
 import { TopBar } from '../components/TopBar'
 import { api } from '../lib/api/resources'
 import { getOrUndef } from '../lib/api/client'
 import { invalidate } from '../lib/api/keys'
 import { suggestContactAdminEdit, type ContactAdminSuggestion } from '../lib/contactAdminAssistant'
 import { useSettingsStore } from '../store/useSettingsStore'
-import type { Contact, ContactExperience, ContactLifeState, ContactMemory, ContactRelationLink, SocialEvent, WalletAccount, WalletTransaction } from '../types'
+import type { Contact, ContactExperience, ContactLifeState, ContactMemory, ContactRelationLink, PlanItem, SocialEvent, WalletAccount, WalletTransaction } from '../types'
 import { regenerateContactVisualIdentity } from '../lib/imageAssets'
 import { FACTORY_PRESET_NAME } from '../lib/promptPresets'
 
@@ -128,6 +129,13 @@ export function ContactAdminPage() {
 
   const patchDraft = (patch: Partial<Contact>) => setDraft((current) => current ? { ...current, ...patch } : current)
 
+  const updatePlan = (index: number, patch: Partial<PlanItem>) => {
+    if (!draft) return
+    patchDraft({ upcomingPlans: (draft.upcomingPlans ?? []).map((plan, i) => (i === index ? { ...plan, ...patch } : plan)) })
+  }
+  const addPlan = () => patchDraft({ upcomingPlans: [...(draft?.upcomingPlans ?? []), { id: uuid(), text: '', createdAt: Date.now() }] })
+  const removePlan = (index: number) => patchDraft({ upcomingPlans: (draft?.upcomingPlans ?? []).filter((_, i) => i !== index) })
+
 
   async function saveAll() {
     if (!contactId || !contact || !draft) return
@@ -151,7 +159,7 @@ export function ContactAdminPage() {
       const oldExperienceIds = new Set(experiences.map((row) => row.id))
       const nextExperienceIds = new Set(nextExperiences.map((row) => row.id))
 
-      await api.contacts.put({ ...draft, id: contact.id, createdAt: contact.createdAt, personaProfile: personaProfile ?? undefined, mood: mood ?? undefined, intentQueue, schedule, scheduleOverrides, customPersonalityTraits })
+      await api.contacts.put({ ...draft, id: contact.id, createdAt: contact.createdAt, personaProfile: personaProfile ?? undefined, mood: mood ?? undefined, intentQueue, schedule, scheduleOverrides, customPersonalityTraits, upcomingPlans: (draft.upcomingPlans ?? []).map((plan) => ({ ...plan, text: plan.text.trim(), date: plan.date?.trim() || undefined })).filter((plan) => plan.text) })
       invalidate('contacts')
       const oldMemories = await api.contactMemories.list({ contactId })
       if (oldMemories.length) await api.contactMemories.bulkDelete(oldMemories.map((row) => row.id))
@@ -233,6 +241,8 @@ export function ContactAdminPage() {
       <section className="mt-3 bg-white px-4 py-4"><h2 className="text-sm font-medium text-gray-900">提示词预设</h2><p className="mt-1 text-[11px] text-gray-400">联系人按名字引用预设；改预设内容请去"全局提示词模块"页，所有引用同一预设的联系人会一起生效。</p><select value={draft.presetName ?? FACTORY_PRESET_NAME} onChange={(event) => patchDraft({ presetName: event.target.value === FACTORY_PRESET_NAME ? undefined : event.target.value })} className="mt-3 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800">{(presets ?? []).map((preset) => <option key={preset.name} value={preset.name}>{preset.name}{preset.isFactory ? '（出厂）' : ''}</option>)}</select></section>
 
 
+
+      <section className="mt-3 space-y-3 bg-white px-4 py-4"><h2 className="text-sm font-medium text-gray-900">AI记忆（随聊天自动积累）</h2><p className="text-[11px] leading-relaxed text-gray-400">这两段文本每轮聊天都会发给 AI；约定会注入「当前情境」，日期过后自动失效。手动修改后，记忆管线会在你的版本上继续积累。</p><Area label="了解到的信息" value={draft.memoryFacts ?? ''} onChange={(value) => patchDraft({ memoryFacts: value })} rows={6} /><Area label="相处状态" value={draft.memoryStyle ?? ''} onChange={(value) => patchDraft({ memoryStyle: value })} rows={4} /><div><span className="mb-1 block text-xs text-gray-500">和你的约定</span><div className="space-y-2">{(draft.upcomingPlans ?? []).map((plan, index) => <div key={plan.id} className="flex items-center gap-2"><input value={plan.text} onChange={(event) => updatePlan(index, { text: event.target.value })} placeholder="例如：周三晚上一起去吃烧烤" className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm" /><input type="date" aria-label="约定日期（可选）" value={plan.date ?? ''} onChange={(event) => updatePlan(index, { date: event.target.value || undefined })} className="w-36 shrink-0 rounded-lg border border-gray-200 px-2 py-2 text-sm" /><button type="button" onClick={() => removePlan(index)} className="shrink-0 text-xs text-red-500">删除</button></div>)}<button type="button" onClick={addPlan} className="text-xs text-[var(--ui-special-ink)]">+ 添加约定</button></div></div></section>
 
       <section className="mt-3 space-y-4 bg-white px-4 py-4"><h2 className="text-sm font-medium text-gray-900">真实后台数据</h2><p className="text-[11px] leading-relaxed text-amber-600">以下内容直接对应数据库。多人共享经历和双向关系的修改会影响其他参与角色；删除数组项也会同步删除或解除关联。</p><Area label="AI 结构化记忆" value={memoryJson} onChange={setMemoryJson} rows={12} mono /><Area label="AI 之间的关系" value={relationJson} onChange={setRelationJson} rows={12} mono /><Area label="经历（含共享经历）" value={experienceJson} onChange={setExperienceJson} rows={14} mono /><Area label="最近社交动态" value={socialJson} onChange={setSocialJson} rows={12} mono /><Area label="生活状态" value={lifeJson} onChange={setLifeJson} rows={9} mono /><Area label="联系人钱包" value={walletJson} onChange={setWalletJson} rows={6} mono /><Area label="联系人相关交易" value={transactionJson} onChange={setTransactionJson} rows={12} mono /></section>
     </div>
