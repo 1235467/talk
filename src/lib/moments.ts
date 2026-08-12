@@ -244,7 +244,6 @@ async function reviewMomentPayload(settings: AppSettings, raw: string, expectedS
       baseUrl: settings.baseUrl,
       model: settings.utilityModel || settings.model,
       jsonMode: true,
-      temperature: 0,
       purpose: 'quality',
       automatic: true,
       messages: [
@@ -270,7 +269,6 @@ async function reviewMomentPayload(settings: AppSettings, raw: string, expectedS
       baseUrl: settings.baseUrl,
       model: settings.utilityModel || settings.model,
       jsonMode: true,
-      temperature: 0.15,
       purpose: 'quality',
       automatic: true,
       messages: [

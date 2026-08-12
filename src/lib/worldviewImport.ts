@@ -28,7 +28,7 @@ export async function materializeLibraryItem(item: LibraryItem, collectionId: st
     if (!settings.apiKey) throw new Error('资料超过自动压缩阈值，但还没有配置 AI API Key。请配置后重试，或关闭自动压缩后原样加入。')
     const raw = await chatCompletionText({
       apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.utilityModel || settings.model,
-      purpose: 'worldbook', jsonMode: true, temperature: 0.1,
+      purpose: 'worldbook', jsonMode: true,
       messages: [
         { role: 'system', content: `你把参考资料整理成简洁但不丢失正史约束的世界观条目。删除重复、文学修饰、示例堆叠和外部工具语法；必须保留专有名词、人物组织地点关系、数字时间、能力边界、禁止事项、因果规则、例外、已发生事实与原文不确定性。不能编造。只输出JSON：{"title":"标题","content":"整理后正文","suggestedKeywords":["建议触发词"]}` },
         { role: 'user', content: `原关键词：${item.keywords.join('、') || '无（原资料为常驻）'}\n原资料：\n【${item.title}】\n${item.content}` },

@@ -561,7 +561,6 @@ async function runAiTurn(
       signal: controller.signal,
       purpose: proactiveContext ? 'proactive' : 'chat',
       automatic: !!proactiveContext,
-      temperature: regenerationInstruction ? 0.55 : 0.9,
       jsonMode: directOutput,
       trace: { turnId: streamId, stage: 'original_generation', conversationId },
     })
@@ -629,7 +628,7 @@ async function runAiTurn(
           finalRaw = jsonRaw
           ;({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought } = enriched.parsed)
         } else {
-        rawText = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, messages: enrichedMessages, signal: controller.signal, purpose: proactiveContext ? 'proactive' : 'chat', automatic: !!proactiveContext, temperature: regenerationInstruction ? 0.55 : 0.9, trace: { turnId: streamId, stage: 'second_chat', conversationId } })
+        rawText = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, messages: enrichedMessages, signal: controller.signal, purpose: proactiveContext ? 'proactive' : 'chat', automatic: !!proactiveContext, trace: { turnId: streamId, stage: 'second_chat', conversationId } })
         const enrichedTooled = await insertToolCallsIntoRawTurn({ settings, rawDraft: rawText, recentContext: formatRecentConversationForReview(recentHistory.slice(-4), contact), locationContext: locationActionContext, scene: 'private', imageGenerationEnabled: isImageProviderReady(settings), signal: controller.signal, trace: { turnId: streamId, conversationId } })
         rawText = enrichedTooled.raw
         const enrichedAudited = await auditAndRepairRawTurn({ settings, masterPrompt: chatMessages[0]?.content ?? contextSections, rawDraft: rawText, scene: 'private', regenerationInstruction, signal: controller.signal, trace: { turnId: streamId, conversationId } })

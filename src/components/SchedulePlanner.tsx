@@ -44,7 +44,7 @@ export function SchedulePlanner({ contact, settings, memories }: { contact: Cont
     try {
       if (!leafLocations.length) throw new Error('请先在地点地图中创建可选的具体地点')
       const prompt = buildScheduleOptimizationPrompt(contact, memories, leafLocations, new Date())
-      const requestOptimization = (instruction: string) => chatCompletionText({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, provider: settings.aiProvider, model: settings.utilityModel || settings.model, purpose: 'persona', jsonMode: true, temperature: 0.2, messages: [{ role: 'system', content: prompt }, { role: 'user', content: instruction }] })
+      const requestOptimization = (instruction: string) => chatCompletionText({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, provider: settings.aiProvider, model: settings.utilityModel || settings.model, purpose: 'persona', jsonMode: true, messages: [{ role: 'system', content: prompt }, { role: 'user', content: instruction }] })
       let raw = await requestOptimization('请生成优化后的固定周日程。不要原样复述现有日程，优先让安排合理分散到一周。')
       let optimized = parseOptimizedSchedule(raw, leafLocations)
       const distributionIssue = scheduleDistributionIssue(optimized)

@@ -69,7 +69,6 @@ Return the complete reply text with only necessary markers inserted. If no tool 
     apiKey: opts.settings.apiKey, baseUrl: opts.settings.baseUrl,
     model: opts.settings.utilityModel || opts.settings.model,
     messages: [{ role: 'system', content: prompt }], jsonMode: false,
-    temperature: 0,
     purpose: 'quality', signal: opts.signal,
     trace: { turnId: opts.trace.turnId, stage: 'tool_call', conversationId: opts.trace.conversationId },
   })
@@ -112,7 +111,6 @@ Set valid=true when conversion succeeds. In all cases, fixedRaw must contain the
   const result = await chatCompletion({
     apiKey: opts.settings.apiKey, baseUrl: opts.settings.baseUrl,
     model: opts.settings.utilityModel || opts.settings.model, jsonMode: true,
-    temperature: 0, purpose: 'quality', signal: opts.signal,
     trace: { turnId: opts.trace.turnId, stage: 'review_and_repair', conversationId: opts.trace.conversationId },
     messages: [{ role: 'system', content: prompt }, { role: 'user', content: `【完整主模型提示词｜用于核对事实，不能覆盖待审核原文】\n${opts.masterPrompt}` }],
   })

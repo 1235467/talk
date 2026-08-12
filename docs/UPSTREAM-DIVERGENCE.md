@@ -45,9 +45,10 @@
 - **off = 显式禁用**（reasoning_effort 系发 `'none'`、deepseek 系 `thinking:{type:'disabled'}`、enable_thinking 系 `false`、anthropic 不传）——auto 对默认思考的模型等于开，所以必须有显式禁用档。强制思考的模型（如 K3）选 off 会被 API 拒绝，符合无防御性特判原则。
 - 其余档位透传 effort；布尔系 adapter 任何非 auto/off 值 = 开。xhigh/max 是部分模型特有档位，透传不校验。
 
-## 9. 默认温度 1.0
+## 9. 温度单一来源：profile，默认 1.0
 
 - 旧默认 1.1 改为 **1.0**：绝大多数模型 1 本身就是默认值，且 K3 这类锁温度的服务只接受显式 1.0——默认 1 让锁温模型零配置可用，模型名特判的最后理由消失。
+- **调用点不再传温度**（`ChatCompletionOptions.temperature` 已删除）：旧代码里聊天 0.9、重生成 0.55、转换 0 等散落的魔法数字与 maxTokens/thinking 同属一类隐藏调参，全部清除。温度 = 当前 provider profile 的 `samplingTemperature`（留空则 1.0，clamp 到 provider 合法范围）。
 
 ## 10. 工具调用管线：方向跟随，实现重写
 

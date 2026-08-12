@@ -546,7 +546,7 @@ export function SettingsPage() {
           <div className="mb-3 grid grid-cols-3 gap-2">
             <div>
               <label className="mb-1 block text-xs text-gray-500">温度</label>
-              <input type="number" step="0.1" value={generationProfile.temperature ?? ''} placeholder="默认" onChange={(e) => patchGenerationProfile({ temperature: parseOptionalNumber(e.target.value) })} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+              <input type="number" step="0.1" value={generationProfile.temperature ?? ''} placeholder="默认 1" onChange={(e) => patchGenerationProfile({ temperature: parseOptionalNumber(e.target.value) })} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="mb-1 block text-xs text-gray-500">top_p</label>

@@ -32,7 +32,6 @@ export async function extractWorldbookPersonaCanon(opts: {
     messages: [{ role: 'system', content: `你是世界书正史提取器。只提取原文明确存在或能直接推出的事实，不补写剧情。重点提取目标角色与用户、已有角色之间已经发生的关系和经历。已有联系人姓名只能从给定名单中选择。只输出 JSON：{"relationship":"与用户的既有关系","sharedHistory":"与用户共同过往摘要","facts":["身份事实"],"boundaries":["不可违背的边界"],"pastExperiences":[{"title":"标题","period":"时期","summary":"已发生的具体事件及影响","relatedContactNames":["已有联系人姓名"],"importance":85}]}` }, { role: 'user', content: `目标角色线索：${opts.requestedCharacter || '从世界书中识别主要目标角色'}\n已有联系人：${opts.existingContactNames.join('、') || '无'}\n世界书：\n${opts.worldbookText.slice(0, 10000)}` }],
     jsonMode: true,
     purpose: 'worldbook',
-    temperature: 0,
   })
   const parsed = parseJsonLoose<Record<string, unknown>>(raw)
   if (!parsed) throw new Error('世界书正史提取失败，请检查模型输出后重试')

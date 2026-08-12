@@ -29,7 +29,6 @@ ${JSON.stringify(input.contact)}
 当前经历：
 ${JSON.stringify(input.experiences)}` }],
     jsonMode: true,
-    temperature: 0.25,
     purpose: 'persona',
   })
   const parsed = parseJsonLoose<ContactAdminSuggestion>(raw)

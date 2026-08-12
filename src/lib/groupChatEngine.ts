@@ -508,7 +508,6 @@ async function runGroupAiTurn(
       messages: chatMessages,
       signal: controller.signal,
       purpose: 'chat',
-      temperature: regenerationInstruction ? 0.55 : 0.9,
       jsonMode: directOutput,
       trace: { turnId: streamId, stage: 'original_generation', conversationId },
     })
@@ -558,7 +557,7 @@ async function runGroupAiTurn(
           finalRaw = jsonRaw
           ;({ bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = enriched.parsed)
         } else {
-        rawText = await chatCompletion({ apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.model,messages:[...chatMessages,{role:'user',content:`刚才出现了你们不了解的词。搜索结果如下：\n${knowledge.text}\n请基于结果重新生成群聊草稿，保持原群聊格式，像刚查明白后自然接话，不要写成报告。${regenerationUserMessage ? `\n\n再次确认：仍必须严格执行前述“最高优先级剧情要求”。` : ''}`}],signal:controller.signal,temperature:regenerationInstruction ? 0.55 : 0.9,trace:{turnId:streamId,stage:'second_chat',conversationId} })
+        rawText = await chatCompletion({ apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.model,messages:[...chatMessages,{role:'user',content:`刚才出现了你们不了解的词。搜索结果如下：\n${knowledge.text}\n请基于结果重新生成群聊草稿，保持原群聊格式，像刚查明白后自然接话，不要写成报告。${regenerationUserMessage ? `\n\n再次确认：仍必须严格执行前述“最高优先级剧情要求”。` : ''}`}],signal:controller.signal,trace:{turnId:streamId,stage:'second_chat',conversationId} })
         const enrichedTooled = await insertToolCallsIntoRawTurn({ settings, rawDraft: rawText, recentContext: recentHistory.slice(-4).map((message) => formatGroupHistoryMessage(message, contactById, messageById, settings.userNickname).content).join('\n'), scene: 'group', imageGenerationEnabled, signal: controller.signal, trace: { turnId: streamId, conversationId } })
         rawText = enrichedTooled.raw
         const enrichedAudited = await auditAndRepairRawTurn({ settings, masterPrompt: chatMessages[0]?.content ?? systemPrompt, rawDraft: rawText, scene: 'group', regenerationInstruction, signal: controller.signal, trace: { turnId: streamId, conversationId } })

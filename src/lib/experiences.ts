@@ -153,7 +153,6 @@ ${worldbook ? `【所属世界正史与创建参考资料】\n${worldbook.slice(
     jsonMode: true,
     purpose: 'lifeSimulation',
     automatic: true,
-    temperature: 0.35,
   })
   const parsed = parseJsonLoose<{ experiences?: GeneratedExperience[] }>(raw)
   const allowedIds = new Set((await api.contactRelations.list()).filter((row) => row.fromContactId === contact.id || row.toContactId === contact.id).flatMap((row) => [row.fromContactId, row.toContactId]).filter((id) => id !== contact.id))

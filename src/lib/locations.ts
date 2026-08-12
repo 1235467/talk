@@ -247,7 +247,6 @@ export async function reassignUnknownContactLocation(contact: Contact, settings:
       model: settings.utilityModel || settings.model,
       purpose: 'persona',
       jsonMode: true,
-      temperature: 0.2,
       messages: [{ role: 'system', content: `你负责在地点被删除后修复联系人位置。只能使用下方合法地点 ID；根据人设、职业和既有日程选择一个当前具体地点，并重写每周固定日程，使每条日程同时包含 location（自然语言地点名）和 locationId（合法具体地点 ID）。保留人物职业、作息和合理性。只输出 JSON：{"currentLocationId":"...","schedule":[...] }。\n联系人：${contact.name}\n人设：${contact.systemPrompt}\n职业：${contact.occupation ?? '未设置'}\n原日程：${JSON.stringify(contact.schedule ?? [])}\n合法地点：${catalog}` }],
     })
     const parsed = parseJsonLoose<{ currentLocationId?: unknown; schedule?: unknown }>(raw) ?? {}

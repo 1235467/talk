@@ -311,7 +311,7 @@ async function fallbackCalls(opts: AgentToolContext, raw: string, tools: ChatToo
   const output = await chatCompletionText({
     apiKey: opts.apiKey, baseUrl: opts.baseUrl, model: opts.utilityModel || opts.model,
     messages: [{ role: 'system', content: `你是结构化聊天行动规划器。把主模型草稿转换为工具调用计划，不改变原意、不新增行动。心情必须用自然的中文词语，禁止 emoji。只输出 JSON：{"calls":[{"name":"send_text","arguments":{}}]}。只能使用给定工具，arguments 必须符合对应参数结构。\n可用工具：${JSON.stringify(allowed)}\n主模型草稿：\n${raw}` }],
-    jsonMode: true, temperature: 0, purpose: 'quality', signal: opts.signal,
+    jsonMode: true, purpose: 'quality', signal: opts.signal,
     trace: { ...opts.trace, stage: 'tool_call' },
   })
   const plan = parseJsonLoose<ToolPlan>(output)
@@ -352,7 +352,6 @@ async function completeActionText(
       }, expectedSpeakerIndex ? ['speakerIndex', 'content', 'thought', 'mood'] : ['content', 'thought', 'mood'])],
       toolChoice: { type: 'function', function: { name: 'send_text' } },
       signal: opts.signal, purpose: opts.purpose, automatic: opts.automatic,
-      temperature: 0.65,
       trace: { ...opts.trace, stage: 'tool_call' },
     })
     if (response.status !== 'ok') throw new Error('动作已生成，但模型没有返回配套聊天消息')
@@ -388,7 +387,6 @@ export async function generatePrivateAgentTurn(opts: AgentToolContext): Promise<
     const response = await chatCompletion({
       apiKey: opts.apiKey, baseUrl: opts.baseUrl, model: opts.model, messages,
       tools, toolChoice: 'required', signal: opts.signal, purpose: opts.purpose, automatic: opts.automatic,
-      temperature: 0.75, trace: opts.trace,
     })
     if (response.status !== 'ok') throw new Error('模型没有返回有效的聊天行动')
     const nativeCalls = response.toolCalls ?? []
@@ -448,7 +446,6 @@ export async function generateGroupAgentTurn(opts: AgentToolContext & { speakerN
     const response = await chatCompletion({
       apiKey: opts.apiKey, baseUrl: opts.baseUrl, model: opts.model, messages,
       tools, toolChoice: 'required', signal: opts.signal, purpose: opts.purpose, automatic: opts.automatic,
-      temperature: 0.8, trace: opts.trace,
     })
     if (response.status !== 'ok') throw new Error('模型没有返回有效的群聊行动')
     const nativeCalls = response.toolCalls ?? []

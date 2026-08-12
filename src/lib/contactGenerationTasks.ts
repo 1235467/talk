@@ -329,7 +329,6 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
     provider: settings.aiProvider,
     messages: [{ role: 'system', content: prompt }, { role: 'user', content: '请生成' }],
     signal,
-    temperature: 0.7,
     jsonMode: true,
     purpose: 'persona',
     trace: { turnId: task.id, stage: 'other' },
@@ -364,7 +363,6 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
         { role: 'user', content: `待修复候选：\n${raw.slice(0, 16000)}` },
       ],
       jsonMode: true,
-      temperature: 0,
       purpose: 'persona',
       trace: { turnId: task.id, stage: 'other' },
     })

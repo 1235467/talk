@@ -177,7 +177,6 @@ export interface ChatCompletionOptions {
   jsonMode?: boolean
   purpose?: AiUsagePurpose
   automatic?: boolean
-  temperature?: number
   trace?: { turnId: string; stage: AdminAiTraceStage; conversationId?: string }
   /** Never issue an empty-response retry. Reserved for explicit diagnostics. */
   singleRequest?: boolean
@@ -301,7 +300,7 @@ function requestBody(opts: ChatCompletionOptions, messages: ChatMessage[], provi
     : adapter.tokenParameter
   const body: Record<string, unknown> = { model: opts.model, messages }
   if (opts.jsonMode && !overrides.disableJson && adapter.responseFormat !== 'ignored') body.response_format = { type: 'json_object' }
-  const temperature = clampProviderTemperature(provider, profile?.temperature ?? opts.temperature ?? 1)
+  const temperature = clampProviderTemperature(provider, profile?.temperature ?? 1)
   if (temperature !== undefined) body.temperature = temperature
   if (profile?.topP !== undefined) body.top_p = profile.topP
   if (profile?.topK !== undefined) body.top_k = profile.topK
