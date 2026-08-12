@@ -36,6 +36,8 @@ const EMPTY_STICKERS: Sticker[] = []
 const EMPTY_SPEECH_CACHE_ROWS: SpeechCacheRecord[] = []
 const LONG_PRESS_HINT_KEY = 'talk-chat-long-press-hint-seen-v1'
 
+// 已知巨型组件（单组件 26 个 useState + 35 个内部函数）。UI 大改时切分为
+// MessageList / Composer / 贴纸面板 / ActionSheet 簇 / 金融弹窗，见 TODO 第 6 节。
 export function ChatPage() {
   const { conversationId } = useParams()
   const [searchParams] = useSearchParams()

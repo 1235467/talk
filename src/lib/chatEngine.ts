@@ -333,6 +333,8 @@ export async function regenerateAiTurn(
   scheduleAiTurn(conversationId, contact, settings, stickers, streamId, '', '', undefined, undefined, regenerationInstruction.trim())
 }
 
+// 已知臃肿（362 行 god 函数：提示词装配→供应商调用→解析→气泡执行→副作用全包）。
+// 引擎迁 Rust 时按阶段拆模块，见 TODO 第 6 节结构性指引；此前别再往里堆逻辑。
 async function runAiTurn(
   conversationId: string,
   contact: Contact,
@@ -696,6 +698,8 @@ async function runAiTurn(
   }
 }
 
+// 已知臃肿（210 行：气泡揭示节奏与副作用执行混杂）。迁服务器前先定节奏归属
+// （SSE 推流在服务器 vs 客户端），见 TODO 第 6 节。
 function revealBubbles(
   conversationId: string,
   contact: Contact,

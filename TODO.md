@@ -50,3 +50,4 @@
   - **媒体链路随之净化（吸收原第 5 节"生图落盘 A+B"）**：引擎调 provider 不再需要 /api/outbound 转发——服务器就是调用方；生成图（b64 或 URL）在服务器内部直接写 media/ 文件、行里只留 `/media/` 引用，浏览器全程不碰字节。/api/outbound 退出热路径，只服务设置页测试按钮等辅助调用；POST /api/media 仅保留给用户主动上传本地文件（头像/封面/贴纸——数据真正的产地）
   - **编排层测试随迁移落地**：Rust 引擎从第一天带单测（提示词装配、气泡解析、副作用执行均可脱离前端测），不写注定作废的 TS 版
   - 迁移范围预告：chatEngine/groupChatEngine 编排、记忆管线、日程/位置副作用、金融/媒体副作用执行；前端回归纯渲染 + 用户输入（与 UI/UX 大改同周进行，顺序正好：先定引擎边界，再重塑界面）
+  - **结构性指引（2026-08 前端审核，勿忘）**：①移植时**先合并双引擎**——chatEngine/groupChatEngine 是平行复制的两套（schedule/stop/send/trigger/run/reveal 全套对称），1:1 与群聊应作为同一条 turn 管线的策略差异，不要平行移植两遍；②`runAiTurn`（362 行 god 函数）按阶段拆模块：上下文装配 / 供应商调用 / 气泡解析 / 副作用执行器（金融·媒体·日程·约定各一块）/ 揭示与持久化——直接映射 Rust module 边界；③`revealBubbles`（210 行）的打字机节奏归属先定：SSE 推流节奏在服务器还是客户端，决定它落在哪侧；④UI 大改时 ChatPage（单组件 26 state/35 handler）切成 MessageList/Composer/贴纸面板/ActionSheet 簇/金融弹窗，ContactAddPage 按流程段拆，别只做换皮

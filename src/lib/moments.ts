@@ -329,6 +329,7 @@ export async function runMomentTestSandbox(contact: Contact, settings: AppSettin
  * single API call this makes is purely for writing the moment text and
  * comment text for whichever posters/reactors were already chosen.
  */
+// 已知臃肿（197 行：选人/生成/回评/讨论一锅端）。引擎迁服务器时纳入统一编排。
 export async function refreshMoments(settings: AppSettings): Promise<RefreshMomentsResult> {
   if (!promptModuleEnabled(settings, 'moments')) return { postedCount: 0, message: '朋友圈提示词模块已屏蔽' }
   const startedAt = performance.now()

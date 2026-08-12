@@ -53,6 +53,7 @@ interface RelationRow {
 }
 const EMPTY_LIST: never[] = []
 
+// 已知巨型表单页（949 行，常规/女娲双流程揉在一起）。UI 大改时按流程段拆分，见 TODO 第 6 节。
 export function ContactAddPage() {
   const navigate = useNavigate()
   const settings = useSettingsStore()

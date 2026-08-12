@@ -349,6 +349,8 @@ export async function regenerateGroupAiTurn(
   scheduleGroupAiTurn(conversationId, group, members, settings, stickers, streamId, regenerationInstruction.trim())
 }
 
+// 已知重复：与 chatEngine.runAiTurn 是平行复制的两套编排（233 行）。
+// 迁 Rust 时先合并为一条 turn 管线（1:1/群聊作为策略差异），见 TODO 第 6 节。
 async function runGroupAiTurn(
   conversationId: string,
   group: Group,
