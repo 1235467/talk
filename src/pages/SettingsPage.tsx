@@ -526,6 +526,14 @@ export function SettingsPage() {
             <ToggleSwitch checked={generationProfile.streamEnabled === true} onChange={(checked) => patchGenerationProfile({ streamEnabled: checked })} ariaLabel="流式请求" />
           </div>
 
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm text-gray-800">工具调用（Agent 模式）</p>
+              <p className="mt-0.5 text-[11px] text-gray-400">用结构化工具调用驱动聊天动作；接口不支持或支持差时关闭，将回退到多模型级联管线</p>
+            </div>
+            <ToggleSwitch checked={generationProfile.agentMode !== false} onChange={(checked) => patchGenerationProfile({ agentMode: checked })} ariaLabel="工具调用（Agent 模式）" />
+          </div>
+
           <label className="mb-1 block text-xs text-gray-500">最大输出 token（留空默认 8096）</label>
           <input
             type="number" min={1}

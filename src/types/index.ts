@@ -790,6 +790,8 @@ export interface GenerationProfile {
   reasoningEffort?: 'auto' | 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   /** Some APIs only support streaming responses. */
   streamEnabled?: boolean
+  /** Tool-calling agent turns (default on). Turn off for APIs with no/broken tool support — chat then uses the legacy multi-model cascade. No auto-detection: the user's call. */
+  agentMode?: boolean
   temperature?: number
   topP?: number
   topK?: number

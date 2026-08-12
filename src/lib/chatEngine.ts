@@ -9,7 +9,9 @@ import {
   parseAiResponse,
   serializePrivateTurn,
   typingDelayMs,
+  type ParsedAiTurn,
 } from './aiProtocol'
+import { generatePrivateAgentTurn } from './chatAgentTools'
 import { formatSpeechSamplesForScene, buildRawChatPrompt, customPersonalityTraitsLine } from './prompt'
 import { retrieveWorldbookTrace } from './worldbook'
 import { isModuleEnabled } from '../features'
@@ -526,8 +528,32 @@ async function runAiTurn(
     ])
     console.info(`[chat-perf] context-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)}`)
 
+    const agentMode = !directOutput && settings.generationByProvider?.[settings.aiProvider]?.agentMode !== false
+    let rawText = ''
+    let agentTurn: ParsedAiTurn | undefined
+    let agentNative = false
+    const agentToolOptions = {
+      apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, utilityModel: settings.utilityModel,
+      signal: controller.signal, purpose: proactiveContext ? ('proactive' as const) : ('chat' as const), automatic: !!proactiveContext,
+      trace: { turnId: streamId, stage: 'original_generation' as const, conversationId },
+      stickerNames: stickers.map((sticker) => sticker.name), stickerSearchEnabled: isStickerProviderReady(settings),
+      imageEnabled: isImageProviderReady(settings) || !!settings.pexelsApiKey,
+      knowledgeEnabled: featureActive(contactPromptSettings, 'knowledgeBase'),
+      scheduleEnabled: isModuleEnabled('location'),
+      locationIds: isModuleEnabled('location') ? actionLocations.filter((location) => !actionLocations.some((candidate) => candidate.parentId === location.id)).map((location) => location.id) : [],
+    }
+    const agentInstruction = `本轮必须通过提供的工具函数发送每一条消息或执行每一个动作。create_schedule、转账、红包、借贷和礼物等动作卡不能单独作为回复：执行这些动作时必须同时调用 send_text 自然说话；图片已有必填配文，表情包可以单独发送。每个可见消息函数都要填写真实想法和自然的中文文字心情；心情禁止使用 emoji。不要在普通 content 中输出 JSON、工具名或协议。${locationActionContext ? `\n${locationActionContext}` : ''}`
+
+    if (agentMode) {
+      const generated = await generatePrivateAgentTurn({ ...agentToolOptions, messages: [...chatMessages, { role: 'system', content: agentInstruction }] })
+      if (!turns.isCurrent(conversationId, streamId)) return
+      agentTurn = generated.parsed
+      agentNative = generated.native
+      rawText = generated.raw
+      console.log(`[chat] 工具调用回合(native=${agentNative}) 气泡=${agentTurn.bubbles.length} 对方=${displayName(contact)}`)
+    } else {
     // ---- Step 1: main model generates raw text (no JSON) ----
-    let rawText = await chatCompletion({
+    rawText = await chatCompletion({
       apiKey: settings.apiKey,
       baseUrl: settings.baseUrl,
       model: settings.model,
@@ -564,11 +590,14 @@ async function runAiTurn(
       if (!turns.isCurrent(conversationId, streamId)) return
       if (parseAiResponse(rawText).bubbles.length === 0) throw new Error('审核及修改没有产出有效的私聊JSON')
     }
+    }
 
     // The audit model performs the final JSON translation; there is no third translator.
     console.info(`[chat-perf] model-ready=${Math.round(performance.now() - turnStartedAt)}ms contact=${displayName(contact)}`)
-    const localTurn = parseAiResponse(rawText)
-    let conversionPrompt = '审核模型已同时完成原文格式审核和JSON翻译；未调用第三个翻译模型。'
+    const localTurn = agentTurn ?? parseAiResponse(rawText)
+    let conversionPrompt = agentTurn
+      ? agentNative ? '工具调用：主模型原生返回结构化行动。' : '工具调用：接口未返回 tool_calls，已由多功能模型把草稿转换为行动计划。'
+      : '审核模型已同时完成原文格式审核和JSON翻译；未调用第三个翻译模型。'
     let jsonRaw = serializePrivateTurn(localTurn)
     let parsedTurn = localTurn
     if (directOutput) {
@@ -592,6 +621,14 @@ async function runAiTurn(
         const enrichedMessages = chatMessages.map((message, index) => index === 0
           ? { ...message, content: `${message.content}\n\n【针对陌生词汇的搜索结果】\n${knowledge.text}\n你刚才对陌生词汇自然表示了疑问。现在根据可靠搜索结果重新回答用户，语气要自然，不要写成搜索报告，也不要提审查流程。` }
           : message)
+        if (agentMode) {
+          const enriched = await generatePrivateAgentTurn({ ...agentToolOptions, messages: [...enrichedMessages, { role: 'system', content: agentInstruction }] })
+          if (enriched.parsed.bubbles.length === 0) throw new Error('联网补全后的工具调用回合没有产出有效消息')
+          conversionPrompt = '联网补全后的工具调用回合。'
+          jsonRaw = enriched.raw
+          finalRaw = jsonRaw
+          ;({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought } = enriched.parsed)
+        } else {
         rawText = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, messages: enrichedMessages, signal: controller.signal, purpose: proactiveContext ? 'proactive' : 'chat', automatic: !!proactiveContext, temperature: regenerationInstruction ? 0.55 : 0.9, trace: { turnId: streamId, stage: 'second_chat', conversationId } })
         const enrichedTooled = await insertToolCallsIntoRawTurn({ settings, rawDraft: rawText, recentContext: formatRecentConversationForReview(recentHistory.slice(-4), contact), locationContext: locationActionContext, scene: 'private', imageGenerationEnabled: isImageProviderReady(settings), signal: controller.signal, trace: { turnId: streamId, conversationId } })
         rawText = enrichedTooled.raw
@@ -603,6 +640,7 @@ async function runAiTurn(
         jsonRaw = rawText
         finalRaw = jsonRaw
         ;({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought } = converted)
+        }
       }
     }
     console.log(`[chat] 收到回复(${finalRaw.length}字) 解析出${bubbles.length}条气泡 mood=${turnMood || '无'} thought=${turnThought ? '有(' + turnThought.length + '字)' : '无'} 对方=${displayName(contact)}`)

@@ -24,6 +24,7 @@ import { trackRemoteStickerSend } from './remoteMedia'
 import { resolveBubbleMedia } from './bubbleMedia'
 import { createTurnController, revealSequentially } from './conversationRuntime'
 import { isImageProviderReady, isStickerProviderReady } from './mediaProviders'
+import { generateGroupAgentTurn, type ParsedGroupToolTurn } from './chatAgentTools'
 import { realSeason, resolveLocationParticipants, syncContactLocationsAt, type LocationParticipants } from './locations'
 import { recentSocialEventsText, recordSocialEvent } from './socialEvents'
 import { recentSharedOriginalContext } from './sharedRecentContext'
@@ -477,7 +478,30 @@ async function runGroupAiTurn(
       ...(regenerationUserMessage ? [{ role: 'user' as const, content: regenerationUserMessage }] : []),
       { role: 'system', content: '【最终生成提醒】现在只生成自然群聊正文，不输出JSON、分析、标题或Markdown。' },
     ])
-    let rawText = await chatCompletion({
+    const agentMode = !directOutput && settings.generationByProvider?.[settings.aiProvider]?.agentMode !== false
+    const agentToolOptions = {
+      apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, utilityModel: settings.utilityModel,
+      signal: controller.signal, purpose: 'chat' as const,
+      trace: { turnId: streamId, stage: 'original_generation' as const, conversationId },
+      stickerNames: stickers.map((sticker) => sticker.name), stickerSearchEnabled: isStickerProviderReady(settings),
+      imageEnabled: imageGenerationEnabled,
+      knowledgeEnabled: featureActive(settings, 'knowledgeBase'),
+      // Group schedule cards never had a location catalog (the cascade got
+      // none either), so the tool is not offered in group turns.
+      scheduleEnabled: false, locationIds: [] as string[],
+    }
+    const agentInstruction = '本轮必须通过提供的工具函数发送每一位成员的每一条消息或动作。每个可见消息函数都要填写正确的 speakerIndex、真实想法和自然的中文文字心情；心情禁止使用 emoji。propose_plan 只在至少两位成员明确达成共同计划时调用。不要在普通 content 中输出 JSON、工具名或协议。'
+
+    let rawText = ''
+    let agentParsed: ParsedGroupToolTurn | undefined
+    if (agentMode) {
+      const generated = await generateGroupAgentTurn({ ...agentToolOptions, messages: [...chatMessages, { role: 'system', content: agentInstruction }], speakerNames: speakers.map((speaker) => speaker.name), memberNames: members.map((member) => member.name) })
+      if (!turns.isCurrent(conversationId, streamId)) return
+      agentParsed = generated.parsed
+      rawText = generated.raw
+      console.log(`[group] 工具调用回合(native=${generated.native}) 气泡=${agentParsed.bubbles.length} 群=${group.name}`)
+    } else {
+    rawText = await chatCompletion({
       apiKey: settings.apiKey,
       baseUrl: settings.baseUrl,
       model: settings.model,
@@ -509,10 +533,11 @@ async function runGroupAiTurn(
       if (!turns.isCurrent(conversationId, streamId)) return
       if (parseGroupAiResponse(rawText, speakers.length).bubbles.length === 0) throw new Error('审核及修改没有产出有效的群聊JSON')
     }
-    const parsedTurn = { ...parseGroupAiResponse(rawText, speakers.length), valid: true, needsUtility: false }
+    }
+    const parsedTurn = agentParsed ?? { ...parseGroupAiResponse(rawText, speakers.length), valid: true, needsUtility: false }
     let jsonRaw = rawText
-    if (parsedTurn.bubbles.length === 0) throw new Error('主模型没有产出有效的群聊JSON')
-    console.log('[group] 审核模型已完成群聊原文审核和JSON翻译，未调用第三个翻译模型')
+    if (parsedTurn.bubbles.length === 0 && !parsedTurn.knowledgeQueries?.length) throw new Error('主模型没有产出有效的群聊JSON')
+    if (!agentParsed) console.log('[group] 审核模型已完成群聊原文审核和JSON翻译，未调用第三个翻译模型')
 
     let finalRaw = jsonRaw
     let { bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = parsedTurn
@@ -526,6 +551,13 @@ async function runGroupAiTurn(
     if (!directOutput && featureActive(settings, 'knowledgeBase') && knowledgeQueries.length > 0) {
       const knowledge = await resolveKnowledgeQueries(knowledgeQueries, settings)
       if (knowledge.text) {
+        if (agentMode) {
+          const enriched = await generateGroupAgentTurn({ ...agentToolOptions, messages: [...chatMessages, { role: 'user', content: `刚才出现了你们不了解的词。搜索结果如下：\n${knowledge.text}\n请基于结果重新生成，像刚查明白后自然接话，不要写成报告。${regenerationUserMessage ? `\n\n再次确认：仍必须严格执行前述“最高优先级剧情要求”。` : ''}` }, { role: 'system', content: agentInstruction }], speakerNames: speakers.map((speaker) => speaker.name), memberNames: members.map((member) => member.name) })
+          if (enriched.parsed.bubbles.length === 0) throw new Error('知识补全后的工具调用回合没有产出有效群聊消息')
+          jsonRaw = enriched.raw
+          finalRaw = jsonRaw
+          ;({ bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = enriched.parsed)
+        } else {
         rawText = await chatCompletion({ apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.model,messages:[...chatMessages,{role:'user',content:`刚才出现了你们不了解的词。搜索结果如下：\n${knowledge.text}\n请基于结果重新生成群聊草稿，保持原群聊格式，像刚查明白后自然接话，不要写成报告。${regenerationUserMessage ? `\n\n再次确认：仍必须严格执行前述“最高优先级剧情要求”。` : ''}`}],signal:controller.signal,temperature:regenerationInstruction ? 0.55 : 0.9,trace:{turnId:streamId,stage:'second_chat',conversationId} })
         const enrichedTooled = await insertToolCallsIntoRawTurn({ settings, rawDraft: rawText, recentContext: recentHistory.slice(-4).map((message) => formatGroupHistoryMessage(message, contactById, messageById, settings.userNickname).content).join('\n'), scene: 'group', imageGenerationEnabled, signal: controller.signal, trace: { turnId: streamId, conversationId } })
         rawText = enrichedTooled.raw
@@ -536,6 +568,7 @@ async function runGroupAiTurn(
         jsonRaw = rawText
         finalRaw = jsonRaw
         ;({ bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = enrichedConverted)
+        }
       }
     }
     console.log(`[group] 收到回复(${finalRaw.length}字) 解析出${bubbles.length}条气泡 群=${group.name}`)
