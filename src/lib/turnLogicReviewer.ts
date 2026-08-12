@@ -1,4 +1,4 @@
-import { extractJsonObject } from './aiProtocol'
+import { extractJsonObject } from './ai/protocol'
 
 export type TurnLogicReview = { status: 'pass' | 'reject' | 'unavailable'; reason: string }
 

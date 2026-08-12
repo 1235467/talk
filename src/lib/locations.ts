@@ -6,8 +6,8 @@ import type { AcousticEdge, Contact, LocationAudibility, LocationNode, TerrainTy
 import { createUpgradedWorldMap, createWorldMap, defaultTerrainsForIcon, MAP_GENERATOR_VERSION, MAP_SIZE, placeBuildings } from './locationMap'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { resolveActiveTask, validateScheduleBlocks } from './schedule'
-import { chatCompletionText } from './deepseek'
-import { parseJsonLoose } from './aiProtocol'
+import { chatCompletionText } from './ai/client'
+import { parseJsonLoose } from './ai/protocol'
 import type { AppSettings, ScheduleBlock } from '../types'
 
 export const LOCATION_GROUP_ID = 'talk-location-group'

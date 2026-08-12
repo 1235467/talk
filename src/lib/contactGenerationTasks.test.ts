@@ -6,8 +6,8 @@ import { useSettingsStore } from '../store/useSettingsStore'
 
 const streamRuntime = vi.hoisted(() => ({ active: 0, maxActive: 0, calls: 0 }))
 
-vi.mock('./deepseek', () => ({
-  chatCompletionStream: vi.fn(async (options: { onDelta: (text: string) => void }) => {
+vi.mock('./ai/client', () => ({
+  chatCompletionText: vi.fn(async (options: { onDelta?: (text: string) => void }) => {
     streamRuntime.active += 1
     streamRuntime.calls += 1
     streamRuntime.maxActive = Math.max(streamRuntime.maxActive, streamRuntime.active)
@@ -20,13 +20,12 @@ vi.mock('./deepseek', () => ({
         speechSamples: ['你好'], personaProfile: { facts: [], boundaries: [], habits: [], behaviorAnchors: [] },
         pastExperiences: [], monthlySalary: 8000, schedule: [], avatarKeyword: 'portrait',
       })
-      options.onDelta(output)
+      options.onDelta?.(output)
       return output
     } finally {
       streamRuntime.active -= 1
     }
   }),
-  chatCompletionText: vi.fn(),
 }))
 
 import { createContactGenerationTask, formatContactGenerationDiagnostic, stageLabel } from './contactGenerationTasks'

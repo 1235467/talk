@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { TopBar } from '../components/TopBar'
 import { useSettingsStore } from '../store/useSettingsStore'
-import { chatCompletionText as chatCompletion } from '../lib/deepseek'
+import { chatCompletionText } from '../lib/ai/client'
 import { buildShopPrompt, parseShopProducts, type GeneratedProduct } from '../lib/shop'
 import { formatCurrency } from '../lib/wallet'
 import { api } from '../lib/api/resources'
@@ -39,7 +39,7 @@ export function ShopPage() {
     try {
       const shopPrompt = buildShopPrompt(searchQuery, settings)
       if (!shopPrompt.trim()) throw new Error('商城提示词模块已屏蔽')
-      const raw = await chatCompletion({
+      const raw = await chatCompletionText({
         apiKey: settings.apiKey,
         baseUrl: settings.baseUrl,
         model: settings.utilityModel,

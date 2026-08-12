@@ -6,7 +6,7 @@
  * any contact's persona or chat history.
  */
 import type { AppSettings } from '../types'
-import { parseJsonLoose } from './aiProtocol'
+import { parseJsonLoose } from './ai/protocol'
 import { createDefaultPromptModules, getPromptTemplate } from './promptModules'
 
 export function buildShopPrompt(query: string | null, settings?: Pick<AppSettings, 'promptModules'>): string {

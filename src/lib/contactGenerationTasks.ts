@@ -17,7 +17,7 @@ import type {
 import { useSettingsStore } from '../store/useSettingsStore'
 import { buildPersonaGenerationPrompt, diagnosePersonaGeneration, type PersonaGenerationResult } from './prompt'
 import { speechVoiceGenerationContext } from './speechProviders'
-import { chatCompletionStream, chatCompletionText } from './deepseek'
+import { chatCompletionText } from './ai/client'
 import { completedTopLevelJsonFields } from './incrementalJson'
 import { selectedWorldbookEntriesText, retrieveWorldbookContext } from './worldbook'
 import { extractWorldbookPersonaCanon, type WorldbookPersonaCanon } from './worldbookPersonaCanon'
@@ -322,7 +322,7 @@ async function preparePersona(task: ContactGenerationTask, settings: AppSettings
   await setStage(task, 'generating', { rawOutput: '', partialFields: {}, validationRepairAttempted: false })
   let raw = ''
   let lastPersistedAt = 0
-  raw = await chatCompletionStream({
+  raw = await chatCompletionText({
     apiKey: settings.apiKey,
     baseUrl: settings.baseUrl,
     model: settings.model,

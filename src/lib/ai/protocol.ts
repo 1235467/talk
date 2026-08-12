@@ -1,5 +1,5 @@
-import type { AiBubble, AiResponse } from '../types'
-import { normalizeMood } from './mood'
+import type { AiBubble, AiResponse } from '../../types'
+import { normalizeMood } from '../mood'
 
 export interface ParsedAiTurn {
   bubbles: AiBubble[]
@@ -87,7 +87,7 @@ function tryParseJson(trimmedRaw: string): ParsedAiTurn | null {
       bubbles.push({ type: 'link', app: m.app, label: m.label, data: m.data })
     } else if (m.type === 'image' && typeof (m as unknown as Record<string,unknown>).query === 'string') {
       const im=m as unknown as Record<string,unknown>
-      const kind = ['selfie','portrait','group','scene','object'].includes(String(im.kind)) ? im.kind as import('../types').AiImageKind : undefined
+      const kind = ['selfie','portrait','group','scene','object'].includes(String(im.kind)) ? im.kind as import('../../types').AiImageKind : undefined
       const participants = Array.isArray(im.participants) ? im.participants.filter((value): value is 'self'|'user' => value === 'self' || value === 'user') : undefined
       bubbles.push({type:'image',query:String(im.query).trim().slice(0,2_000),scene:typeof im.scene==='string'?im.scene.trim().slice(0,2_000):undefined,kind,participants,caption:typeof im.caption==='string'?im.caption.slice(0,200):undefined})
     } else if (m.type === 'scheduleChange') {

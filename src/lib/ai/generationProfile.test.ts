@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { resetFakeServer } from '../test/setup'
-import { useSettingsStore } from '../store/useSettingsStore'
-import { chatCompletion } from './deepseek'
-import type { AppSettings, GenerationProfile } from '../types'
+import { resetFakeServer } from '../../test/setup'
+import { useSettingsStore } from '../../store/useSettingsStore'
+import { chatCompletion } from './client'
+import type { AppSettings, GenerationProfile } from '../../types'
 
 const OK_RESPONSE = { choices: [{ message: { content: '好的' }, finish_reason: 'stop' }] }
 

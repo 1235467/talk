@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetFakeServer } from '../test/setup'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { generateGroupAgentTurn, generatePrivateAgentTurn, parseGroupToolCalls, parsePrivateToolCalls } from './chatAgentTools'
-import { chatCompletion } from './deepseek'
-import type { ChatToolCall } from './deepseek'
+import { chatCompletion } from './ai/client'
+import type { ChatToolCall } from './ai/types'
 
 const BASE_OPTS = {
   apiKey: 'sk-test', baseUrl: 'https://api.example.com/v1', model: 'main-model', utilityModel: 'util-model',

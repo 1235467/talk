@@ -1,5 +1,5 @@
 import { validateScheduleBlocks } from './schedule'
-import { extractJsonObject, parseJsonLoose } from './aiProtocol'
+import { extractJsonObject, parseJsonLoose } from './ai/protocol'
 import type { AvatarCategory } from './avatarCategory'
 import { PERSONALITY_TRAIT_OPTIONS, type ContactGenerationValidationDiagnostics, type ContactGenerationValidationIssue, type PersonaProfile, type PromptModuleSettings, type ScheduleBlock } from '../types'
 import { createDefaultPromptModules, getPromptTemplate, promptModuleEnabled } from './promptModules'

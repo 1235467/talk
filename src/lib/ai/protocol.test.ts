@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   parseJsonLoose,
-} from './aiProtocol'
+} from './protocol'
 
 describe('parseJsonLoose', () => {
   it('parses plain JSON and fenced JSON', () => {

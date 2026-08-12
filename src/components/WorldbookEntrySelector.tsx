@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api/resources'
 import { searchLibraryItems } from '../lib/library'
-import { estimateTokens } from '../lib/aiUsage'
+import { estimateTokens } from '../lib/ai/usage'
 import { formatEstimatedTokens } from '../lib/worldbookTokens'
 
 interface Props { open: boolean; selectedIds: string[]; onChange: (ids: string[]) => void; onClose: () => void }

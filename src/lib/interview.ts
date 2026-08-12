@@ -1,10 +1,10 @@
-import { chatCompletionText as chatCompletion } from './deepseek'
+import { chatCompletionText } from './ai/client'
 import type { AppSettings, JobListing } from '../types'
 import { featureActive, getPromptTemplate } from './promptModules'
 
 export async function askInterview(settings: AppSettings, prompt: string, jsonMode = false) {
   if (!featureActive(settings, 'career') || !prompt.trim()) throw new Error('职业提示词模块已屏蔽')
-  return chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, messages: [{ role: 'system', content: prompt }, { role: 'user', content: '请继续' }], jsonMode, purpose: 'other' })
+  return chatCompletionText({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, messages: [{ role: 'system', content: prompt }, { role: 'user', content: '请继续' }], jsonMode, purpose: 'other' })
 }
 
 export function interviewOpeningPrompt(job: JobListing, settings: AppSettings) {

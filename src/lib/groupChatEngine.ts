@@ -1,6 +1,8 @@
 import { v4 as uuid } from 'uuid'
 import { api } from './api/resources'
-import { chatCompletionText as chatCompletion, coalesceConsecutiveRoles, type ChatMessage } from './deepseek'
+import { chatCompletionText } from './ai/client'
+import { coalesceConsecutiveRoles } from './ai/messages'
+import type { ChatMessage } from './ai/types'
 import {
   buildGroupRawChatPrompt,
   buildLocationRawChatPrompt,
@@ -10,7 +12,7 @@ import {
   selectGroupImageParticipantIds,
   stripSpeakerNamePrefix,
 } from './groupChat'
-import { parseJsonLoose } from './aiProtocol'
+import { parseJsonLoose } from './ai/protocol'
 import { CONTEXT_WINDOW_SIZE, maybeUpdateGroupMemory, nonGroupScopedMemoriesText } from './memory'
 import { aiRelationshipPrompt } from './contactRelations'
 import { resolveKnowledgeQueries } from './knowledgeBase'
@@ -35,7 +37,7 @@ import { featureActive, promptModuleEnabled } from './promptModules'
 import { realisticReplyDelayMs } from './replyTiming'
 import { createMediaAsset, startMediaAsset } from './imageAssets'
 import { auditAndRepairRawTurn, insertToolCallsIntoRawTurn } from './responseQuality'
-import { traceTurnEvent } from './deepseek'
+import { traceTurnEvent } from './ai/usage'
 import type { AppSettings, Contact, Group, GroupAiBubble, Message, Sticker } from '../types'
 import { getOrUndef, hasAiAccess } from './api/client'
 import { invalidate } from './api/keys'
@@ -145,7 +147,7 @@ async function updateGroupMemoryAndVibe(opts: {
 
   if (!opts.directOutput && nextTurnCount % 5 === 0 && appendedMemory.trim()) {
     try {
-      const raw = await chatCompletion({
+      const raw = await chatCompletionText({
         apiKey: settings.apiKey,
         baseUrl: settings.baseUrl,
         model: settings.utilityModel,
@@ -501,7 +503,7 @@ async function runGroupAiTurn(
       rawText = generated.raw
       console.log(`[group] 工具调用回合(native=${generated.native}) 气泡=${agentParsed.bubbles.length} 群=${group.name}`)
     } else {
-    rawText = await chatCompletion({
+    rawText = await chatCompletionText({
       apiKey: settings.apiKey,
       baseUrl: settings.baseUrl,
       model: settings.model,
@@ -557,7 +559,7 @@ async function runGroupAiTurn(
           finalRaw = jsonRaw
           ;({ bubbles, knowledgeQueries, turnSummary, groupVibe, planCandidates } = enriched.parsed)
         } else {
-        rawText = await chatCompletion({ apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.model,messages:[...chatMessages,{role:'user',content:`刚才出现了你们不了解的词。搜索结果如下：\n${knowledge.text}\n请基于结果重新生成群聊草稿，保持原群聊格式，像刚查明白后自然接话，不要写成报告。${regenerationUserMessage ? `\n\n再次确认：仍必须严格执行前述“最高优先级剧情要求”。` : ''}`}],signal:controller.signal,trace:{turnId:streamId,stage:'second_chat',conversationId} })
+        rawText = await chatCompletionText({ apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.model,messages:[...chatMessages,{role:'user',content:`刚才出现了你们不了解的词。搜索结果如下：\n${knowledge.text}\n请基于结果重新生成群聊草稿，保持原群聊格式，像刚查明白后自然接话，不要写成报告。${regenerationUserMessage ? `\n\n再次确认：仍必须严格执行前述“最高优先级剧情要求”。` : ''}`}],signal:controller.signal,trace:{turnId:streamId,stage:'second_chat',conversationId} })
         const enrichedTooled = await insertToolCallsIntoRawTurn({ settings, rawDraft: rawText, recentContext: recentHistory.slice(-4).map((message) => formatGroupHistoryMessage(message, contactById, messageById, settings.userNickname).content).join('\n'), scene: 'group', imageGenerationEnabled, signal: controller.signal, trace: { turnId: streamId, conversationId } })
         rawText = enrichedTooled.raw
         const enrichedAudited = await auditAndRepairRawTurn({ settings, masterPrompt: chatMessages[0]?.content ?? systemPrompt, rawDraft: rawText, scene: 'group', regenerationInstruction, signal: controller.signal, trace: { turnId: streamId, conversationId } })

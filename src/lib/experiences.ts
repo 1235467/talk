@@ -3,8 +3,8 @@ import { canPublishNovelMoment } from './moments'
 import { api } from './api/resources'
 import { invalidate } from './api/keys'
 import type { AppSettings, Contact, ContactExperience, ContactLifeState } from '../types'
-import { chatCompletionText as chatCompletion } from './deepseek'
-import { parseJsonLoose } from './aiProtocol'
+import { chatCompletionText } from './ai/client'
+import { parseJsonLoose } from './ai/protocol'
 import { selectedWorldbookEntriesText, retrieveWorldbookContext } from './worldbook'
 import { uniqueRelationPairs } from './contactRelations'
 import { displayName } from './contact'
@@ -145,7 +145,7 @@ ${worldbook ? `【所属世界正史与创建参考资料】\n${worldbook.slice(
 - 不要把用户的离线本身写成角色人生事件。
 
 只输出JSON：{"experiences":[{"title":"","summary":"","details":"","offsetStartMinutes":0,"offsetEndMinutes":30,"location":"","activity":"","participantContactIds":[],"interactionMode":"none|remote|physical","importance":30,"visibility":"private|related|public","shareAsMoment":false,"momentContent":""}]}`
-  const raw = await chatCompletion({
+  const raw = await chatCompletionText({
     apiKey: settings.apiKey,
     baseUrl: settings.baseUrl,
     model: settings.utilityModel || settings.model,

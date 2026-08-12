@@ -2,8 +2,8 @@ import { v4 as uuid } from 'uuid'
 import { api } from './api/resources'
 import { getOrUndef } from './api/client'
 import { invalidate } from './api/keys'
-import { parseJsonLoose } from './aiProtocol'
-import { chatCompletionText as chatCompletion } from './deepseek'
+import { parseJsonLoose } from './ai/protocol'
+import { chatCompletionText } from './ai/client'
 import { clampWarmthDelta, applyWarmthDelta, maxWarmthForTrait, minWarmthForTrait, warmthStage, shouldUpdateBase, containsBreakupLanguage, WARMTH_BREAKUP_PENALTY, traitWarmthModifier, customTraitWarmthModifier } from './relationship'
 import { displayName } from './contact'
 import { describeCurrentTime, toDateKey } from './time'
@@ -467,7 +467,7 @@ export async function maybeUpdateMemory(
     const intentPromptEnabled = featureActive(settings, 'intent')
     if (!memoryPromptEnabled && !relationshipPromptEnabled && !intentPromptEnabled) return null
 
-    const raw = await chatCompletion({
+    const raw = await chatCompletionText({
       apiKey: settings.apiKey,
       baseUrl: settings.baseUrl,
       model: settings.utilityModel,
@@ -863,7 +863,7 @@ export async function maybeUpdateGroupMemory(
       return
     }
 
-    const raw = await chatCompletion({
+    const raw = await chatCompletionText({
       apiKey: settings.apiKey,
       baseUrl: settings.baseUrl,
       model: settings.utilityModel,

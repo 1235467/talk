@@ -10,7 +10,7 @@ import { AvatarPicker } from '../components/AvatarPicker'
 import { WorldbookEntrySelector } from '../components/WorldbookEntrySelector'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { useModuleEnabled } from '../features'
-import { chatCompletionText as chatCompletion } from '../lib/deepseek'
+import { chatCompletionText } from '../lib/ai/client'
 import { AVATAR_EMOJIS } from '../lib/avatarEmojis'
 import { pickRandomTrait } from '../lib/randomTraits'
 import { initialWarmthForBase } from '../lib/relationship'
@@ -260,7 +260,7 @@ export function ContactAddPage() {
       if (overwritten.length) localIssues.push(`以下已填字段被改写：${overwritten.map((key) => NUWA_FIELD_LABELS[key]).join('、')}`)
     }
     if (parsed && !hasNuwaFormFields(parsed) && !structuredNuwaPersonaText()) localIssues.push('角色说明包含可提取信息，但所有表单字段均为空，只填写了 otherSetting')
-    const reviewRaw = await chatCompletion({
+    const reviewRaw = await chatCompletionText({
       apiKey: settings.apiKey,
       baseUrl: settings.baseUrl,
       model: settings.utilityModel || settings.model,
@@ -292,7 +292,7 @@ issues 要用简短中文列出具体错误。` },
       const retryText = rejection
         ? `\n\n上一次输出已被多功能模型退回。必须修复以下问题：\n${rejection}\n请重新输出完整 JSON，不要解释。`
         : ''
-      const raw = await chatCompletion({
+      const raw = await chatCompletionText({
         apiKey: settings.apiKey,
         baseUrl: settings.baseUrl,
         model: settings.model,

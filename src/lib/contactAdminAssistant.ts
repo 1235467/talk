@@ -1,6 +1,6 @@
 import type { AppSettings, Contact, ContactExperience } from '../types'
-import { chatCompletionText } from './deepseek'
-import { parseJsonLoose } from './aiProtocol'
+import { chatCompletionText } from './ai/client'
+import { parseJsonLoose } from './ai/protocol'
 
 export interface ContactAdminSuggestion {
   summary: string

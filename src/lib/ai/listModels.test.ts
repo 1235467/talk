@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { resetFakeServer } from '../test/setup'
-import { listModels } from './deepseek'
+import { resetFakeServer } from '../../test/setup'
+import { listModels } from './connection'
 
 describe('listModels', () => {
   afterEach(() => {

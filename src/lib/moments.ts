@@ -3,8 +3,8 @@ import { api } from './api/resources'
 import { getOrUndef } from './api/client'
 import { invalidate, invalidateAll } from './api/keys'
 import { isAiTestId } from './aiTestIsolation'
-import { parseJsonLoose } from './aiProtocol'
-import { chatCompletionText as chatCompletion } from './deepseek'
+import { parseJsonLoose } from './ai/protocol'
+import { chatCompletionText } from './ai/client'
 import { momentReactionProbability, uniqueRelationPairs } from './contactRelations'
 import { describeCurrentSchedule, isPhoneAvailable } from './schedule'
 import { randomAnimeAvatar, searchPexelsPhoto } from './photoSearch'
@@ -239,7 +239,7 @@ async function reviewMomentPayload(settings: AppSettings, raw: string, expectedS
       recentMoments: history || '(空)',
       candidate: raw.slice(0, 5000),
     }) ?? ''
-    const judged = await chatCompletion({
+    const judged = await chatCompletionText({
       apiKey: settings.apiKey,
       baseUrl: settings.baseUrl,
       model: settings.utilityModel || settings.model,
@@ -264,7 +264,7 @@ async function reviewMomentPayload(settings: AppSettings, raw: string, expectedS
       personaContext: personaContext || '(无)',
       candidate: raw.slice(0, 5000),
     }) ?? ''
-    const repaired = await chatCompletion({
+    const repaired = await chatCompletionText({
       apiKey: settings.apiKey,
       baseUrl: settings.baseUrl,
       model: settings.utilityModel || settings.model,
@@ -303,7 +303,7 @@ export async function runMomentTestSandbox(contact: Contact, settings: AppSettin
     ? (getPromptTemplate(settings, 'worldview', 'momentsRuntime', { worldbookEntries: await retrieveWorldbookContext(`${contact.name} ${contact.systemPrompt} ${contact.memoryFacts} ${testInstruction}`, { worldviewId: contact.worldviewId }) }) ?? '')
     : ''
   const entries = [{ poster: contact, commenters: [] as ReactorPlan[], willHavePhoto: true }]
-  const raw = await chatCompletion({
+  const raw = await chatCompletionText({
     apiKey: settings.apiKey,
     baseUrl: settings.baseUrl,
     model: settings.model,
@@ -369,7 +369,7 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
           worldbookEntries: await retrieveWorldbookContext(entries.map((e) => `${e.poster.name} ${e.poster.systemPrompt} ${e.poster.memoryFacts}`).join('\n'), { worldviewId: selectedWorldviewId }),
         }) ?? '')
       : ''
-  const raw = await chatCompletion({
+  const raw = await chatCompletionText({
     apiKey: settings.apiKey,
     baseUrl: settings.baseUrl,
     model: settings.model,
@@ -402,7 +402,7 @@ export async function refreshMoments(settings: AppSettings): Promise<RefreshMome
       const issue = momentNoveltyIssue(finalParsed[index].content, historyRows.get(entries[index].poster.id) || []) || '本条没有换掉近期重复题材。'
       retryContexts.set(entries[index].poster.id, `【本次必须纠正】${issue}\n不得改几个字重发旧内容；必须换一个近期未使用的具体题材、场景或情绪落点。\n${contexts.get(entries[index].poster.id) || ''}`.slice(0, 12_000))
     }
-    const retryRaw = await chatCompletion({
+    const retryRaw = await chatCompletionText({
       apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, jsonMode: true, purpose: 'moments', automatic: true,
       messages: [{ role: 'system', content: buildMomentsPrompt(retryEntries, momentsWorldbookPrompt, stickerNames, retryContexts, settings) }, { role: 'user', content: '请根据【本次必须纠正】重新生成，并在输出前逐项检查。' }],
     })
@@ -535,7 +535,7 @@ export async function regenerateMoment(momentId: string, requirement: string, se
   let parsed: ParsedMoment[] | null = null
   let correction = ''
   for (let attempt = 0; attempt < 3; attempt++) {
-    const raw = await chatCompletion({
+    const raw = await chatCompletionText({
       apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, jsonMode: true, purpose: 'moments',
       messages: [{ role: 'system', content: buildMomentsPrompt([{ poster, commenters: [], willHavePhoto: false }], '', [], new Map([[poster.id, `${correction}${contexts.get(poster.id)}`]]), settings) }, { role: 'user', content: '请重新生成这条动态。必须优先服从用户要求。' }],
     })
@@ -572,7 +572,7 @@ export async function regenerateMomentComment(commentId: string, requirement: st
   if (!moment || !author) throw new Error('找不到原评论上下文')
   const names = new Map(contacts.map((contact) => [contact.id, contact.name]))
   const thread = allComments.map((item) => `${item.authorContactId === 'user' ? settings.userNickname || '用户' : names.get(item.authorContactId) || '某人'}: ${item.content}`).join('\n')
-  const raw = await chatCompletion({
+  const raw = await chatCompletionText({
     apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, purpose: 'moments',
     messages: [{ role: 'system', content: buildMomentReplyPrompt(author, moment.content, [thread, `【用户对本次重生成的要求】${requirement.trim() || '更自然、更符合人设。'}`], '', [], '', settings) }, { role: 'user', content: '请只重写指定的这条跟评。' }],
   })
@@ -668,7 +668,7 @@ export async function postUserMoment(content: string, settings: AppSettings): Pr
               worldbookEntries: await retrieveWorldbookContext(content, { worldviewId: settings.defaultWorldviewId }),
             }) ?? '')
           : ''
-      const raw = await chatCompletion({
+      const raw = await chatCompletionText({
         apiKey: settings.apiKey,
         baseUrl: settings.baseUrl,
         model: settings.model,
@@ -810,7 +810,7 @@ export async function generateMomentReply(
     const replyWorldbookPrompt = replyWorldbookEntries
       ? (getPromptTemplate(settings, 'worldview', 'momentsRuntime', { worldbookEntries: replyWorldbookEntries }) ?? '')
       : ''
-    const raw = await chatCompletion({
+    const raw = await chatCompletionText({
       apiKey: settings.apiKey,
       baseUrl: settings.baseUrl,
       model: settings.model,
@@ -918,7 +918,7 @@ export async function generateMomentDiscussion(
 直接被回复者id：${directId && directId !== 'user' ? directId : 'none'}`
     const editable = getPromptTemplate(settings, 'moments', 'discussion', { worldbookPrompt: discussionWorldbookPrompt, discussionContext }) ?? ''
     const prompt = `${editable}\n\n固定输出协议：只输出JSON {"comments":[{"authorId":"candidate id","replyToCommentId":"optional existing comment id","content":"..."}]}`
-    const raw = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, jsonMode: true, purpose: 'moments', messages: [{ role: 'system', content: prompt }, { role: 'user', content: 'Generate the discussion.' }] })
+    const raw = await chatCompletionText({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, jsonMode: true, purpose: 'moments', messages: [{ role: 'system', content: prompt }, { role: 'user', content: 'Generate the discussion.' }] })
     const parsed = JSON.parse(raw) as { comments?: Array<{ authorId?: unknown; replyToCommentId?: unknown; content?: unknown }> }
     const allowedReplyIds = new Set(comments.map((comment) => comment.id))
     const output = (parsed.comments ?? []).flatMap((item) => {

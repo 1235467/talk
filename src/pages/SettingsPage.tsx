@@ -5,7 +5,7 @@ import { FileSliders } from 'lucide-react'
 import { ActionSheet } from '../components/ActionSheet'
 import { ImageCropper } from '../components/ImageCropper'
 import { useSettingsStore } from '../store/useSettingsStore'
-import { listModels, testConnection } from '../lib/deepseek'
+import { listModels, testConnection } from '../lib/ai/connection'
 import { api } from '../lib/api/resources'
 import { getOrUndef } from '../lib/api/client'
 import { uploadDataUrlIfNeeded } from '../lib/api/media'
@@ -19,7 +19,7 @@ import { formatCurrency } from '../lib/wallet'
 import { CHAT_PAGE_SIZE_OPTIONS, normalizeChatPageSize } from '../lib/chatPagination'
 import { ModelPicker } from '../components/ModelPicker'
 import { ToggleSwitch } from '../components/ToggleSwitch'
-import { AI_PROVIDERS, AI_PROVIDER_OPTIONS, resolveChatCompletionsUrl, resolveModelsUrl, type AiProviderId } from '../lib/aiProviders'
+import { AI_PROVIDERS, AI_PROVIDER_OPTIONS, BASE_URL_EDITABLE, resolveChatCompletionsUrl, resolveModelsUrl, type AiProviderId } from '../lib/ai/providers'
 import { cancelAllContactGenerationTasks, markPersistedContactGenerationTasksPaused } from '../lib/contactGenerationTasks'
 
 export function SettingsPage() {
@@ -410,16 +410,16 @@ export function SettingsPage() {
         <label className="mb-1 block text-xs text-gray-500">Base URL</label>
         <input
           value={baseUrlDraft}
-          readOnly={providerDraft !== 'custom'}
-          aria-readonly={providerDraft !== 'custom'}
+          readOnly={!BASE_URL_EDITABLE.has(providerDraft)}
+          aria-readonly={!BASE_URL_EDITABLE.has(providerDraft)}
           onChange={(e) => {
-            if (providerDraft !== 'custom') return
+            if (!BASE_URL_EDITABLE.has(providerDraft)) return
             setBaseUrlDraft(e.target.value)
             setTestResult(null)
           }}
 
           className={`mb-3 w-full rounded-lg border px-3 py-2 text-sm ${
-            providerDraft === 'custom'
+            BASE_URL_EDITABLE.has(providerDraft)
               ? 'border-gray-200 bg-white text-gray-800'
               : 'cursor-not-allowed border-gray-100 bg-gray-100 text-gray-400'
           }`}

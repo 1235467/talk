@@ -800,14 +800,14 @@ export interface AppSettings {  experienceMode: ContactGenerationExperienceMode
   serverUrl: string
   /** Bearer token for the talk server (TALK_TOKEN on the server side). */
   serverToken: string
-  aiProvider: import('../lib/aiProviders').AiProviderId
+  aiProvider: import('../lib/ai/providers').AiProviderId
   apiKey: string
   /** Active provider's endpoint. Mirror of baseUrls[aiProvider]; kept as the single read path for all call sites. */
   baseUrl: string
   /** Each provider carries its own endpoint — switching providers never touches another provider's stored URL. */
-  baseUrls?: Partial<Record<import('../lib/aiProviders').AiProviderId, string>>
+  baseUrls?: Partial<Record<import('../lib/ai/providers').AiProviderId, string>>
   /** Per-provider generation knobs — capabilities differ per API (see GenerationProfile). */
-  generationByProvider?: Partial<Record<import('../lib/aiProviders').AiProviderId, GenerationProfile>>
+  generationByProvider?: Partial<Record<import('../lib/ai/providers').AiProviderId, GenerationProfile>>
   /** AI reply timeout in ms; 0 disables the watchdog. Default 5 min (reasoning models think long). */
   chatResponseTimeoutMs: number
   model: string
@@ -1415,7 +1415,7 @@ export interface ContactGenerationTask {
   status: ContactGenerationStatus
   stageLabel: string
   input: ContactGenerationInput
-  provider: import('../lib/aiProviders').AiProviderId
+  provider: import('../lib/ai/providers').AiProviderId
   baseUrl: string
   model: string
   utilityModel: string

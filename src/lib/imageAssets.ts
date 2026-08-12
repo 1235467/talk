@@ -5,8 +5,8 @@ import { invalidate } from './api/keys'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { useChatUiStore } from '../store/useChatUiStore'
 import type { AiImageKind, AppSettings, Contact, MediaAsset } from '../types'
-import { chatCompletionText } from './deepseek'
-import { traceTurnEvent } from './deepseek'
+import { chatCompletionText } from './ai/client'
+import { traceTurnEvent } from './ai/usage'
 import { appFetch } from './appFetch'
 import { generateRemoteImage } from './remoteMedia'
 
@@ -244,7 +244,7 @@ async function runAsset(assetId: string): Promise<void> {
   const persisted = await persistResult(result.url)
   await api.mediaAssets.patch(assetId, { ...persisted, status: 'completed', phase: 'completed', completedAt: Date.now(), updatedAt: Date.now(), error: undefined })
   invalidate('mediaAssets')
-  void traceTurnEvent({ turnId: asset.turnId, conversationId: asset.conversationId, stage: 'image_generation', input: prompt, output: `生成完成：assetId=${assetId}\n${persisted.filePath ?? persisted.remoteUrl ?? '无图片地址'}`, durationMs: Date.now() - startedAt, diagnostics: { assetId, provider: asset.provider, remoteUrl: persisted.remoteUrl } })
+  void traceTurnEvent({ turnId: asset.turnId, conversationId: asset.conversationId, stage: 'image_generation', input: prompt, output: `生成完成：assetId=${assetId}\n${persisted.filePath ?? persisted.remoteUrl ?? '无图片地址'}`, durationMs: Date.now() - startedAt })
   await notifyChatImageCompleted(asset)
 }
 

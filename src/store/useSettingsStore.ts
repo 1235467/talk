@@ -13,7 +13,7 @@ import type { AppSettings } from '../types'
 import { createDefaultPromptModules, normalizePromptModules } from '../lib/promptModules'
 
 import { normalizeChatPageSize } from '../lib/chatPagination'
-import type { AiProviderId } from '../lib/aiProviders'
+import { AI_PROVIDERS, type AiProviderId } from '../lib/ai/providers'
 import { normalizeUiTheme } from '../lib/uiTheme'
 import { filterDormantModules } from '../features/dormant'
 
@@ -67,7 +67,6 @@ interface SettingsState extends AppSettings {
 }
 
 const envKey = import.meta.env.VITE_DEEPSEEK_API_KEY ?? ''
-const envBaseUrl = import.meta.env.VITE_DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com'
 const envTavilyKey = import.meta.env.VITE_TAVILY_API_KEY ?? ''
 const envPexelsKey = import.meta.env.VITE_PEXELS_API_KEY ?? ''
 const envGiphyKey = import.meta.env.VITE_GIPHY_API_KEY ?? ''
@@ -93,8 +92,8 @@ export const useSettingsStore = create<SettingsState>()(
       serverToken: '',
       aiProvider: 'deepseek',
       apiKey: envKey,
-      baseUrl: envBaseUrl,
-      baseUrls: envBaseUrl ? { deepseek: envBaseUrl } : {},
+      baseUrl: AI_PROVIDERS.deepseek.defaultBaseUrl,
+      baseUrls: {},
       model: 'deepseek-v4-pro',
       utilityModel: 'deepseek-v4-flash',
       globalSystemPrompt: DEFAULT_STYLE_PROMPT,

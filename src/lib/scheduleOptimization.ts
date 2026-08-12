@@ -1,4 +1,4 @@
-import { parseJsonLoose } from './aiProtocol'
+import { parseJsonLoose } from './ai/protocol'
 import { validateScheduleBlocks } from './schedule'
 import type { Contact, ContactMemory, LocationNode, ScheduleBlock } from '../types'
 

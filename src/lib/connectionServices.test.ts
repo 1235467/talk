@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { testConnection } from './deepseek'
+import { testConnection } from './ai/connection'
 import { searchPexelsPhoto, testPexelsConnection } from './photoSearch'
 import { tavilySearch } from './webSearch'
 import { friendlyConnectionError } from './connectionError'
@@ -25,7 +25,7 @@ describe('connection checks', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
-    const result = await testConnection('sk-test', '123456', 'test-model')
+    const result = await testConnection('sk-test', '123456', 'test-model', 'custom')
 
     expect(result.ok).toBe(false)
     expect(result.message).toContain('http:// 或 https://')

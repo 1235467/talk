@@ -1,4 +1,4 @@
-import { chatCompletionText as chatCompletion } from './deepseek'
+import { chatCompletionText } from './ai/client'
 import type { AppSettings } from '../types'
 
 interface QualityResult {
@@ -65,7 +65,7 @@ Current main-model reply:
 ${opts.rawDraft}
 
 Return the complete reply text with only necessary markers inserted. If no tool is clearly requested, return it unchanged.`
-  const raw = await chatCompletion({
+  const raw = await chatCompletionText({
     apiKey: opts.settings.apiKey, baseUrl: opts.settings.baseUrl,
     model: opts.settings.utilityModel || opts.settings.model,
     messages: [{ role: 'system', content: prompt }], jsonMode: false,
@@ -108,7 +108,7 @@ Only audit mechanical marker syntax and translate the draft. Do not judge rolepl
 Do a complete scan for format errors, not just the first error. A single draft may contain multiple independent format errors, and all of them must be repaired in the same pass.
 Preserve all valid content, marker order, and card placement whenever possible.
 Set valid=true when conversion succeeds. In all cases, fixedRaw must contain the complete final chat JSON object as an escaped JSON string. Preserve message order and wording; empty mood/thought fields are allowed when natural text does not provide them. fixedRaw must contain only the final chat JSON object, with no Markdown or explanation.`
-  const result = await chatCompletion({
+  const result = await chatCompletionText({
     apiKey: opts.settings.apiKey, baseUrl: opts.settings.baseUrl,
     model: opts.settings.utilityModel || opts.settings.model, jsonMode: true,
     trace: { turnId: opts.trace.turnId, stage: 'review_and_repair', conversationId: opts.trace.conversationId },

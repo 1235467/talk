@@ -1,4 +1,4 @@
-import { parseJsonLoose } from './aiProtocol'
+import { parseJsonLoose } from './ai/protocol'
 import type { LocationNode } from '../types'
 
 export interface ProposedSpecialTask {

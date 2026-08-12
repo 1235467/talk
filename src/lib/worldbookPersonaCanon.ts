@@ -1,6 +1,6 @@
 import type { AppSettings } from '../types'
-import { parseJsonLoose } from './aiProtocol'
-import { chatCompletionText } from './deepseek'
+import { parseJsonLoose } from './ai/protocol'
+import { chatCompletionText } from './ai/client'
 
 export interface CanonicalPastExperience {
   title: string

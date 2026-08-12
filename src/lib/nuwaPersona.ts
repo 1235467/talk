@@ -1,4 +1,4 @@
-import { parseJsonLoose } from './aiProtocol'
+import { parseJsonLoose } from './ai/protocol'
 
 export interface NuwaStructuredResult {
   realName: string

@@ -1,7 +1,7 @@
 import type { AppSettings, JobListing, ScheduleBlock } from '../types'
 import { localDateKey } from './finance'
 import { createDefaultPromptModules, getPromptTemplate } from './promptModules'
-import { parseJsonLoose } from './aiProtocol'
+import { parseJsonLoose } from './ai/protocol'
 import { validateScheduleBlocks } from './schedule'
 
 export const OCCUPATION_OPTIONS = ['程序员','教师','医生','律师','设计师','记者','摄影师','厨师','销售','研究员','店员','自由职业者']

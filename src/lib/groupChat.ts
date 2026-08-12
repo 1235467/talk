@@ -1,6 +1,6 @@
 import { api } from './api/resources'
 import { isModuleEnabled } from '../features'
-import { parseJsonLoose, parseKnowledgeQueriesField, parseScheduleMarker } from './aiProtocol'
+import { parseJsonLoose, parseKnowledgeQueriesField, parseScheduleMarker } from './ai/protocol'
 import { activeUpcomingPlansText } from './memory'
 import { customPersonalityTraitsLine, formatPersonaProfile, formatSpeechSamplesForScene, personalityTraitLine } from './prompt'
 import { describeCurrentSchedule } from './schedule'
@@ -48,7 +48,7 @@ export function groupTypingDelayMs(bubble: GroupAiBubble): number {
  * own content, mimicking the "名字: 内容" format used to label speakers in
  * the history it's fed (see groupChatEngine.ts's history mapping) — same
  * mimicry-of-a-compression-format failure mode as the 1:1 commission
- * bracket leak (see aiProtocol.ts's recoverLeakedBubbles). A prompt
+ * bracket leak. A prompt
  * instruction alone didn't reliably stop it there either, so this strips
  * any leading "<known member name>: " prefix structurally, regardless of
  * whether the name matches the bubble's actual speakerIndex — the visible

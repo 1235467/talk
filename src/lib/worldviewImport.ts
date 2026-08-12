@@ -1,8 +1,8 @@
 import { v4 as uuid } from 'uuid'
 import type { AppSettings, LibraryItem, WorldbookEntry } from '../types'
-import { estimateTokens } from './aiUsage'
-import { chatCompletionText } from './deepseek'
-import { parseJsonLoose } from './aiProtocol'
+import { estimateTokens } from './ai/usage'
+import { chatCompletionText } from './ai/client'
+import { parseJsonLoose } from './ai/protocol'
 
 function cleanKeywords(values: unknown) {
   if (!Array.isArray(values)) return []

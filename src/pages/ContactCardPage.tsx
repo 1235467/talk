@@ -27,7 +27,7 @@ import type { Contact, ContactMemoryScope, ContactRelationLabel } from '../types
 import { CONTACT_RELATION_LABELS, PERSONALITY_TRAIT_OPTIONS } from '../types'
 import { activeIntentPrompt, activeIntents, clearIntentQueue } from '../lib/intent'
 import { removePairedContactRelation, setPairedContactRelation, uniqueRelationPairs } from '../lib/contactRelations'
-import { chatCompletionText as chatCompletion } from '../lib/deepseek'
+import { chatCompletionText } from '../lib/ai/client'
 import { buildOccupationPrompt, parseOccupation, employmentPatch, OCCUPATION_OPTIONS } from '../lib/career'
 import { formatCurrency } from '../lib/wallet'
 import { setWalletBalance } from '../lib/finance'
@@ -211,7 +211,7 @@ export function ContactCardPage() {
     try {
       const careerPrompt = buildOccupationPrompt(value, contact.systemPrompt, settings)
       if (!careerPrompt.trim()) throw new Error('职业提示词模块已屏蔽')
-      const raw = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.utilityModel, messages: [{ role: 'system', content: careerPrompt }, { role: 'user', content: '生成职业资料' }], jsonMode: true, purpose: 'persona' })
+      const raw = await chatCompletionText({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.utilityModel, messages: [{ role: 'system', content: careerPrompt }, { role: 'user', content: '生成职业资料' }], jsonMode: true, purpose: 'persona' })
       const parsed = parseOccupation(raw)
       if (!parsed) throw new Error('职业资料生成失败')
       await patchContact({ ...employmentPatch(value, parsed.monthlySalary), ...(parsed.schedule ? { schedule: parsed.schedule } : {}) })

@@ -1,8 +1,8 @@
 import type { AiBubble, GroupAiBubble } from '../types'
-import { parseJsonLoose, serializePrivateTurn, type ParsedAiTurn } from './aiProtocol'
+import { parseJsonLoose, serializePrivateTurn, type ParsedAiTurn } from './ai/protocol'
 import { normalizeMood } from './mood'
-import type { ChatCompletionOptions, ChatMessage, ChatToolCall, ChatToolDefinition } from './deepseek'
-import { chatCompletion, chatCompletionText } from './deepseek'
+import type { ChatCompletionOptions, ChatMessage, ChatToolCall, ChatToolDefinition } from './ai/types'
+import { chatCompletion, chatCompletionText } from './ai/client'
 
 /**
  * Tool-calling agent turns: the model emits schema-bound tool calls for every

@@ -3,7 +3,7 @@ import { api } from './api/resources'
 import { getOrUndef } from './api/client'
 import { invalidate } from './api/keys'
 import { recordSocialEvent } from './socialEvents'
-import { chatCompletionText as chatCompletion } from './deepseek'
+import { chatCompletionText } from './ai/client'
 import type { AppSettings, Group, GroupPlan, GroupPlanStatus, Message } from '../types'
 import { getPromptTemplate, promptModuleEnabled } from './promptModules'
 import { canPublishNovelMoment } from './moments'
@@ -57,7 +57,7 @@ async function generatePlanAftermath(plan: GroupPlan, group: Group, settings: Ap
       planContext: `${plan.title}；${plan.summary}`,
       participants: JSON.stringify(contacts.map((contact) => ({ id: contact.id, name: contact.name, persona: contact.systemPrompt }))),
     }) ?? ''
-    const raw = await chatCompletion({
+    const raw = await chatCompletionText({
       apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.utilityModel, jsonMode: true, purpose: 'moments',
       messages: [{ role: 'system', content: `${editable}\n\n固定输出协议：只输出JSON {"groupMessage":"...","moments":[{"contactId":"participant id","content":"public moment"}]}` }, { role: 'user', content: 'Generate aftermath.' }],
     })

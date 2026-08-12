@@ -1,13 +1,13 @@
 import { v4 as uuid } from 'uuid'
 import { api } from './api/resources'
 import { invalidate } from './api/keys'
-import { chatCompletionText as chatCompletion } from './deepseek'
+import { chatCompletionText } from './ai/client'
 import { tavilySearch, type WebSearchResult } from './webSearch'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { toDateKey } from './time'
 import type { AppSettings, KnowledgeEntry, LibraryItem } from '../types'
 import { featureActive, getPromptTemplate } from './promptModules'
-import { parseJsonLoose } from './aiProtocol'
+import { parseJsonLoose } from './ai/protocol'
 
 /** Entries older than this are pruned whenever new ones are added, so the table (and the prompt digest) don't grow forever. */
 const MAX_ENTRY_AGE_MS = 30 * 24 * 60 * 60 * 1000
@@ -146,7 +146,7 @@ async function searchAndStore(topics: { query: string }[], settings: AppSettings
   const totalResults = rawResultsPerQuery.reduce((sum, q) => sum + q.results.length, 0)
   if (totalResults === 0) return []
 
-  const raw = await chatCompletion({
+  const raw = await chatCompletionText({
     apiKey: settings.apiKey,
     baseUrl: settings.baseUrl,
     model: settings.model,

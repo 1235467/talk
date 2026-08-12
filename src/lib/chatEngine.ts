@@ -3,14 +3,16 @@ import { v4 as uuid } from 'uuid'
 import { api } from './api/resources'
 import { getOrUndef, hasAiAccess } from './api/client'
 import { invalidate } from './api/keys'
-import { chatCompletionText as chatCompletion, coalesceConsecutiveRoles, type ChatMessage } from './deepseek'
+import { chatCompletionText } from './ai/client'
+import { coalesceConsecutiveRoles } from './ai/messages'
+import type { ChatMessage } from './ai/types'
 import {
   parseJsonLoose,
   parseAiResponse,
   serializePrivateTurn,
   typingDelayMs,
   type ParsedAiTurn,
-} from './aiProtocol'
+} from './ai/protocol'
 import { generatePrivateAgentTurn } from './chatAgentTools'
 import { formatSpeechSamplesForScene, buildRawChatPrompt, customPersonalityTraitsLine } from './prompt'
 import { retrieveWorldbookTrace } from './worldbook'
@@ -42,7 +44,7 @@ import { createScheduleInternalTask } from './internalTasks'
 import { createMediaAsset, startMediaAsset } from './imageAssets'
 import { buildDirectOutputInstruction, parseDirectOutputReview } from './directOutput'
 import { auditAndRepairRawTurn, insertToolCallsIntoRawTurn } from './responseQuality'
-import { traceTurnEvent } from './deepseek'
+import { traceTurnEvent } from './ai/usage'
 import type { AiBubble, AppSettings, Contact, InternalTask, Message, MessageType, ScheduleOverride, Sticker } from '../types'
 
 /**
@@ -553,7 +555,7 @@ async function runAiTurn(
       console.log(`[chat] 工具调用回合(native=${agentNative}) 气泡=${agentTurn.bubbles.length} 对方=${displayName(contact)}`)
     } else {
     // ---- Step 1: main model generates raw text (no JSON) ----
-    rawText = await chatCompletion({
+    rawText = await chatCompletionText({
       apiKey: settings.apiKey,
       baseUrl: settings.baseUrl,
       model: settings.model,
@@ -628,7 +630,7 @@ async function runAiTurn(
           finalRaw = jsonRaw
           ;({ bubbles, knowledgeQueries, mood: turnMood, thought: turnThought } = enriched.parsed)
         } else {
-        rawText = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, messages: enrichedMessages, signal: controller.signal, purpose: proactiveContext ? 'proactive' : 'chat', automatic: !!proactiveContext, trace: { turnId: streamId, stage: 'second_chat', conversationId } })
+        rawText = await chatCompletionText({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, messages: enrichedMessages, signal: controller.signal, purpose: proactiveContext ? 'proactive' : 'chat', automatic: !!proactiveContext, trace: { turnId: streamId, stage: 'second_chat', conversationId } })
         const enrichedTooled = await insertToolCallsIntoRawTurn({ settings, rawDraft: rawText, recentContext: formatRecentConversationForReview(recentHistory.slice(-4), contact), locationContext: locationActionContext, scene: 'private', imageGenerationEnabled: isImageProviderReady(settings), signal: controller.signal, trace: { turnId: streamId, conversationId } })
         rawText = enrichedTooled.raw
         const enrichedAudited = await auditAndRepairRawTurn({ settings, masterPrompt: chatMessages[0]?.content ?? contextSections, rawDraft: rawText, scene: 'private', regenerationInstruction, signal: controller.signal, trace: { turnId: streamId, conversationId } })

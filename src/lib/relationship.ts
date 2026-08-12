@@ -282,7 +282,7 @@ export function shouldUpdateBase(dynamic: string, warmth: number): string | null
 
 import { api } from './api/resources'
 import { invalidate } from './api/keys'
-import { chatCompletionText as chatCompletion } from './deepseek'
+import { chatCompletionText } from './ai/client'
 import type { AppSettings, Contact } from '../types'
 import { featureActive, getPromptTemplate } from './promptModules'
 
@@ -323,7 +323,7 @@ export async function evaluateInitialWarmth(
       .map((m) => `${m.role === 'user' ? '对方' : contact.name}: ${m.content || ''}`)
       .join('\n')
 
-    const raw = await chatCompletion({
+    const raw = await chatCompletionText({
       apiKey: settings.apiKey,
       baseUrl: settings.baseUrl,
       model: settings.utilityModel,
