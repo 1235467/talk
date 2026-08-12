@@ -19,6 +19,7 @@ pub fn router(state: AppState) -> Router {
         .route("/kv", get(kv::list).post(kv::set))
         .route("/kv/{key}", get(kv::get_one).delete(kv::remove))
         .route("/presets", get(presets::list).post(presets::create))
+        .route("/presets/factory", axum::routing::put(presets::seed_factory))
         .route("/presets/{name}", get(presets::get_one).put(presets::update).delete(presets::remove))
         .route("/ai-proxy", post(ai_proxy::forward))
         .route("/outbound", post(outbound::forward))

@@ -145,6 +145,8 @@ export const api = {
     get: (name: string) => apiFetch<ServerPromptPreset>(`/presets/${encodeURIComponent(name)}`),
     create: (name: string, modules: unknown, isFactory = false) => apiFetch('/presets', { method: 'POST', body: { name, modules, isFactory } }),
     update: (name: string, modules: unknown) => apiFetch(`/presets/${encodeURIComponent(name)}`, { method: 'PUT', body: { modules } }),
+    /** Upserts the factory preset's modules — the only write allowed on factory rows. Used by hash-gated refresh on app upgrades. */
+    seedFactory: (name: string, modules: unknown) => apiFetch('/presets/factory', { method: 'PUT', body: { name, modules } }),
     delete: (name: string) => apiFetch(`/presets/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   },
 

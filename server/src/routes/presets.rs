@@ -68,6 +68,23 @@ pub async fn create(State(state): State<AppState>, Json(body): Json<UpsertPreset
     Ok(ok(serde_json::json!({ "ok": true })))
 }
 
+/// PUT /presets/factory — the only write allowed on factory rows: upserts
+/// the client's current factory template. App upgrades refresh the read-only
+/// preset through here (hash-gated client-side); all other endpoints keep
+/// factory rows untouchable.
+pub async fn seed_factory(State(state): State<AppState>, Json(body): Json<UpsertPreset>) -> AppResult<Json<serde_json::Value>> {
+    let name = body.name.trim();
+    if name.is_empty() {
+        return Err(AppError::BadRequest("name is required".into()));
+    }
+    sqlx::query("INSERT INTO prompt_presets (name, is_factory, modules, updated_at) VALUES (?, 1, ?, unixepoch() * 1000) ON CONFLICT(name) DO UPDATE SET is_factory = 1, modules = excluded.modules, updated_at = excluded.updated_at")
+        .bind(name)
+        .bind(serde_json::to_string(&body.modules)?)
+        .execute(&state.db)
+        .await?;
+    Ok(ok(serde_json::json!({ "ok": true })))
+}
+
 pub async fn update(State(state): State<AppState>, Path(name): Path<String>, Json(body): Json<serde_json::Value>) -> AppResult<Json<serde_json::Value>> {
     let existing = sqlx::query_as::<_, PresetRow>("SELECT * FROM prompt_presets WHERE name = ?")
         .bind(&name)

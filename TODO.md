@@ -37,11 +37,11 @@
 
 ## 5. 打磨（其次）
 
-- [ ] `listModels`（拉模型）走代理——现在直连 provider，浏览器同源流会撞 CORS
-- [ ] 全量 wipe 端点（现在客户端逐表删，漏 kv/presets/speech）
-- [ ] 出厂预设更新策略：app 升级带新模板时怎么刷新只读预设
+- [x] `listModels`（拉模型）走代理——2026-08 完成：deepseek.ts 改用 `outboundFetch`（零服务器改动，草稿 key 语义保留，/api/outbound 透传 Authorization 头）
+- [x] 全量 wipe 端点——2026-08 完成：`POST /api/batch/wipe-data` 单事务删全部数据表+speech_cache 并 sweep 孤儿媒体文件；**kv（apiKey/布局/个人资料）与 prompt_presets 明确保留**；客户端一键调用，设置页文案同步修正
+- [x] 出厂预设更新策略——2026-08 完成：服务器新增 `PUT /presets/factory`（唯一允许写出厂行的端点，upsert 语义）；客户端 `ensureServerPresets` 按 kv `factoryPresetHash` 门控刷新，app 升级模板变化自动渗透，import 覆盖出厂行后下次启动自愈
 - [ ] 引擎层 orchestration 单测
-- [ ] `next` 分支版本号/versionCode 策略（与 master 0.1.51 线分开）
+- [ ] `next` 分支版本号/versionCode 策略（与 master 0.1.51 线分开）——暂缓（建议方案：next 跳 0.2.0，versionCode 公式不变 → 200 > 151）
 
 ## 6. 架构二期（新功能，稳定后再做）
 

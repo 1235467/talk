@@ -33,7 +33,7 @@
 
 ## 提示词系统（两层，旧三层快照已删除）
 
-- `prompt_presets` 表：`出厂默认`（is_factory，只读，hydrate 时从代码播种）+ 用户命名预设（重名创建会 409）。
+- `prompt_presets` 表：`出厂默认`（is_factory，只读，hydrate 时从代码播种）+ 用户命名预设（重名创建会 409）。出厂行刷新走 `PUT /presets/factory`（唯一可写出厂行的端点），客户端 `ensureServerPresets` 按 kv `factoryPresetHash` 门控——模板改动时自动 upsert。
 - `Contact.presetName` **按名动态引用**：构建提示词时 `resolveContactPromptModules(contact, settings)` 现查预设内容。原地保存预设 → 所有引用者下一轮生效；另存为新名 → 老引用不动。
 - 老数据的 `promptModulesSnapshot` 由**服务器 import 时**转成共享命名预设（`迁移快照`），客户端没有任何快照兜底逻辑。
 - `GlobalPromptModulesPage` = 预设管理（原地保存/另存为/删除/应用到联系人/设为新联系人默认 `settings.defaultPresetName`）。

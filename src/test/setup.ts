@@ -208,6 +208,12 @@ async function fakeApiFetch(path: string, options: { method?: string; body?: any
       state.presets.set(row.name, row)
       return { ok: true }
     }
+    if (method === 'PUT' && id === 'factory') {
+      // Mirrors the real server's seed_factory: the only write allowed on factory rows.
+      const row = state.presets.get(options.body.name)
+      state.presets.set(options.body.name, { name: options.body.name, isFactory: true, modules: options.body.modules, createdAt: row?.createdAt ?? Date.now(), updatedAt: Date.now() })
+      return { ok: true }
+    }
     if (method === 'PUT' && id) {
       const row = state.presets.get(id)
       if (!row) throw new FakeApiError(404, 'not found')
