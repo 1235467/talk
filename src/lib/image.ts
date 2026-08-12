@@ -1,4 +1,4 @@
-/** Downscales an image data URL so stickers/photos never bloat IndexedDB with full-resolution camera photos. */
+/** Downscales an image data URL so stickers/photos never bloat the database with full-resolution camera photos. */
 export function resizeImageDataUrl(dataUrl: string, maxSize = 240): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image()

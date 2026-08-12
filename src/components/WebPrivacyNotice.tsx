@@ -26,9 +26,9 @@ export function WebPrivacyNotice() {
       <div className="mx-auto w-full max-w-sm rounded-2xl bg-white p-5 text-gray-900 shadow-xl">
         <h2 id="web-privacy-title" className="text-lg font-semibold">开始体验 Talk</h2>
         <p className="mt-2 text-sm leading-6 text-gray-600">
-          Talk 不提供公共 AI 代理，也不会内置 API Key。请使用你自己的 DeepSeek Key；Key、联系人和聊天数据只保存在当前浏览器本地。
+          Talk 不提供公共 AI 代理，也不会内置 API Key。请在设置页填写服务器地址/token 和你自己的 DeepSeek Key；联系人和聊天数据保存在你连接的服务器上。
         </p>
-        <p className="mt-2 text-xs leading-5 text-gray-500">清理浏览器数据会删除本地内容，重要数据请先在设置中导出备份。</p>
+        <p className="mt-2 text-xs leading-5 text-gray-500">重要数据请定期在设置中导出备份（自包含 JSON）。</p>
         <button
           type="button"
           onClick={() => { dismiss(); void navigate('/settings') }}

@@ -1,6 +1,6 @@
 # Android 与 WebView 排障手册
 
-本文归档 Talk 在 Capacitor Android、旧 WebView、视口高度和发布流程上的可复用经验。当前架构摘要见 `.claude/CLAUDE.md`。
+本文归档 Talk 在 Capacitor Android、旧 WebView、视口高度和发布流程上的可复用经验。当前架构摘要见根目录 `AGENTS.md`。
 
 ## 当前 Android 配置
 
@@ -115,9 +115,9 @@ Vite 会在构建期把 `import.meta.env.VITE_*` 直接写入 JavaScript。`dist
 
 当前公开 APK 使用 debug 签名，适合测试分发，不适合正式应用商店发布。
 
-- 同 appId 且签名一致时，Android 会原地升级并保留 IndexedDB。
+- 业务数据保存在自建服务器（SQLite 单文件），APK 升级、换机或重装都不影响数据；客户端只需重新填写服务器地址和 token。localStorage 中的设置只是本地缓存，启动时会从服务器 kv 拉回。
+- 同 appId 且签名一致时，Android 会原地升级并保留本地缓存。
 - 更换机器或 debug keystore 后，签名可能不一致，系统会拒绝覆盖安装。
-- 卸载旧包再安装会清除本地数据，操作前必须导出备份。
 - 长期发布前应生成、离线备份并固定使用 release keystore。
 
 ## 真机验证清单
@@ -129,6 +129,7 @@ Vite 会在构建期把 `import.meta.env.VITE_*` 直接写入 JavaScript。`dist
 - 横竖屏切换
 - 深色模式和自定义背景
 - DeepSeek/媒体服务网络请求
+- 服务器连接（serverUrl/token）与 API Key 设置同步
 - 备份导出与导入
-- 旧版本 APK 原地升级后的数据保留
+- 旧版本 APK 原地升级后服务器数据不受影响
 - Release APK 内无真实 Key

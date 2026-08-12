@@ -7,8 +7,8 @@
  * treats installing a new APK with the same package id + signing as an
  * in-place upgrade (not a fresh install), a user tapping through to the
  * GitHub release page and installing the new APK manually keeps all their
- * local data (IndexedDB etc.) intact automatically — same as any normal
- * app update. This just removes the "did I check GitHub for a new
+ * local caches (and the server-side data) intact automatically — same as
+ * any normal app update. This just removes the "did I check GitHub for a new
  * version" step.
  */
 import { appFetch } from './appFetch'

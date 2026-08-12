@@ -50,7 +50,7 @@ import type { AiBubble, AppSettings, Contact, InternalTask, Message, MessageType
  * and its cleanup effect aborted the in-flight request and cleared all
  * pending bubble-reveal timers — the conversation would just stop mid-reply
  * the moment you left the screen. Living here, generation keeps running
- * (and messages keep landing in IndexedDB) no matter which page is mounted;
+ * (and messages keep landing in the server DB) no matter which page is mounted;
  * ChatPage just subscribes to this store for its conversationId when open.
  */
 interface ConversationRuntimeState {
@@ -71,7 +71,7 @@ export const DEFAULT_RUNTIME_STATE: ConversationRuntimeState = { aiTyping: false
 const REPLY_TIMEOUT_MS = 360_000
 export const REPLY_TIMEOUT_MESSAGE = '这轮回复等待超过 6 分钟，已自动停止。你可以重新生成这一轮。'
 
-/** Equal IndexedDB index keys have no stable order, so timestamps must be monotonic per conversation. */
+/** Message ordering relies on timestamps, so they must be monotonic per conversation. */
 export async function nextMessageTimestamp(conversationId: string, requested = Date.now()): Promise<number> {
   const rows = await api.messages.list({ conversationId })
   const latest = rows.reduce((value, message) => Math.max(value, message.createdAt), 0)

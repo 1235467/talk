@@ -1,6 +1,6 @@
 {
   "name": "talk",
-  "description": "A local-first AI companion app for Android, Windows and the web.",
+  "description": "A self-hosted, server-backed AI companion app for Android, Windows and the web.",
   "author": "Entropy2077-axe",
   "private": true,
   "version": "0.1.51",

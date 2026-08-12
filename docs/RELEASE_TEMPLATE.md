@@ -8,15 +8,15 @@
 
 ## 下载与安装
 
-从下方 Assets 下载 `app-debug.apk`。当前 APK 使用 debug 签名，适合直接安装体验，不是应用商店正式签名。升级或卸载前建议先在“我 → 设置”中导出备份。
+从下方 Assets 下载 `app-debug.apk`。当前 APK 使用 debug 签名，适合直接安装体验，不是应用商店正式签名。
 
-网页版：[在线体验](https://entropy2077-axe.github.io/talk/)
+本应用需要连接自建的 talk-server（部署方式见 README）。首次打开后请在"我 → 设置"中填写服务器地址和 token；业务数据保存在服务器上，APK 升级或重装不影响数据。
 
 ## API Key 与隐私
 
-此 APK 不内置 DeepSeek、Tavily 或 Pexels API Key。首次打开后请在“我 → 设置”中填写自己的 Key。联系人、聊天记录和设置默认保存在当前设备。
+此 APK 不内置 DeepSeek、Tavily 或 Pexels API Key。请在应用设置页填写自己的 Key；Key 保存在服务器 kv 中，任何设备修改即时全局生效。
 
-请不要公开分享包含 API Key 或私人聊天的备份文件。
+请不要公开分享包含 API Key 或私人聊天的备份文件，并妥善保管 server token（持有 token 即可读写全部数据）。
 
 ## 文件校验
 
