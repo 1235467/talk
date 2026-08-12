@@ -152,6 +152,8 @@ export const api = {
     deleteContact: (contactId: string) => apiFetch('/batch/delete-contact', { method: 'POST', body: { contactId } }),
     deleteMoment: (momentId: string) => apiFetch('/batch/delete-moment', { method: 'POST', body: { momentId } }),
     deleteMessage: (messageId: string) => apiFetch('/batch/delete-message', { method: 'POST', body: { messageId } }),
+    /** Deletes all data tables + speech cache + orphaned media files. kv (API keys, layout, profile) and prompt presets are preserved. */
+    wipeData: () => apiFetch<{ ok: boolean; removedMediaFiles: number; freedBytes: number }>('/batch/wipe-data', { method: 'POST' }),
   },
 
   /** Atomic multi-table snapshot operations. */

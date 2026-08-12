@@ -230,6 +230,21 @@ pub async fn delete_message(State(state): State<AppState>, Json(body): Json<Dele
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+/// POST /api/batch/wipe-data — delete every user data row (all resource
+/// tables + speech_cache) in one transaction, then sweep orphaned media
+/// files. Deliberately preserved: kv (API keys, layout, profile), all
+/// prompt_presets, and any media file still referenced by them.
+pub async fn wipe_data(State(state): State<AppState>) -> AppResult<Json<serde_json::Value>> {
+    let mut tx = crate::db::begin_write(&state.db).await?;
+    for (_, res) in crate::resources::import_order() {
+        sqlx::query(&format!("DELETE FROM \"{}\"", res.table)).execute(&mut *tx).await?;
+    }
+    sqlx::query("DELETE FROM speech_cache").execute(&mut *tx).await?;
+    tx.commit().await?;
+    let (removed, freed) = crate::media_util::gc_orphan_files(&state.db, std::path::Path::new(&state.config.media_dir)).await?;
+    Ok(Json(serde_json::json!({ "ok": true, "removedMediaFiles": removed, "freedBytes": freed })))
+}
+
 pub async fn export_all(State(state): State<AppState>) -> AppResult<Json<serde_json::Value>> {
     let pool: &SqlitePool = &state.db;
     let media_dir = std::path::Path::new(&state.config.media_dir);

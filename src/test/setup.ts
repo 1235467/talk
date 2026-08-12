@@ -393,6 +393,11 @@ async function fakeApiFetch(path: string, options: { method?: string; body?: any
   }
 
   if (head === 'batch') {
+    if (id === 'wipe-data') {
+      // Mirrors the real server: all data tables go; kv and presets stay.
+      for (const rows of state.tables.values()) rows.clear()
+      return { ok: true, removedMediaFiles: 0, freedBytes: 0 }
+    }
     if (id === 'delete-message') {
       const messageId = options.body.messageId
       if (!table('messages').delete(messageId)) throw new FakeApiError(404, 'not found')

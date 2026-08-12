@@ -77,29 +77,7 @@ export function SettingsPage() {
 
   async function handleWipeContacts() {
     await cancelAllContactGenerationTasks()
-    const wipeRows = async (list: () => Promise<{ id: string }[]>, bulkDelete: (ids: string[]) => Promise<unknown>) => {
-      const rows = await list()
-      if (rows.length) await bulkDelete(rows.map((row) => row.id))
-    }
-    await wipeRows(() => api.messages.list(), (ids) => api.messages.bulkDelete(ids))
-    await wipeRows(() => api.momentComments.list(), (ids) => api.momentComments.bulkDelete(ids))
-    await wipeRows(() => api.momentLikes.list(), (ids) => api.momentLikes.bulkDelete(ids))
-    await wipeRows(() => api.moments.list(), (ids) => api.moments.bulkDelete(ids))
-    await wipeRows(() => api.contactRelations.list(), (ids) => api.contactRelations.bulkDelete(ids))
-    await wipeRows(() => api.contactMemories.list(), (ids) => api.contactMemories.bulkDelete(ids))
-    await wipeRows(() => api.socialEvents.list(), (ids) => api.socialEvents.bulkDelete(ids))
-    await wipeRows(() => api.groupPlans.list(), (ids) => api.groupPlans.bulkDelete(ids))
-    await wipeRows(() => api.lifeEvents.list(), (ids) => api.lifeEvents.bulkDelete(ids))
-    await wipeRows(() => api.contactExperiences.list(), (ids) => api.contactExperiences.bulkDelete(ids))
-    await wipeRows(() => api.mediaAssets.list(), (ids) => api.mediaAssets.bulkDelete(ids))
-    await wipeRows(() => api.aiUsageRecords.list(), (ids) => api.aiUsageRecords.bulkDelete(ids))
-    await wipeRows(() => api.aiTurns.list(), (ids) => api.aiTurns.bulkDelete(ids))
-    await wipeRows(() => api.contactGenerationTasks.list(), (ids) => api.contactGenerationTasks.bulkDelete(ids))
-    await wipeRows(() => api.conversations.list(), (ids) => api.conversations.bulkDelete(ids))
-    await wipeRows(() => api.groups.list(), (ids) => api.groups.bulkDelete(ids))
-    for (const row of await api.contactLifeStates.list()) await api.contactLifeStates.delete(row.contactId)
-    for (const row of await api.simulationState.list()) await api.simulationState.delete(row.id)
-    await wipeRows(() => api.contacts.list(), (ids) => api.contacts.bulkDelete(ids))
+    await api.batch.wipeData()
     invalidateAll()
     void navigate('/contacts')
   }
@@ -574,10 +552,10 @@ export function SettingsPage() {
           onClick={() => setConfirmingWipe(true)}
           className="w-full rounded-lg bg-red-50 py-2.5 text-sm text-red-500"
         >
-          清空所有联系人与聊天记录
+          清空所有数据（保留账号与设置）
         </button>
         <p className="mt-2 text-[11px] text-gray-400">
-          数据存在你这台设备的浏览器本地 这个操作会删除所有联系人、会话和聊天记录 不可恢复
+          删除服务器上所有联系人、聊天、朋友圈、存档与缓存文件 保留 API 设置、界面偏好与个人资料 不可恢复
         </p>
       </section>
       </div>
@@ -585,7 +563,7 @@ export function SettingsPage() {
       {confirmingWipe && (
         <ActionSheet
           onClose={() => setConfirmingWipe(false)}
-          options={[{ label: '确认清空所有联系人与聊天记录', onSelect: handleWipeContacts, danger: true }]}
+          options={[{ label: '确认清空所有数据（设置保留）', onSelect: handleWipeContacts, danger: true }]}
         />
       )}
       {backgroundCropSrc && (
