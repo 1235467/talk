@@ -362,9 +362,7 @@ export function SettingsPage() {
             setTestResult(null)
             // Every provider has its own stored key and endpoint; switching
             // just loads that provider's slot. Nothing persists until 保存.
-            // The active provider's slot falls back to the legacy single
-            // apiKey mirror so pre-apiKeys installs never lose their key.
-            setApiKeyDraft(apiKeys?.[next] ?? (next === aiProvider ? apiKey : ''))
+            setApiKeyDraft(apiKeys?.[next] ?? '')
             setBaseUrlDraft(baseUrls?.[next] ?? AI_PROVIDERS[next].defaultBaseUrl)
           }}
           className="mb-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"

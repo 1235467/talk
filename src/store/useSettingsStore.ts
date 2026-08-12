@@ -39,6 +39,15 @@ export async function hydrateSettingsFromServer(): Promise<number> {
     for (const [key, value] of Object.entries(kv)) {
       if (!DEVICE_ONLY_KEYS.has(key) && value !== undefined) patch[key] = value
     }
+    // kv written before per-provider slots existed carries only the single
+    // mirror values; seed the active provider's slot from them (the persist
+    // migrate does the same for local state).
+    if (patch.apiKeys === undefined && typeof patch.apiKey === 'string' && patch.apiKey && typeof patch.aiProvider === 'string') {
+      patch.apiKeys = { [patch.aiProvider]: patch.apiKey }
+    }
+    if (patch.baseUrls === undefined && typeof patch.baseUrl === 'string' && patch.baseUrl && typeof patch.aiProvider === 'string') {
+      patch.baseUrls = { [patch.aiProvider]: patch.baseUrl }
+    }
     // kv may carry pre-dormancy module lists; apply the same dormancy filter
     // as the persist migration so disabled features never resurrect db calls.
     if (Array.isArray(patch.enabledModules)) {

@@ -31,6 +31,21 @@ describe('hydrateSettingsFromServer', () => {
     expect(stickerProviders.klipy).toMatchObject({ apiKey: '' })
     expect(stickerProviders.giphy.apiKey).toBe('g-key')
   })
+
+  it('seeds per-provider key/endpoint slots from legacy single-value kv', async () => {
+    const { api } = await import('../lib/api/resources')
+    // kv captured before apiKeys/baseUrls existed: only the single mirrors.
+    await api.kv.set('aiProvider', 'custom')
+    await api.kv.set('apiKey', 'sk-legacy')
+    await api.kv.set('baseUrl', 'https://legacy.example.com/v1')
+    setFakeServerConfigured(true)
+
+    await hydrateSettingsFromServer()
+
+    const state = useSettingsStore.getState()
+    expect(state.apiKeys).toEqual({ custom: 'sk-legacy' })
+    expect(state.baseUrls).toEqual({ custom: 'https://legacy.example.com/v1' })
+  })
 })
 
 describe('hydrateSettingsFromServer (unconfigured)', () => {
