@@ -1,3 +1,5 @@
+import { mediaUrl } from '../lib/api/client'
+
 interface AvatarProps {
   avatar?: string
   color?: string
@@ -7,7 +9,7 @@ interface AvatarProps {
 
 export function Avatar({ avatar = '', color = '#eef0f3', size: sizeProp = 48, rounded = 'lg' }: AvatarProps) {
   const size = sizeProp === 'md' ? 44 : sizeProp
-  const isImage = avatar.startsWith('data:') || avatar.startsWith('http')
+  const isImage = avatar.startsWith('data:') || avatar.startsWith('http') || avatar.startsWith('/')
   const radiusClass = rounded === 'full' ? 'rounded-full' : 'rounded-xl'
   return (
     <div
@@ -16,7 +18,7 @@ export function Avatar({ avatar = '', color = '#eef0f3', size: sizeProp = 48, ro
       style={{ width: size, height: size, background: isImage ? undefined : color }}
     >
       {isImage ? (
-        <img src={avatar} alt="" className="h-full w-full object-cover" />
+        <img src={mediaUrl(avatar)} alt="" className="h-full w-full object-cover" />
       ) : (
         <span style={{ fontSize: size * 0.52, lineHeight: 1 }}>{avatar}</span>
       )}

@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid'
 import { api } from './api/resources'
 import { getOrUndef, hasAiAccess } from './api/client'
+import { uploadDataUrlIfNeeded } from './api/media'
 import { invalidate } from './api/keys'
 import type {
   AppSettings,
@@ -454,6 +455,7 @@ async function prepareAvatar(task: ContactGenerationTask, settings: AppSettings)
       if (photo) { finalAvatar = photo.url; avatarPhotographer = 'photographer' in photo ? photo.photographer : undefined; avatarPhotographerUrl = 'photographerUrl' in photo ? photo.photographerUrl : undefined }
     } catch {}
   }
+  if (finalAvatar) finalAvatar = await uploadDataUrlIfNeeded(finalAvatar)
   task.finalAvatar = finalAvatar
   task.avatarPhotographer = avatarPhotographer
   task.avatarPhotographerUrl = avatarPhotographerUrl
@@ -493,7 +495,7 @@ async function commitTask(task: ContactGenerationTask) {
       nickname: input.nickname?.trim() || (task.method === 'precision' ? parsed.nickname : parsed.name) || parsed.name,
       gender: input.gender || parsed.gender || '',
       birthday: input.birthday?.trim() || parsed.birthday || fallbackBirthday(parsed.ageRange || input.ageRange),
-      avatar: task.finalAvatar || input.avatar,
+      avatar: await uploadDataUrlIfNeeded(task.finalAvatar || input.avatar || ''),
       avatarColor: randomAvatarColor(),
       visualIdentity: parsed.visualIdentity,
       visualSeed: visualIdentitySeed(parsed.visualIdentity || parsed.name),

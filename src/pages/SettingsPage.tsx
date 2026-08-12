@@ -8,6 +8,7 @@ import { useSettingsStore } from '../store/useSettingsStore'
 import { listModels, testConnection } from '../lib/deepseek'
 import { api } from '../lib/api/resources'
 import { getOrUndef } from '../lib/api/client'
+import { uploadDataUrlIfNeeded } from '../lib/api/media'
 import { invalidate, invalidateAll } from '../lib/api/keys'
 import { assertTalkBackup, backupFileName, createBackup, mergeSettingsPreservingSecrets, restoreBackup } from '../lib/backup'
 import { resumeMediaAssets } from '../lib/imageAssets'
@@ -595,7 +596,7 @@ export function SettingsPage() {
           title="裁剪聊天背景"
           onCancel={() => setBackgroundCropSrc('')}
           onConfirm={(dataUrl) => {
-            setSettings({ chatBackground: dataUrl })
+            void uploadDataUrlIfNeeded(dataUrl).then((url) => setSettings({ chatBackground: url }))
             setBackgroundCropSrc('')
           }}
         />

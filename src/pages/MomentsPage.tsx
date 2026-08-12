@@ -16,6 +16,8 @@ import { formatListTime } from '../lib/time'
 import type { Contact, MomentComment, MomentLike } from '../types'
 import { Heart, Pencil, RefreshCw } from 'lucide-react'
 import { retryMediaAsset } from '../lib/imageAssets'
+import { uploadDataUrlIfNeeded } from '../lib/api/media'
+import { mediaUrl } from '../lib/api/client'
 
 const EMPTY_ARRAY: never[] = []
 
@@ -167,7 +169,7 @@ export function MomentsPage() {
     const reader = new FileReader()
     reader.onload = async () => {
       const resized = await resizeImageDataUrl(reader.result as string, 960)
-      settings.setSettings({ momentsCoverPhoto: resized })
+      settings.setSettings({ momentsCoverPhoto: await uploadDataUrlIfNeeded(resized) })
     }
     reader.readAsDataURL(file)
   }
@@ -263,7 +265,7 @@ export function MomentsPage() {
 
       {filterContact ? <div className="flex items-center gap-3 bg-white px-4 py-5"><Avatar avatar={filterContact.avatar} color={filterContact.avatarColor} size={56} /><div><p className="ui-font-display text-base font-medium text-gray-900">{displayName(filterContact)}</p><p className="mt-1 text-xs text-gray-400">共 {visibleMoments.length} 条动态</p></div></div> : <div className="moments-cover relative shrink-0" style={{ height: '40vh' }} onClick={() => coverInput.current?.click()}>
         {settings.momentsCoverPhoto ? (
-          <img src={settings.momentsCoverPhoto} alt="" className="h-full w-full object-cover" />
+          <img src={mediaUrl(settings.momentsCoverPhoto)} alt="" className="h-full w-full object-cover" />
         ) : (
           <div className="ui-cover-gradient h-full w-full" />
         )}
@@ -359,9 +361,9 @@ export function MomentsPage() {
                     </p>
                     {m.imageAssetId && mediaAssetById.get(m.imageAssetId)?.status !== 'completed' && mediaAssetById.get(m.imageAssetId)?.status !== 'failed' && <div className="mt-2 flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-lg bg-gray-100 text-xs text-gray-400"><span className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-[var(--ui-special)]"/>图片生成中…</div>}
                     {m.imageAssetId && mediaAssetById.get(m.imageAssetId)?.status === 'failed' && <div className="mt-2 flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg bg-gray-50 px-4 text-center"><p className="text-xs text-red-500">{mediaAssetById.get(m.imageAssetId)?.error || '图片生成失败'}</p><button type="button" onClick={() => void retryMediaAsset(m.imageAssetId!)} className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs text-white">重新生成</button></div>}
-                    {(m.imageUrl || (m.imageAssetId && mediaAssetById.get(m.imageAssetId)?.status === 'completed' && (mediaAssetById.get(m.imageAssetId)?.dataUrl || mediaAssetById.get(m.imageAssetId)?.remoteUrl))) && (
+                    {(m.imageUrl || (m.imageAssetId && mediaAssetById.get(m.imageAssetId)?.status === 'completed' && (mediaAssetById.get(m.imageAssetId)?.filePath || mediaAssetById.get(m.imageAssetId)?.dataUrl || mediaAssetById.get(m.imageAssetId)?.remoteUrl))) && (
                       <img
-                        src={m.imageAssetId ? mediaAssetById.get(m.imageAssetId)?.dataUrl || mediaAssetById.get(m.imageAssetId)?.remoteUrl || m.imageUrl : m.imageUrl}
+                        src={mediaUrl(m.imageAssetId ? mediaAssetById.get(m.imageAssetId)?.filePath || mediaAssetById.get(m.imageAssetId)?.dataUrl || mediaAssetById.get(m.imageAssetId)?.remoteUrl || m.imageUrl || '' : m.imageUrl || '')}
                         alt=""
                         className="mt-2 max-h-64 w-full rounded-lg object-cover"
                         title={m.imagePhotographer ? `照片来自 Pexels · ${m.imagePhotographer}` : undefined}
@@ -450,7 +452,7 @@ export function MomentsPage() {
                                   {text}
                                   {sticker && (
                                     <img
-                                      src={sticker.dataUrl}
+                                      src={mediaUrl(sticker.filePath ?? sticker.dataUrl ?? '')}
                                       alt={stickerName}
                                       className="ml-1 inline-block h-6 w-6 rounded object-cover align-text-bottom"
                                     />

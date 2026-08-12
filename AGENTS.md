@@ -25,7 +25,7 @@
 
 - AI 聊天：`deepseek.ts` → `/api/ai-proxy`。客户端算出目标 URL（provider adapter），**key 由服务器每次现读 kv 的 `apiKey`**——任何设备在设置页改 key/端点即时全局生效。**没有 TALK_AI_* 环境变量**。
 - 第三方（Pexels/Tavily/Giphy/生图/TTS）：`outboundFetch` → `/api/outbound`（SSRF 防护的通用转发）。key 同样走 kv 同步。
-- 媒体：合成图/语音 → `api.media.upload(dataUrl)` → 服务器存文件返回 `/media/<file>`。
+- 媒体：一切本地产生的媒体（生图/贴纸/头像/封面/语音）→ `api.media.upload(dataUrl)` → 服务器存文件返回 `/media/<file>`，**DB 行里只存这个引用**；客户端写库前统一过 `src/lib/api/media.ts` 的 `uploadDataUrlIfNeeded`，渲染统一过 `mediaUrl()`（`/media/` 拼 serverBase，其余原样）。
 
 ## 设置同步模型
 
@@ -60,6 +60,7 @@ aiTest 框架已整删（2026-08，见 TODO 第 3 节）；finance/shop/warehous
 - 表结构约定：真实列只放过滤/排序字段 + `data` JSON 列存完整对象（API 原样返回 data，前端类型直通）；id 数组字段（contactIds/memberContactIds/keywords 等 8 处）镜像到 join 表供 `_contains` 查询。
 - 多表原子操作做成批处理端点（`routes/batch.rs`：删联系人/朋友圈/消息的级联），不要让客户端顺序调。
 - CRUD 是宏生成的（`crud.rs` + `resources.rs` 声明式注册），加新表 = 一个 migration + 一个 `crud_routes!` + mount + `import_order()` 加映射。
+- **媒体不变式（`media_util.rs`）**：DB 任何位置（含快照嵌套 JSON）只许 `/media/<uuid>.<ext>` 引用。文本级对称函数 `extract_data_urls`/`embed_media_files` 与 schema 无关：serve 启动时幂等迁移全表存量 dataUrl、import 边界 extract、export 边界 embed（备份保持自包含 JSON）。GC 只有 sweep（启动时 + `POST /api/media/gc`），引用收集覆盖全表+kv+speech_cache+快照，**删除端点不做即时 unlink**（快照可能持有引用）。mime→扩展名从 subtype 派生（别名表仅 jpeg→jpg 等少数），新文件类型零改动。
 
 ## 开发命令
 

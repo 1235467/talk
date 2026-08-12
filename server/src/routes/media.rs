@@ -3,10 +3,10 @@
 //! static serving (via ServeDir, or nginx `alias` in production).
 
 use axum::{extract::State, Json};
-use base64::Engine;
 
 use crate::{
     error::{AppError, AppResult},
+    media_util,
     state::AppState,
 };
 
@@ -18,34 +18,19 @@ pub struct Upload {
 }
 
 pub async fn upload(State(state): State<AppState>, Json(body): Json<Upload>) -> AppResult<Json<serde_json::Value>> {
-    let (mime, bytes) = decode_data_url(&body.data_url)?;
-    let ext = match mime.as_str() {
-        "image/jpeg" => "jpg",
-        "image/png" => "png",
-        "image/gif" => "gif",
-        "image/webp" => "webp",
-        "audio/mpeg" => "mp3",
-        "audio/wav" => "wav",
-        "audio/ogg" => "ogg",
-        _ => "bin",
+    let Some((mime, bytes)) = media_util::decode_data_url(&body.data_url) else {
+        return Err(AppError::BadRequest("invalid data URL".into()));
     };
-    let name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
+    let name = format!("{}.{}", uuid::Uuid::new_v4(), media_util::ext_for_mime(&mime));
     let path = std::path::Path::new(&state.config.media_dir).join(&name);
     tokio::fs::write(&path, &bytes).await?;
     Ok(Json(serde_json::json!({ "url": format!("/media/{name}") })))
 }
 
-fn decode_data_url(data_url: &str) -> AppResult<(String, Vec<u8>)> {
-    let (meta, payload) = data_url
-        .split_once(',')
-        .ok_or_else(|| AppError::BadRequest("invalid data URL".into()))?;
-    let mime = meta
-        .strip_prefix("data:")
-        .and_then(|m| m.strip_suffix(";base64"))
-        .ok_or_else(|| AppError::BadRequest("invalid data URL metadata".into()))?
-        .to_string();
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(payload)
-        .map_err(|_| AppError::BadRequest("invalid base64 payload".into()))?;
-    Ok((mime, bytes))
+/// POST /api/media/gc — sweep files no table references anymore. Records are
+/// never unlinked eagerly (a save snapshot may still reference the file), so
+/// this is the single reclamation point; it also runs once at boot.
+pub async fn gc(State(state): State<AppState>) -> AppResult<Json<serde_json::Value>> {
+    let (removed, freed) = media_util::gc_orphan_files(&state.db, std::path::Path::new(&state.config.media_dir)).await?;
+    Ok(Json(serde_json::json!({ "ok": true, "removed": removed, "freedBytes": freed })))
 }

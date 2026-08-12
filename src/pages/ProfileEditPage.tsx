@@ -5,6 +5,7 @@ import { Avatar } from '../components/Avatar'
 import { AvatarPicker } from '../components/AvatarPicker'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { regenerateUserVisualIdentity } from '../lib/imageAssets'
+import { uploadDataUrlIfNeeded } from '../lib/api/media'
 
 const GENDER_OPTIONS = ['男', '女', '不透露']
 
@@ -22,9 +23,9 @@ export function ProfileEditPage() {
   const [pickingAvatar, setPickingAvatar] = useState(false)
   const desktop = Boolean(window.talkDesktop)
 
-  function handleSave() {
+  async function handleSave() {
     settings.setSettings({
-      userAvatar: avatar,
+      userAvatar: await uploadDataUrlIfNeeded(avatar),
       userNickname: nickname.trim() || '我',
       userGender: gender,
       userBirthday: birthday,

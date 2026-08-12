@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api/resources'
-import { getOrUndef } from '../lib/api/client'
+import { getOrUndef, mediaUrl } from '../lib/api/client'
 import { invalidate, invalidateAll } from '../lib/api/keys'
 import { TopBar } from '../components/TopBar'
 import { MessageBubble } from '../components/MessageBubble'
@@ -125,7 +125,7 @@ export function ChatPage() {
   const latestMessageId = messages.at(-1)?.id
   const hasOlderMessages = messages.length < (messagePage?.total ?? 0)
   const { data: stickers = EMPTY_STICKERS } = useQuery({ queryKey: ['stickers'], queryFn: () => api.stickers.list() })
-  const stickerByName = useMemo(() => new Map(stickers.map((s) => [s.name, s.dataUrl])), [stickers])
+  const stickerByName = useMemo(() => new Map(stickers.map((s) => [s.name, s.filePath ?? s.dataUrl ?? ''])), [stickers])
   const [statusLine, setStatusLine] = useState('')
   useEffect(() => {
     // Group chats don't get a status line.
@@ -702,8 +702,8 @@ export function ChatPage() {
   const visibleHeaderTitle = aiTyping && typingLabel ? `${typingLabel}正在输入中...` : headerTitle
   const headerInfoPath = isGroupConv ? `/group/${group!.id}` : `/contact/${contact!.id}`
   const chatBackgroundStyle =
-    settings.chatBackground && settings.chatBackground.startsWith('data:')
-      ? { backgroundImage: `url(${settings.chatBackground})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+    settings.chatBackground && (settings.chatBackground.startsWith('data:') || settings.chatBackground.startsWith('/media/'))
+      ? { backgroundImage: `url(${mediaUrl(settings.chatBackground)})`, backgroundSize: 'cover', backgroundPosition: 'center' }
       : settings.chatBackground
         ? { backgroundColor: settings.chatBackground }
         : undefined

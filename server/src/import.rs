@@ -15,17 +15,25 @@ const SKIPPED_TABLES: &[&str] = &["adminLogs", "adminAiTraces", "saveSlots", "ai
 /// Settings keys that stay on the device and never belong in kv.
 const DEVICE_ONLY_SETTINGS: &[&str] = &["serverUrl", "serverToken", "topInsetAdjustmentPx", "setSettings"];
 
-pub async fn import_backup(pool: &SqlitePool, file: &str) -> anyhow::Result<()> {
+pub async fn import_backup(pool: &SqlitePool, file: &str, media_dir: &std::path::Path) -> anyhow::Result<()> {
     let text = std::fs::read_to_string(file)?;
     let backup: serde_json::Value = serde_json::from_str(&text)?;
-    let summary = import_value(pool, &backup).await?;
+    let summary = import_value(pool, &backup, media_dir).await?;
     for line in &summary {
         tracing::info!("{line}");
     }
     Ok(())
 }
 
-pub async fn import_value(pool: &SqlitePool, backup: &serde_json::Value) -> anyhow::Result<Vec<String>> {
+/// Move any embedded data URLs in an imported JSON value into media files
+/// before it reaches the database — both old backups (inline base64) and new
+/// ones (re-embedded at export time) end up as /media/ references.
+async fn extract_row(media_dir: &std::path::Path, row: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    let (text, _) = crate::media_util::extract_data_urls(media_dir, &serde_json::to_string(&row)?).await?;
+    Ok(serde_json::from_str(&text)?)
+}
+
+pub async fn import_value(pool: &SqlitePool, backup: &serde_json::Value, media_dir: &std::path::Path) -> anyhow::Result<Vec<String>> {
     if backup.get("format").and_then(|v| v.as_str()) != Some("talk-backup") {
         anyhow::bail!("not a talk-backup file");
     }
@@ -38,7 +46,7 @@ pub async fn import_value(pool: &SqlitePool, backup: &serde_json::Value) -> anyh
         let Some(rows) = tables.get(backup_name).and_then(|v| v.as_array()) else { continue };
         let mut count = 0usize;
         for row in rows {
-            crate::crud::upsert(pool, res, row.clone()).await?;
+            crate::crud::upsert(pool, res, extract_row(media_dir, row.clone()).await?).await?;
             count += 1;
         }
         summary.push(format!("{backup_name}: {count} rows"));
@@ -72,7 +80,7 @@ pub async fn import_value(pool: &SqlitePool, backup: &serde_json::Value) -> anyh
                 "createdAt": fetched_at,
                 "updatedAt": fetched_at,
             });
-            crate::crud::upsert(pool, res, mapped).await?;
+            crate::crud::upsert(pool, res, extract_row(media_dir, mapped).await?).await?;
             count += 1;
         }
         summary.push(format!("knowledgeEntries→libraryItems: {count} merged"));
@@ -94,9 +102,10 @@ pub async fn import_value(pool: &SqlitePool, backup: &serde_json::Value) -> anyh
             if DEVICE_ONLY_SETTINGS.contains(&key.as_str()) {
                 continue;
             }
+            let value = extract_row(media_dir, value.clone()).await?;
             sqlx::query("INSERT INTO kv (key, value, updated_at) VALUES (?, ?, unixepoch() * 1000) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
                 .bind(key)
-                .bind(serde_json::to_string(value)?)
+                .bind(serde_json::to_string(&value)?)
                 .execute(pool)
                 .await?;
             kv_count += 1;
@@ -108,6 +117,7 @@ pub async fn import_value(pool: &SqlitePool, backup: &serde_json::Value) -> anyh
             for preset in presets {
                 let Some(name) = preset.get("name").and_then(|v| v.as_str()) else { continue };
                 let modules = preset.get("modules").cloned().unwrap_or(serde_json::Value::Null);
+                let modules = extract_row(media_dir, modules).await?;
                 sqlx::query("INSERT INTO prompt_presets (name, is_factory, modules) VALUES (?, 0, ?) ON CONFLICT(name) DO UPDATE SET modules = excluded.modules, updated_at = unixepoch() * 1000")
                     .bind(name)
                     .bind(serde_json::to_string(&modules)?)

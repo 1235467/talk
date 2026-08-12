@@ -290,6 +290,9 @@ export interface MediaAsset {
   seed?: number
   predictionId?: string
   remoteUrl?: string
+  /** /media/<file> reference for generated results (new writes). */
+  filePath?: string
+  /** Legacy inline base64; old rows migrated by the server hold /media/ references here. */
   dataUrl?: string
   mimeType?: string
   error?: string
@@ -554,7 +557,10 @@ export interface PromptTrace {
 export interface Sticker {
   id: string
   name: string
-  dataUrl: string
+  /** /media/<file> reference (new writes). */
+  filePath?: string
+  /** Legacy inline base64; old rows migrated by the server hold /media/ references here. */
+  dataUrl?: string
   createdAt: number
 }
 

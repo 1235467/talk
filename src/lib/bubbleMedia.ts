@@ -1,6 +1,7 @@
 import { isImageProviderReady, isStickerProviderReady } from './mediaProviders'
 import { searchPexelsPhoto } from './photoSearch'
 import { generateRemoteImage, searchRemoteStickers, type RemoteStickerResult } from './remoteMedia'
+import { uploadDataUrlIfNeeded } from './api/media'
 import type { AppSettings, Message, Sticker } from '../types'
 
 interface MediaBubble {
@@ -33,7 +34,7 @@ export async function resolveBubbleMedia(
         const generated = await generateRemoteImage(settings, query)
         if (generated) {
           imagePayload = {
-            url: generated.url,
+            url: await uploadDataUrlIfNeeded(generated.url),
             caption: bubble.caption,
             query,
             provider: generated.provider,

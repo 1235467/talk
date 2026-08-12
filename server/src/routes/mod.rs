@@ -23,6 +23,7 @@ pub fn router(state: AppState) -> Router {
         .route("/ai-proxy", post(ai_proxy::forward))
         .route("/outbound", post(outbound::forward))
         .route("/media", post(media::upload))
+        .route("/media/gc", post(media::gc))
         .route("/batch/delete-contact", post(batch::delete_contact))
         .route("/batch/delete-moment", post(batch::delete_moment))
         .route("/batch/delete-message", post(batch::delete_message))
@@ -56,6 +57,7 @@ async fn import_backup(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, crate::error::AppError> {
-    let summary = crate::import::import_value(&state.db, &body).await.map_err(|error| crate::error::AppError::BadRequest(error.to_string()))?;
+    let media_dir = std::path::Path::new(&state.config.media_dir);
+    let summary = crate::import::import_value(&state.db, &body, media_dir).await.map_err(|error| crate::error::AppError::BadRequest(error.to_string()))?;
     Ok(ok(summary))
 }

@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
 import { api } from '../lib/api/resources'
 import { getOrUndef } from '../lib/api/client'
+import { uploadDataUrlIfNeeded } from '../lib/api/media'
 import { invalidate, invalidateAll } from '../lib/api/keys'
 import { isAiTestId } from '../lib/aiTestIsolation'
 import { TopBar } from '../components/TopBar'
@@ -766,11 +767,14 @@ export function ContactCardPage() {
       {pickingAvatar && (
         <AvatarPicker
           onSelect={(avatar, photographer) =>
-            void patchContact({
-              avatar,
-              avatarPhotographer: photographer?.name ?? null,
-              avatarPhotographerUrl: photographer?.url ?? null,
-            } as Partial<Contact>)
+            void (async () => {
+              const uploaded = await uploadDataUrlIfNeeded(avatar)
+              await patchContact({
+                avatar: uploaded,
+                avatarPhotographer: photographer?.name ?? null,
+                avatarPhotographerUrl: photographer?.url ?? null,
+              } as Partial<Contact>)
+            })()
           }
           onClose={() => setPickingAvatar(false)}
           settings={settings}

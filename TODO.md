@@ -26,11 +26,14 @@
 
 - [x] **aiTest 框架**（2026-08 整删：aiTestCards.ts/aiTestManager.ts/AiTestCardsPage + 2 个专属测试 + /ai-test-cards 路由 + DiscoverPage 入口 + ChatPage 重定向 + 7 个类型（含 AdminLogRecord）+ backup.ts 清单清理；保留 aiTestIsolation.ts 前缀过滤（18+ 活跃文件在用）和 consoleCapture 内存版；`db/unmigrated.ts` 随之删除——休眠机制落幕；服务器 SKIPPED_TABLES 保留 adminLogs/adminAiTraces/aiTestSuites/saveSlots 名字作永不导入标记）
 
-## 4. 媒体文件化（稳定化；media/ 目录已建，目前只接了 TTS）
+## 4. 媒体文件化（稳定化；2026-08 完成）
 
-- [ ] 新生成内容落文件：imageAssets.persistResult / 贴纸下载 / 头像 存 dataUrl → api.media.upload，行里只留 URL
-- [ ] 存量迁移脚本：messages/stickers/mediaAssets/moments 里的 base64 dataUrl 转存 media/ 文件并更新行
-- [ ] 媒体文件 GC：记录删除时的孤儿文件清理（目前只有 speech 文件跟着删）
+核心不变式：DB 内只允许 `/media/<uuid>.<ext>` 引用，dataUrl 只存在于客户端写库前和备份文件两个边界。服务器 `media_util.rs` 提供文本级对称转换（extract/embed），与 schema 无关、自动覆盖快照嵌套副本。
+
+- [x] 新生成内容落文件：persistResult / 贴纸 / 头像 / kv 小图 / 地点图标统一过 `uploadDataUrlIfNeeded` → api.media.upload，行里只留 `/media/` 引用（MediaAsset/Sticker 新增 filePath 字段，旧 dataUrl 字段保留兼容渲染）
+- [x] 存量迁移：serve 启动时自动全表扫描 dataUrl 落盘并更新行（幂等、无标记、每次启动都跑）；import 边界同样 extract（旧备份内联 base64 自动文件化）
+- [x] 媒体文件 GC：启动时 + `POST /api/media/gc` 手动触发 sweep（全表引用收集含快照/kv/speech_cache，diff 删孤儿）；**不做删除时即时 unlink**（快照可能持有引用副本）；speech unlink 的 Path::join bug 随即时 unlink 移除而消除，delete_contact 补上了 speech_cache 行级联
+- [x] 备份兼容：export 把 /media/ 文件回嵌 dataUrl（备份仍是自包含 JSON），import 重新落盘
 
 ## 5. 打磨（其次）
 

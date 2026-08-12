@@ -9,6 +9,7 @@ import { TopBar } from '../components/TopBar'
 import { Avatar } from '../components/Avatar'
 import { AvatarPicker } from '../components/AvatarPicker'
 import { randomAvatarColor } from '../lib/colors'
+import { uploadDataUrlIfNeeded } from '../lib/api/media'
 import { displayName } from '../lib/contact'
 import { useSettingsStore } from '../store/useSettingsStore'
 
@@ -50,7 +51,7 @@ export function GroupAddPage() {
       await api.groups.put({
         id: groupId,
         name: trimmedName,
-        avatar,
+        avatar: await uploadDataUrlIfNeeded(avatar),
         avatarColor: randomAvatarColor(),
         memberContactIds: selected,
         worldviewId: firstMember?.worldviewId || defaultWorldviewId,

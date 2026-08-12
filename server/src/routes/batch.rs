@@ -26,6 +26,7 @@ pub async fn delete_contact(State(state): State<AppState>, Json(body): Json<Dele
         .fetch_all(&mut *tx)
         .await?;
     for (conversation_id,) in &conversations {
+        sqlx::query("DELETE FROM speech_cache WHERE message_id IN (SELECT id FROM messages WHERE conversation_id = ?)").bind(conversation_id).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM messages WHERE conversation_id = ?").bind(conversation_id).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM media_assets WHERE conversation_id = ?").bind(conversation_id).execute(&mut *tx).await?;
     }
@@ -221,18 +222,9 @@ pub async fn delete_message(State(state): State<AppState>, Json(body): Json<Dele
     if let Some(asset_id) = value.get("image").and_then(|v| v.get("assetId")).and_then(|v| v.as_str()) {
         sqlx::query("DELETE FROM media_assets WHERE id = ?").bind(asset_id).execute(&mut *tx).await?;
     }
-    // TTS cache: remove the file too.
-    let speech: Option<(String,)> = sqlx::query_as("SELECT file_path FROM speech_cache WHERE message_id = ?")
-        .bind(&body.message_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-    if let Some((path,)) = speech {
-        let full = std::path::Path::new(&state.config.media_dir).join(&path);
-        if let Err(error) = tokio::fs::remove_file(&full).await {
-            tracing::warn!(?error, path, "failed to remove speech cache file");
-        }
-        sqlx::query("DELETE FROM speech_cache WHERE message_id = ?").bind(&body.message_id).execute(&mut *tx).await?;
-    }
+    // TTS cache row goes with the message; the audio file itself is
+    // reclaimed by the orphan sweep (media_util::gc_orphan_files).
+    sqlx::query("DELETE FROM speech_cache WHERE message_id = ?").bind(&body.message_id).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM messages WHERE id = ?").bind(&body.message_id).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -240,28 +232,32 @@ pub async fn delete_message(State(state): State<AppState>, Json(body): Json<Dele
 
 pub async fn export_all(State(state): State<AppState>) -> AppResult<Json<serde_json::Value>> {
     let pool: &SqlitePool = &state.db;
+    let media_dir = std::path::Path::new(&state.config.media_dir);
     let mut tables = serde_json::Map::new();
     for (backup_name, res) in crate::resources::import_order() {
         let params = crate::crud::ListParams { filters: Default::default() };
         let rows = crate::crud::list(pool, res, &params, None, None).await?;
-        tables.insert(backup_name.to_string(), serde_json::Value::Array(rows));
+        let mut embedded = Vec::with_capacity(rows.len());
+        for row in rows {
+            let (text, _) = crate::media_util::embed_media_files(media_dir, &serde_json::to_string(&row)?).await;
+            embedded.push(serde_json::from_str::<serde_json::Value>(&text)?);
+        }
+        tables.insert(backup_name.to_string(), serde_json::Value::Array(embedded));
     }
     let kv_rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM kv").fetch_all(pool).await?;
     let mut settings = serde_json::Map::new();
     for (key, value) in kv_rows {
-        settings.insert(key, serde_json::from_str(&value).unwrap_or(serde_json::Value::String(value)));
+        let (text, _) = crate::media_util::embed_media_files(media_dir, &value).await;
+        settings.insert(key, serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text)));
     }
     let presets: Vec<(String, String)> = sqlx::query_as("SELECT name, modules FROM prompt_presets WHERE is_factory = 0").fetch_all(pool).await?;
     if !presets.is_empty() {
-        settings.insert(
-            "promptPresets".to_string(),
-            serde_json::Value::Array(
-                presets
-                    .into_iter()
-                    .map(|(name, modules)| serde_json::json!({ "name": name, "modules": serde_json::from_str::<serde_json::Value>(&modules).unwrap_or(serde_json::Value::Null) }))
-                    .collect(),
-            ),
-        );
+        let mut values = Vec::with_capacity(presets.len());
+        for (name, modules) in presets {
+            let (modules, _) = crate::media_util::embed_media_files(media_dir, &modules).await;
+            values.push(serde_json::json!({ "name": name, "modules": serde_json::from_str::<serde_json::Value>(&modules).unwrap_or(serde_json::Value::Null) }));
+        }
+        settings.insert("promptPresets".to_string(), serde_json::Value::Array(values));
     }
     Ok(Json(serde_json::json!({
         "format": "talk-backup",

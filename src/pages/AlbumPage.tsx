@@ -3,6 +3,7 @@ import { Download, Trash2, X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { TopBar } from '../components/TopBar'
 import { api } from '../lib/api/resources'
+import { mediaUrl } from '../lib/api/client'
 import { useSettingsStore } from '../store/useSettingsStore'
 
 type AlbumSource = '动漫图库' | 'Pexels 实拍图' | '生图系统'
@@ -22,7 +23,7 @@ function sourceFor(url: string, explicit?: string, photographer?: string): Album
 }
 
 function validImageUrl(value: string | undefined): value is string {
-  return !!value && (/^https?:\/\//i.test(value) || value.startsWith('data:image/'))
+  return !!value && (/^https?:\/\//i.test(value) || value.startsWith('data:image/') || value.startsWith('/media/'))
 }
 
 export function AlbumPage() {
@@ -53,7 +54,7 @@ export function AlbumPage() {
       if (validImageUrl(message.image?.url)) add({ url: message.image.url, createdAt: message.createdAt, source: sourceFor(message.image.url, message.image.provider, message.image.photographer), caption: message.image.caption ?? message.image.query })
     }
     for (const asset of mediaAssets) {
-      const url = asset.dataUrl || asset.remoteUrl
+      const url = asset.filePath || asset.dataUrl || asset.remoteUrl
       if (validImageUrl(url)) add({ url, createdAt: asset.completedAt ?? asset.createdAt, source: '生图系统', caption: asset.scene })
     }
     return [...byUrl.values()].sort((a, b) => b.createdAt - a.createdAt)
@@ -67,7 +68,7 @@ export function AlbumPage() {
 
   async function downloadImage(image: AlbumImage) {
     try {
-      const response = await fetch(image.url)
+      const response = await fetch(mediaUrl(image.url))
       if (!response.ok) throw new Error('download failed')
       const blobUrl = URL.createObjectURL(await response.blob())
       const link = document.createElement('a')
@@ -76,7 +77,7 @@ export function AlbumPage() {
       link.click()
       URL.revokeObjectURL(blobUrl)
     } catch {
-      window.open(image.url, '_blank', 'noopener,noreferrer')
+      window.open(mediaUrl(image.url), '_blank', 'noopener,noreferrer')
     }
   }
 
@@ -89,14 +90,14 @@ export function AlbumPage() {
           <div className="flex min-h-64 items-center justify-center text-sm text-gray-400">还没有可收集的图片</div>
         ) : (
           <div className="grid grid-cols-3 gap-1.5">
-            {images.map((image) => <button key={image.url} type="button" onClick={() => setSelected(image)} className="aspect-square overflow-hidden rounded-lg bg-gray-200"><img src={image.url} alt={image.caption ?? image.source} className="h-full w-full object-cover" loading="lazy" /></button>)}
+            {images.map((image) => <button key={image.url} type="button" onClick={() => setSelected(image)} className="aspect-square overflow-hidden rounded-lg bg-gray-200"><img src={mediaUrl(image.url)} alt={image.caption ?? image.source} className="h-full w-full object-cover" loading="lazy" /></button>)}
           </div>
         )}
       </div>
       {selected && (
         <div className="fixed inset-0 z-[100] flex flex-col bg-black">
           <div role="button" tabIndex={0} onClick={() => setSelected(null)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelected(null) }} className="flex min-h-16 cursor-pointer items-center justify-between px-3 pb-3 pt-[calc(env(safe-area-inset-top)+12px)] text-white"><button type="button" aria-label="关闭预览" onClick={() => setSelected(null)} className="flex h-14 w-14 items-center justify-center rounded-full bg-white/15 active:bg-white/25"><X size={28} /></button><span className="text-xs opacity-80">{selected.source}</span><span className="w-14" /></div>
-          <div className="flex min-h-0 flex-1 items-center justify-center"><img src={selected.url} alt={selected.caption ?? selected.source} className="max-h-full max-w-full object-contain" /></div>
+          <div className="flex min-h-0 flex-1 items-center justify-center"><img src={mediaUrl(selected.url)} alt={selected.caption ?? selected.source} className="max-h-full max-w-full object-contain" /></div>
           <div className="safe-area-bottom flex gap-3 p-4"><button type="button" onClick={() => void downloadImage(selected)} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white py-3 text-sm text-gray-900"><Download size={18} />保存图片</button><button type="button" onClick={() => removeImage(selected.url)} className="flex items-center justify-center gap-2 rounded-xl bg-red-500 px-4 py-3 text-sm text-white"><Trash2 size={18} />删除</button></div>
         </div>
       )}

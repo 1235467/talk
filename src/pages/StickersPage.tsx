@@ -8,6 +8,8 @@ import { TopBar } from '../components/TopBar'
 import { Globe } from 'lucide-react'
 import { ActionSheet } from '../components/ActionSheet'
 import { resizeImageDataUrl } from '../lib/image'
+import { uploadDataUrlIfNeeded } from '../lib/api/media'
+import { mediaUrl } from '../lib/api/client'
 import { isStickerProviderReady, stickerProviderName } from '../lib/mediaProviders'
 import { useSettingsStore } from '../store/useSettingsStore'
 import type { Sticker } from '../types'
@@ -46,7 +48,7 @@ export function StickersPage() {
       setError('这个名字已经被使用了 换一个吧')
       return
     }
-    await api.stickers.put({ id: uuid(), name, dataUrl: pendingImage, createdAt: Date.now() })
+    await api.stickers.put({ id: uuid(), name, filePath: await uploadDataUrlIfNeeded(pendingImage), createdAt: Date.now() })
     invalidate('stickers')
     setPendingImage(null)
     setNameDraft('')
@@ -118,7 +120,7 @@ export function StickersPage() {
           <div className="grid grid-cols-4 gap-3">
             {stickers.map((s) => (
               <div key={s.id} className="flex flex-col items-center gap-1">
-                <img src={s.dataUrl} alt={s.name} className="h-16 w-16 rounded-lg object-cover" />
+                <img src={mediaUrl(s.filePath ?? s.dataUrl ?? '')} alt={s.name} className="h-16 w-16 rounded-lg object-cover" />
                 <button
                   onClick={() => {
                     setRenaming(s)

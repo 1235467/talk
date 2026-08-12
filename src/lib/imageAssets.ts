@@ -179,14 +179,18 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   })
 }
 
-async function persistResult(url: string): Promise<Pick<MediaAsset, 'dataUrl' | 'remoteUrl' | 'mimeType'>> {
-  if (url.startsWith('data:image/')) return { dataUrl: url, mimeType: url.slice(5, url.indexOf(';')) }
+async function persistResult(url: string): Promise<Pick<MediaAsset, 'filePath' | 'remoteUrl' | 'mimeType'>> {
+  if (url.startsWith('data:image/')) {
+    const { url: filePath } = await api.media.upload(url)
+    return { filePath, mimeType: url.slice(5, url.indexOf(';')) }
+  }
   try {
     const response = await appFetch(url)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const blob = await response.blob()
     if (!blob.type.startsWith('image/') || blob.size === 0) throw new Error('返回内容不是图片')
-    return { dataUrl: await blobToDataUrl(blob), remoteUrl: url, mimeType: blob.type }
+    const { url: filePath } = await api.media.upload(await blobToDataUrl(blob))
+    return { filePath, remoteUrl: url, mimeType: blob.type }
   } catch {
     return { remoteUrl: url }
   }
@@ -243,7 +247,7 @@ async function runAsset(assetId: string): Promise<void> {
   const persisted = await persistResult(result.url)
   await api.mediaAssets.patch(assetId, { ...persisted, status: 'completed', phase: 'completed', completedAt: Date.now(), updatedAt: Date.now(), error: undefined })
   invalidate('mediaAssets')
-  void traceTurnEvent({ turnId: asset.turnId, conversationId: asset.conversationId, stage: 'image_generation', input: prompt, output: `生成完成：assetId=${assetId}\n${persisted.dataUrl ? '[本地图片已保存]' : persisted.remoteUrl ?? '无图片地址'}`, durationMs: Date.now() - startedAt, diagnostics: { assetId, provider: asset.provider, remoteUrl: persisted.remoteUrl } })
+  void traceTurnEvent({ turnId: asset.turnId, conversationId: asset.conversationId, stage: 'image_generation', input: prompt, output: `生成完成：assetId=${assetId}\n${persisted.filePath ?? persisted.remoteUrl ?? '无图片地址'}`, durationMs: Date.now() - startedAt, diagnostics: { assetId, provider: asset.provider, remoteUrl: persisted.remoteUrl } })
   await notifyChatImageCompleted(asset)
 }
 

@@ -8,7 +8,7 @@ import { Check } from 'lucide-react'
 import { UiIcon } from './UiIcon'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api/resources'
-import { getOrUndef } from '../lib/api/client'
+import { getOrUndef, mediaUrl } from '../lib/api/client'
 import { retryMediaAsset } from '../lib/imageAssets'
 
 interface MessageBubbleProps {
@@ -77,6 +77,11 @@ export const MessageBubble = memo(function MessageBubble({
     enabled: !!imageAssetId,
   })
   const imageAsset = imageAssetId ? (imageAssetLoading ? null : imageAssetData) : undefined
+  const chatImageSrc = message.image
+    ? imageAsset?.status === 'completed'
+      ? imageAsset.filePath || imageAsset.dataUrl || imageAsset.remoteUrl
+      : message.image.url
+    : undefined
   const longPress = useLongPress(() => onLongPress?.(message.id))
   const mentionNames = useMemo(
     () =>
@@ -148,7 +153,7 @@ export const MessageBubble = memo(function MessageBubble({
           {message.type === 'sticker' && (
             <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-xl bg-white">
               {stickerUrl ? (
-                <img src={stickerUrl} alt={message.content} className="h-full w-full object-cover" />
+                <img src={mediaUrl(stickerUrl)} alt={message.content} className="h-full w-full object-cover" />
               ) : (
                 <span className="text-xs text-gray-400">[{message.content}]</span>
               )}
@@ -210,7 +215,7 @@ export const MessageBubble = memo(function MessageBubble({
           {message.type === 'image' && message.image && <div data-ui-scope="special" className="w-[240px] overflow-hidden rounded-xl bg-white">
             {message.image.assetId && (imageAsset === null || (imageAsset && imageAsset.status !== 'completed' && imageAsset.status !== 'failed')) ? <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 bg-gray-100 text-xs text-gray-400"><span className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-[var(--ui-special)]"/><span>图片生成中…</span></div> : null}
             {imageAsset?.status === 'failed' ? <div className="flex min-h-36 flex-col items-center justify-center gap-2 bg-gray-50 px-4 text-center"><UiIcon name="image" size={24}/><p className="text-xs text-red-500">{imageAsset.error || '图片生成失败'}</p><button type="button" onClick={() => void retryMediaAsset(imageAsset.id)} className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs text-white">重新生成</button></div> : null}
-            {(imageAsset?.status === 'completed' ? imageAsset.dataUrl || imageAsset.remoteUrl : message.image.url) && <img src={imageAsset?.status === 'completed' ? imageAsset.dataUrl || imageAsset.remoteUrl : message.image.url} alt={message.image.caption||'聊天图片'} className="max-h-72 w-full object-cover"/>}
+            {chatImageSrc && <img src={mediaUrl(chatImageSrc)} alt={message.image.caption||'聊天图片'} className="max-h-72 w-full object-cover"/>}
             {message.image.caption&&<p className="px-3 py-2 text-xs text-gray-600">{message.image.caption}</p>}{message.image.photographer&&<p className="px-3 pb-2 text-[10px] text-gray-300">Photo: {message.image.photographer}</p>}
           </div>}
           {['transfer','redPacket','loanRequest','loanResult','repayment'].includes(message.type) && message.finance && (

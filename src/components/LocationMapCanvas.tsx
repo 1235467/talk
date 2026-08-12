@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Layers, LocateFixed, Plus } from 'lucide-react'
 import { Avatar } from './Avatar'
+import { mediaUrl } from '../lib/api/client'
 import { getLocationIcon } from '../lib/locationIcons'
 import { TERRAIN_COLORS, TERRAIN_LABELS } from '../lib/locationMap'
 import type { Contact, LocationNode, TerrainType, WorldMapRecord } from '../types'
@@ -179,7 +180,7 @@ export function LocationMapCanvas({ map, locations, activeLocationId, contacts =
         const people = peopleByRoot.get(location.id) ?? [], icon = getLocationIcon(binding.iconId ?? binding.buildingCategory)
         return <button key={location.id} type="button" aria-label={`${location.name}${people.length > 0 ? ` · ${people.length}人` : ''}`} onPointerDown={(event) => event.stopPropagation()} onClick={() => onBuildingClick(location)} className="pointer-events-auto absolute z-10 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center" style={{ left: offset.x + (binding.x + .5) * CELL * scale, top: offset.y + (binding.y + .5) * CELL * scale }}>
           <span className={`relative flex h-10 w-10 items-center justify-center rounded-2xl border-2 bg-[var(--ui-surface)] text-[25px] shadow-lg transition-transform ${current ? 'border-[var(--ui-special)] ring-4 ring-[var(--ui-special-border)]' : selected ? 'border-[var(--ui-text)] scale-110' : 'border-[var(--ui-border)]'}`}>
-            {binding.customIconDataUrl ? <img src={binding.customIconDataUrl} alt="" className="h-8 w-8 object-contain" /> : icon.glyph}
+            {binding.customIconDataUrl ? <img src={mediaUrl(binding.customIconDataUrl)} alt="" className="h-8 w-8 object-contain" /> : icon.glyph}
             {people.length > 0 && <b className="absolute -right-2 -top-2 min-w-5 rounded-full bg-[var(--ui-special)] px-1 text-center text-[10px] leading-5 text-white">{people.length}</b>}
           </span>
           <span className="absolute top-[47px] max-w-28 whitespace-nowrap rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--ui-text)] shadow">{location.name}</span>
