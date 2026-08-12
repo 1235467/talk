@@ -4,7 +4,7 @@ import { useSettingsStore } from '../store/useSettingsStore'
 import type { Contact } from '../types'
 import { api } from './api/resources'
 import { getOrUndef } from './api/client'
-import { BACKUP_TABLES, createBackup, restoreBackup, type TalkBackup } from './backup'
+import { BACKUP_TABLES, createBackup, mergeSettingsForRestore, restoreBackup, type TalkBackup } from './backup'
 import { getBalance, transferFunds, USER_WALLET_ID } from './finance'
 
 function restorable(backup: TalkBackup): TalkBackup {
@@ -44,6 +44,23 @@ describe('wallet backup', () => {
     expect(backup.settings.serverToken).toBeUndefined()
     expect(backup.settings.topInsetAdjustmentPx).toBeUndefined()
     expect(serialized).not.toContain('device-token')
+  })
+
+  it('normalizes legacy backup settings at the restore boundary', () => {
+    // A pre-slot, pre-volcano backup: only single-value mirrors, and the
+    // imageProviders block lacks newer providers.
+    const legacy = {
+      aiProvider: 'custom',
+      apiKey: 'sk-legacy',
+      baseUrl: 'https://legacy.example.com/v1',
+      imageProviders: { atlas: { apiKey: 'k', baseUrl: 'https://api.atlascloud.ai/api/v1', model: 'bytedance/seedream-v4', size: '1024*1024', promptPrefix: '', visualStyle: 'anime', customVisualStyle: '' } },
+      serverUrl: 'https://old-server.example.com',
+    }
+    const merged = mergeSettingsForRestore(legacy as Partial<import('../types').AppSettings>, useSettingsStore.getState())
+    expect(merged.apiKeys).toEqual({ custom: 'sk-legacy' })
+    expect(merged.baseUrls).toEqual({ custom: 'https://legacy.example.com/v1' })
+    expect(merged.imageProviders?.volcano).toMatchObject({ model: 'doubao-seedream-5-0-pro-260628' })
+    expect(merged.serverUrl).toBe(useSettingsStore.getState().serverUrl)
   })
 
   it('round-trips wallets and ledger rows through a backup', async () => {

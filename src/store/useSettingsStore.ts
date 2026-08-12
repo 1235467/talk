@@ -28,6 +28,26 @@ export const DEVICE_ONLY_KEYS = new Set<string>([
 /** Pull server-kv values into the local store on launch (call after the user
  * configures serverUrl, or unconditionally — it no-ops without a server).
  * Returns the number of applied keys, or -1 when hydration did not run/failed. */
+/**
+ * Normalizes a settings patch arriving from any external boundary (server kv
+ * hydrate, backup restore): seeds per-provider key/endpoint slots from legacy
+ * single-value mirrors and fills structured-provider fields added by newer
+ * builds, so render code never reads a missing block. Mutates `patch`.
+ */
+export function normalizeSettingsPatch(patch: Record<string, unknown>): void {
+  if (patch.apiKeys === undefined && typeof patch.apiKey === 'string' && patch.apiKey && typeof patch.aiProvider === 'string') {
+    patch.apiKeys = { [patch.aiProvider]: patch.apiKey }
+  }
+  if (patch.baseUrls === undefined && typeof patch.baseUrl === 'string' && patch.baseUrl && typeof patch.aiProvider === 'string') {
+    patch.baseUrls = { [patch.aiProvider]: patch.baseUrl }
+  }
+  if (patch.stickerProviders) patch.stickerProviders = normalizeStickerProviders(patch.stickerProviders)
+  if (patch.imageProviders) patch.imageProviders = normalizeImageProviders(patch.imageProviders)
+  if (patch.speechProviders) patch.speechProviders = normalizeSpeechProviders(patch.speechProviders)
+  if (patch.promptModules) patch.promptModules = normalizePromptModules(patch.promptModules as Parameters<typeof normalizePromptModules>[0], (patch.globalSystemPrompt as string | undefined) ?? useSettingsStore.getState().globalSystemPrompt)
+  if (patch.uiTheme) patch.uiTheme = normalizeUiTheme(patch.uiTheme)
+}
+
 export async function hydrateSettingsFromServer(): Promise<number> {
   try {
     const { api } = await import('../lib/api/resources')
@@ -38,23 +58,7 @@ export async function hydrateSettingsFromServer(): Promise<number> {
     for (const [key, value] of Object.entries(kv)) {
       if (!DEVICE_ONLY_KEYS.has(key) && value !== undefined) patch[key] = value
     }
-    // kv written before per-provider slots existed carries only the single
-    // mirror values; seed the active provider's slot from them (the persist
-    // migrate does the same for local state).
-    if (patch.apiKeys === undefined && typeof patch.apiKey === 'string' && patch.apiKey && typeof patch.aiProvider === 'string') {
-      patch.apiKeys = { [patch.aiProvider]: patch.apiKey }
-    }
-    if (patch.baseUrls === undefined && typeof patch.baseUrl === 'string' && patch.baseUrl && typeof patch.aiProvider === 'string') {
-      patch.baseUrls = { [patch.aiProvider]: patch.baseUrl }
-    }
-    // kv written by older builds may lack newer nested fields (e.g. a new
-    // provider block) — normalize structured settings exactly like the
-    // persist migration does, or render code reading the new fields crashes.
-    if (patch.stickerProviders) patch.stickerProviders = normalizeStickerProviders(patch.stickerProviders)
-    if (patch.imageProviders) patch.imageProviders = normalizeImageProviders(patch.imageProviders)
-    if (patch.speechProviders) patch.speechProviders = normalizeSpeechProviders(patch.speechProviders)
-    if (patch.promptModules) patch.promptModules = normalizePromptModules(patch.promptModules as Parameters<typeof normalizePromptModules>[0], (patch.globalSystemPrompt as string | undefined) ?? useSettingsStore.getState().globalSystemPrompt)
-    if (patch.uiTheme) patch.uiTheme = normalizeUiTheme(patch.uiTheme)
+    normalizeSettingsPatch(patch)
     if (Object.keys(patch).length) {
       useSettingsStore.setState(patch as Partial<AppSettings>)
     }

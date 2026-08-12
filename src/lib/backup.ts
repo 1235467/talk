@@ -1,7 +1,7 @@
 import { api } from './api/resources'
 import { invalidateAll } from './api/keys'
 import type { AppSettings } from '../types'
-import { DEVICE_ONLY_KEYS } from '../store/useSettingsStore'
+import { DEVICE_ONLY_KEYS, normalizeSettingsPatch } from '../store/useSettingsStore'
 import { ensureWalletsAfterRestore } from './finance'
 
 const BACKUP_FORMAT = 'talk-backup'
@@ -52,11 +52,13 @@ export function backupFileName(now = new Date()) {
 
 /**
  * Restore takes the backup verbatim — it is a full-fidelity copy, secrets
- * included. Only device-scoped values (server URL/token, display inset) keep
- * their local values.
+ * included. Two adjustments: settings pass through the same normalization as
+ * a kv hydrate (legacy backups predate per-provider slots and newer provider
+ * blocks), and device-scoped values keep their local values.
  */
 export function mergeSettingsForRestore(restored: Partial<AppSettings>, current: AppSettings): Partial<AppSettings> {
   const merged = { ...restored } as Record<string, unknown>
+  normalizeSettingsPatch(merged)
   for (const key of DEVICE_ONLY_KEYS) merged[key] = (current as unknown as Record<string, unknown>)[key]
   return merged as Partial<AppSettings>
 }
