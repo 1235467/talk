@@ -801,7 +801,10 @@ export interface AppSettings {  experienceMode: ContactGenerationExperienceMode
   /** Bearer token for the talk server (TALK_TOKEN on the server side). */
   serverToken: string
   aiProvider: import('../lib/ai/providers').AiProviderId
+  /** Active provider's API key. Mirror of apiKeys[aiProvider]; kept as the single read path for all call sites. */
   apiKey: string
+  /** Each provider carries its own API key — switching providers never exposes another provider's stored key. */
+  apiKeys?: Partial<Record<import('../lib/ai/providers').AiProviderId, string>>
   /** Active provider's endpoint. Mirror of baseUrls[aiProvider]; kept as the single read path for all call sites. */
   baseUrl: string
   /** Each provider carries its own endpoint — switching providers never touches another provider's stored URL. */

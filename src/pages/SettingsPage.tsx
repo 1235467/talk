@@ -27,6 +27,7 @@ export function SettingsPage() {
   const {
     aiProvider,
     apiKey,
+    apiKeys,
     baseUrl,
     baseUrls,
     model,
@@ -163,9 +164,11 @@ export function SettingsPage() {
 
   function persistConnection() {
     const trimmedUrl = baseUrlDraft.trim() || AI_PROVIDERS[providerDraft].defaultBaseUrl
+    const trimmedKey = apiKeyDraft.trim()
     setSettings({
       aiProvider: providerDraft,
-      apiKey: apiKeyDraft.trim(),
+      apiKey: trimmedKey,
+      apiKeys: { ...(apiKeys ?? {}), [providerDraft]: trimmedKey },
       baseUrl: trimmedUrl,
       baseUrls: { ...(baseUrls ?? {}), [providerDraft]: trimmedUrl },
       model: modelDraft.trim(),
@@ -359,8 +362,11 @@ export function SettingsPage() {
             setModels([])
             setPullError('')
             setTestResult(null)
-            // Every provider has its own stored endpoint; switching just
-            // loads that provider's slot. Nothing persists until 保存.
+            // Every provider has its own stored key and endpoint; switching
+            // just loads that provider's slot. Nothing persists until 保存.
+            // The active provider's slot falls back to the legacy single
+            // apiKey mirror so pre-apiKeys installs never lose their key.
+            setApiKeyDraft(apiKeys?.[next] ?? (next === aiProvider ? apiKey : ''))
             setBaseUrlDraft(baseUrls?.[next] ?? AI_PROVIDERS[next].defaultBaseUrl)
           }}
           className="mb-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"

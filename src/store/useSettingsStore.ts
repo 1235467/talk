@@ -92,6 +92,7 @@ export const useSettingsStore = create<SettingsState>()(
       serverToken: '',
       aiProvider: 'deepseek',
       apiKey: envKey,
+      apiKeys: envKey ? { deepseek: envKey } : {},
       baseUrl: AI_PROVIDERS.deepseek.defaultBaseUrl,
       baseUrls: {},
       model: 'deepseek-v4-pro',
@@ -168,13 +169,16 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'talk-settings',
-      version: 24,
+      version: 25,
       migrate: (persisted, version) => {
         const next = persisted as Partial<SettingsState>
         if (typeof next.serverUrl !== 'string') next.serverUrl = ''
         if (typeof next.serverToken !== 'string') next.serverToken = ''
         if (!next.baseUrls || typeof next.baseUrls !== 'object') {
           next.baseUrls = next.baseUrl && next.aiProvider ? { [next.aiProvider]: next.baseUrl } as SettingsState['baseUrls'] : {}
+        }
+        if (!next.apiKeys || typeof next.apiKeys !== 'object') {
+          next.apiKeys = next.apiKey && next.aiProvider ? { [next.aiProvider]: next.apiKey } as SettingsState['apiKeys'] : {}
         }
         // Non-core features are dormant until they migrate to the server;
         // strip them from any persisted list (see features/dormant.ts).
