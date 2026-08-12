@@ -10,35 +10,22 @@
 - `android.allowMixedContent = true`，允许用户连接局域网内的 HTTP ComfyUI/Stable Diffusion 服务。
 - 全屏由用户显式触发，不在启动时强制开启。
 
-本机常用环境：
+APK 构建只走 GitHub Actions；本地构建在当前开发环境（NixOS / Termux）未验证过，不要依赖。
 
-- Android Studio：`C:\Projects\AndroidStudio`
-- JDK：`C:\Projects\AndroidStudio\jbr`
-- Android SDK：通常为 `%LOCALAPPDATA%\Android\Sdk`
+## 推荐构建流程（CI）
 
-路径只代表当前开发机，不应写进应用运行时代码。
-
-## 推荐构建流程
-
-优先运行：
+唯一验证过的路径是 GitHub Actions（`.github/workflows/android-apk.yml`）：
 
 ```bash
-npm run release:apk
+git tag v0.1.51 && git push origin v0.1.51   # 任何 v* tag 触发；tag 与 package.json 当前版本一致
 ```
 
-手动调试构建的大致流程：
-
-```bash
-npm run build
-npx cap sync android
-android\gradlew.bat assembleDebug
-```
-
-APK 通常位于：
-
-```text
-android/app/build/outputs/apk/debug/app-debug.apk
-```
+- 产物：workflow artifact `talk-apk`；tag 触发时同时创建 GitHub Release 并挂 APK。
+- `android/` 目录不入库，CI 每次 `npx cap add android` 现场生成，再从 package.json 版本推导 `versionCode = a*10000+b*100+c` / `versionName`。
+- 版本号用于标记与 upstream 的功能对等，不随意 bump（策略见 AGENTS.md「apk 构建」）。
+- **tag 必须是纯 semver**（`v0.1.51`、`v0.2.0` 这类）。预发布后缀（如 `v0.2.0-next.0`）会让版本公式算出 `NaN`，构建直接失败。
+- CI 不读本地 `.env`（已 gitignore），产物不含真实 Key。
+- `scripts/release-apk.mjs` 是 Windows 时代的本地构建脚本，当前环境未验证，不作推荐。
 
 ## API Key 安全
 
@@ -100,7 +87,7 @@ Vite 会在构建期把 `import.meta.env.VITE_*` 直接写入 JavaScript。`dist
 
 ## ADB 连接冲突
 
-开发机可能同时存在多套 Android SDK，例如 `%LOCALAPPDATA%\Android\Sdk` 和其他盘符中的 SDK。两个 `adb.exe` daemon 可能争抢 USB 设备。
+开发机可能同时存在多套 Android SDK，两个 adb daemon 会争抢 USB 设备（与操作系统无关）。
 
 排查步骤：
 
@@ -113,12 +100,12 @@ Vite 会在构建期把 `import.meta.env.VITE_*` 直接写入 JavaScript。`dist
 
 ## 签名与升级
 
-当前公开 APK 使用 debug 签名，适合测试分发，不适合正式应用商店发布。
+CI 产出的是 release 签名 APK：
 
+- 在仓库 secrets 配置 `ANDROID_KEYSTORE_BASE64`（及对应密码/别名）可固定签名身份；未配置时每次构建生成一次性 keystore（作为 artifact 保留 7 天，抢救后可入库固定身份）。
+- **不同 keystore 签名的 APK 互相拒绝覆盖安装**——签名身份一旦选定就不要再换。
+- 覆盖安装规则（真机已验证）：同签名 + versionCode **不低于**已装版本即可原地升级；**versionCode 相同也可以直接覆盖**，只有回退（更低）才会被拒。因此 package.json 版本固定不变期间（如用 0.1.51 标记与 upstream 的功能对等），连续构建的 APK 可以互相覆盖安装。
 - 业务数据保存在自建服务器（SQLite 单文件），APK 升级、换机或重装都不影响数据；客户端只需重新填写服务器地址和 token。localStorage 中的设置只是本地缓存，启动时会从服务器 kv 拉回。
-- 同 appId 且签名一致时，Android 会原地升级并保留本地缓存。
-- 更换机器或 debug keystore 后，签名可能不一致，系统会拒绝覆盖安装。
-- 长期发布前应生成、离线备份并固定使用 release keystore。
 
 ## 真机验证清单
 
@@ -128,7 +115,7 @@ Vite 会在构建期把 `import.meta.env.VITE_*` 直接写入 JavaScript。`dist
 - 键盘弹出/收起后的输入栏位置
 - 横竖屏切换
 - 深色模式和自定义背景
-- DeepSeek/媒体服务网络请求
+- AI provider（任一接入方）/媒体服务网络请求
 - 服务器连接（serverUrl/token）与 API Key 设置同步
 - 备份导出与导入
 - 旧版本 APK 原地升级后服务器数据不受影响

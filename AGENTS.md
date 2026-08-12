@@ -62,6 +62,11 @@ aiTest 框架已整删（2026-08，见 TODO 第 3 节）；finance/shop/warehous
 - CRUD 是宏生成的（`crud.rs` + `resources.rs` 声明式注册），加新表 = 一个 migration + 一个 `crud_routes!` + mount + `import_order()` 加映射。
 - **媒体不变式（`media_util.rs`）**：DB 任何位置（含快照嵌套 JSON）只许 `/media/<uuid>.<ext>` 引用。文本级对称函数 `extract_data_urls`/`embed_media_files` 与 schema 无关：serve 启动时幂等迁移全表存量 dataUrl、import 边界 extract、export 边界 embed（备份保持自包含 JSON）。GC 只有 sweep（启动时 + `POST /api/media/gc`），引用收集覆盖全表+kv+speech_cache+快照，**删除端点不做即时 unlink**（快照可能持有引用）。mime→扩展名从 subtype 派生（别名表仅 jpeg→jpg 等少数），新文件类型零改动。
 
+## apk 构建
+
+- 见文档, 目前未测试过next分支能否正常通过github action构建(理论可行)
+- `next` 分支版本号/versionCode 策略 —— 仅当开发者明确要求bump的时候进行bump, 不进行事实性的与`master`分支区分
+
 ## 开发命令
 
 - 前端：`npm run dev` / `npx tsc -b` / `npx oxlint` / `npx vitest run`

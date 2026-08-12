@@ -42,7 +42,6 @@
 - [x] 出厂预设更新策略——2026-08 完成：服务器新增 `PUT /presets/factory`（唯一允许写出厂行的端点，upsert 语义）；客户端 `ensureServerPresets` 按 kv `factoryPresetHash` 门控刷新，app 升级模板变化自动渗透，import 覆盖出厂行后下次启动自愈
 - [ ] ~~引擎层 orchestration 单测~~（并入第 6 节引擎迁移：现在用 TS 写会在 Rust 移植后作废，届时引擎从第一天带测试）
 - [ ] ~~生图服务端落盘 A+B~~（2026-08 决策：**跳过，被第 6 节引擎迁移吸收**——引擎上服务器后 provider 由服务器直调、生成物直落盘，字节绕行在根上消失；A 的 from-url 端点和 B 的火山 url 模式在终局里都是临时工程。C 方案（/api/outbound 响应改写）永久否决：哑管道保持哑）
-- [ ] `next` 分支版本号/versionCode 策略（与 master 0.1.51 线分开）——暂缓（建议方案：next 跳 0.2.0，versionCode 公式不变 → 200 > 151）
 
 ## 6. 架构二期（新功能，稳定后再做）
 
