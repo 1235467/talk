@@ -1,6 +1,7 @@
 import { api } from './api/resources'
 import { invalidateAll } from './api/keys'
 import type { AppSettings } from '../types'
+import { DEVICE_ONLY_KEYS } from '../store/useSettingsStore'
 import { ensureWalletsAfterRestore } from './finance'
 
 const BACKUP_FORMAT = 'talk-backup'
@@ -49,32 +50,27 @@ export function backupFileName(now = new Date()) {
   return `talk-backup-${stamp}.json`
 }
 
-export function settingsWithoutSecrets(value: unknown, key = ''): unknown {
-  if (/api.?key|authorization|token|password|secret/i.test(key)) return ''
-  if (Array.isArray(value)) return value.map((item) => settingsWithoutSecrets(item))
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).flatMap(([childKey, childValue]) =>
-      typeof childValue === 'function' ? [] : [[childKey, settingsWithoutSecrets(childValue, childKey)]],
-    ))
-  }
-  return value
+/**
+ * Restore takes the backup verbatim — it is a full-fidelity copy, secrets
+ * included. Only device-scoped values (server URL/token, display inset) keep
+ * their local values.
+ */
+export function mergeSettingsForRestore(restored: Partial<AppSettings>, current: AppSettings): Partial<AppSettings> {
+  const merged = { ...restored } as Record<string, unknown>
+  for (const key of DEVICE_ONLY_KEYS) merged[key] = (current as unknown as Record<string, unknown>)[key]
+  return merged as Partial<AppSettings>
 }
 
-export function mergeSettingsPreservingSecrets(restored: Partial<AppSettings>, current: AppSettings): Partial<AppSettings> {
-  const merge = (incoming: unknown, existing: unknown, key = ''): unknown => {
-    if (/api.?key|authorization|token|password|secret/i.test(key)) return existing ?? ''
-    if (Array.isArray(incoming)) return incoming
-    if (incoming && typeof incoming === 'object') {
-      const existingRecord = existing && typeof existing === 'object' ? existing as Record<string, unknown> : {}
-      return Object.fromEntries(Object.entries(incoming).map(([childKey, childValue]) => [childKey, merge(childValue, existingRecord[childKey], childKey)]))
-    }
-    return incoming
-  }
-  return merge(restored, current) as Partial<AppSettings>
-}
-
-export async function createBackup(_settings: Partial<AppSettings>): Promise<TalkBackup> {
-  return (await api.backup.export()) as unknown as TalkBackup
+export async function createBackup(): Promise<TalkBackup> {
+  const backup = (await api.backup.export()) as unknown as TalkBackup
+  // Full-fidelity copy for the owner's own migration: keys are included on
+  // purpose. The server export dumps the kv store raw, so the only filtering
+  // needed here is dropping device-scoped values — they are meaningless on
+  // another device (and device-only keys never sync to kv anyway).
+  const settings = { ...backup.settings } as Record<string, unknown>
+  for (const key of DEVICE_ONLY_KEYS) delete settings[key]
+  backup.settings = settings as Partial<AppSettings>
+  return backup
 }
 
 export function assertTalkBackup(value: unknown): asserts value is TalkBackup {

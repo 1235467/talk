@@ -10,9 +10,9 @@ import { api } from '../lib/api/resources'
 import { getOrUndef } from '../lib/api/client'
 import { uploadDataUrlIfNeeded } from '../lib/api/media'
 import { invalidate, invalidateAll } from '../lib/api/keys'
-import { assertTalkBackup, backupFileName, createBackup, mergeSettingsPreservingSecrets, restoreBackup } from '../lib/backup'
+import { assertTalkBackup, backupFileName, createBackup, mergeSettingsForRestore, restoreBackup } from '../lib/backup'
 import { resumeMediaAssets } from '../lib/imageAssets'
-import type { AppSettings, GenerationProfile } from '../types'
+import type { GenerationProfile } from '../types'
 import { useQuery } from '@tanstack/react-query'
 import { USER_WALLET_ID, setUserBalance } from '../lib/finance'
 import { formatCurrency } from '../lib/wallet'
@@ -87,9 +87,7 @@ export function SettingsPage() {
 
   async function handleExportBackup() {
     setBackupStatus('')
-    const settings = { ...useSettingsStore.getState() } as Partial<AppSettings> & { setSettings?: unknown }
-    delete settings.setSettings
-    const backup = await createBackup(settings)
+    const backup = await createBackup()
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -99,7 +97,7 @@ export function SettingsPage() {
     link.click()
     link.remove()
     URL.revokeObjectURL(url)
-    setBackupStatus('备份已导出。API Key、令牌和密码不会写入备份文件。')
+    setBackupStatus('备份已导出（包含 API Key 等密钥，请妥善保管，不要发给别人）。')
   }
 
   async function handleImportBackup(file: File) {
@@ -114,7 +112,7 @@ export function SettingsPage() {
       await cancelAllContactGenerationTasks()
       await restoreBackup(parsed)
       await markPersistedContactGenerationTasksPaused()
-      const restoredSettings = mergeSettingsPreservingSecrets(parsed.settings, useSettingsStore.getState())
+      const restoredSettings = mergeSettingsForRestore(parsed.settings, useSettingsStore.getState())
       setSettings(restoredSettings)
       useSettingsStore.setState(restoredSettings)
       await resumeMediaAssets()

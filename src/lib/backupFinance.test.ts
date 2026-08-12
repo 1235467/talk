@@ -25,25 +25,32 @@ beforeEach(async () => {
 })
 
 describe('wallet backup', () => {
-  it('never writes API credentials into a backup', async () => {
-    const current = useSettingsStore.getState()
-    const backup = await createBackup({
-      ...current,
-      apiKey: 'chat-secret',
-      tavilyApiKey: 'search-secret',
-      imageProviders: { ...current.imageProviders, atlas: { ...current.imageProviders.atlas, apiKey: 'atlas-secret' } },
-    })
+  it('writes a full-fidelity backup: keys included, device-only values excluded', async () => {
+    // The server export dumps kv raw; createBackup only filters device keys.
+    await api.kv.set('apiKey', 'chat-secret')
+    await api.kv.set('apiKeys', { deepseek: 'chat-secret', custom: 'custom-secret' })
+    await api.kv.set('tavilyApiKey', 'search-secret')
+    await api.kv.set('imageProviders', { atlas: { apiKey: 'atlas-secret', model: 'm' } })
+    await api.kv.set('serverUrl', 'https://talk.example.com')
+    await api.kv.set('serverToken', 'device-token')
+    await api.kv.set('topInsetAdjustmentPx', 12)
+    const backup = await createBackup()
     const serialized = JSON.stringify(backup)
-    expect(serialized).not.toContain('chat-secret')
-    expect(serialized).not.toContain('search-secret')
-    expect(serialized).not.toContain('atlas-secret')
+    expect(serialized).toContain('chat-secret')
+    expect(serialized).toContain('custom-secret')
+    expect(serialized).toContain('search-secret')
+    expect(serialized).toContain('atlas-secret')
+    expect(backup.settings.serverUrl).toBeUndefined()
+    expect(backup.settings.serverToken).toBeUndefined()
+    expect(backup.settings.topInsetAdjustmentPx).toBeUndefined()
+    expect(serialized).not.toContain('device-token')
   })
 
   it('round-trips wallets and ledger rows through a backup', async () => {
     await api.walletAccounts.put({ ownerId: USER_WALLET_ID, balance: 100, updatedAt: 1 })
     await api.contacts.put(contact('contact-a'))
     await transferFunds({ from: USER_WALLET_ID, to: 'contact-a', amount: 35, kind: 'transfer', idempotencyKey: 'backup:transfer' })
-    const backup = restorable(await createBackup({ ...useSettingsStore.getState() }))
+    const backup = restorable(await createBackup())
 
     resetFakeServer()
     await restoreBackup(backup)
@@ -55,7 +62,7 @@ describe('wallet backup', () => {
   })
 
   it('creates a user account when restoring a legacy backup without wallet tables', async () => {
-    const backup = restorable(await createBackup({ ...useSettingsStore.getState() }))
+    const backup = restorable(await createBackup())
     backup.settings = { walletBalance: 42, walletMigrated: false }
     backup.tables.walletAccounts = []
     backup.tables.walletTransactions = []
