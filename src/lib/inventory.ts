@@ -24,10 +24,6 @@ export function inventoryProductKey(product: InventoryProduct): string {
   ])
 }
 
-export function inventoryQuantity(item: InventoryItem): number {
-  return Number.isFinite(item.quantity) ? Math.max(0, Math.floor(item.quantity!)) : 1
-}
-
 function invalidateShop() { invalidate('inventory', 'shopPurchaseHistory', 'walletAccounts', 'walletTransactions') }
 
 /** Add one card per acquisition; the repurchase history stacks by productKey. */

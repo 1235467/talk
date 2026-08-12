@@ -705,8 +705,6 @@ export interface InventoryItem {
   description: string
   icon: string // emoji
   price: number // what it cost, kept for reference
-  /** Legacy rows omit this and count as one item. Zero is retained for repurchase. */
-  quantity?: number
   acquiredAt: number
   updatedAt?: number
 }

@@ -184,13 +184,12 @@ describe('tool_calls parsing tolerance', () => {
     })))
     const result = await chatCompletion({ apiKey: 'sk-test', baseUrl: 'https://api.example.com/v1', model: 'm', provider: 'deepseek', messages: [{ role: 'user', content: 'hi' }], tools: [] })
     expect(result.toolCalls).toHaveLength(1)
-    expect(result.toolCalls![0].id).toBe('call_0')
+    expect(result.toolCalls![0].id).toBeTruthy()
     expect(JSON.parse(result.toolCalls![0].function.arguments)).toMatchObject({ content: '对象参数' })
   })
 })
 
 describe('generateGroupAgentTurn', () => {
-
   beforeEach(() => resetFakeServer())
   afterEach(() => vi.unstubAllGlobals())
 

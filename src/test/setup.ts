@@ -556,6 +556,15 @@ async function fakeApiFetch(path: string, options: { method?: string; body?: any
   throw new FakeApiError(405, `${method} ${path} not implemented in fake server`)
 }
 
+// The importOriginal() below evaluates the real client module (and its import
+// of useSettingsStore) inside the setup-file module graph. If a test file
+// statically imports ../lib/api/client or ../lib/api/resources, that happens
+// at file-evaluation time and useSettingsStore's *dynamic* imports
+// (hydrateSettingsFromServer: `await import('../lib/api/client')`) can then
+// resolve to these REAL modules instead of this mock — the mock's
+// isServerConfigured flag is silently bypassed. Test files exercising that
+// path must therefore avoid static imports of client/resources (import them
+// lazily inside the test body instead). See useSettingsStore.hydrate.test.ts.
 let FakeApiError: typeof import('../lib/api/client').ApiError
 
 vi.mock('../lib/api/client', async (importOriginal) => {
