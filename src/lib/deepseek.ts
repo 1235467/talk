@@ -5,7 +5,7 @@ export interface ChatMessage {
 import { assertAutomaticAiBudget, estimateTokens, recordAiUsage } from './aiUsage'
 import { v4 as uuid } from 'uuid'
 import { api } from './api/resources'
-import { isServerConfigured, serverBase } from './api/client'
+import { isServerConfigured, outboundFetch, serverBase } from './api/client'
 import type { AdminAiTraceStage, AiUsagePurpose } from '../types'
 import { friendlyConnectionError, httpFailureMessage, parseJsonText, requireApiKey, requireHttpUrl } from './connectionError'
 import { useSettingsStore } from '../store/useSettingsStore'
@@ -73,7 +73,7 @@ export async function listModels(apiKey: string, baseUrl: string, provider: AiPr
     requireHttpUrl(baseUrl || AI_PROVIDERS[provider].defaultBaseUrl, 'Base URL')
     const modelsUrl = resolveModelsUrl(baseUrl, provider)
     if (!modelsUrl) throw new Error(`${AI_PROVIDERS[provider].label} 未声明兼容的模型列表接口，请直接填写模型名称`)
-    const res = await appFetch(modelsUrl, {
+    const res = await outboundFetch(modelsUrl, {
       headers: { Authorization: `Bearer ${key}` },
     })
     const text = await res.text()
