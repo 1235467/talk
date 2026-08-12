@@ -12,7 +12,7 @@ import { uploadDataUrlIfNeeded } from '../lib/api/media'
 import { invalidate, invalidateAll } from '../lib/api/keys'
 import { assertTalkBackup, backupFileName, createBackup, mergeSettingsPreservingSecrets, restoreBackup } from '../lib/backup'
 import { resumeMediaAssets } from '../lib/imageAssets'
-import type { AppSettings } from '../types'
+import type { AppSettings, GenerationProfile } from '../types'
 import { useQuery } from '@tanstack/react-query'
 import { USER_WALLET_ID, setUserBalance } from '../lib/finance'
 import { formatCurrency } from '../lib/wallet'
@@ -42,6 +42,8 @@ export function SettingsPage() {
     experienceMode,
     topInsetAdjustmentPx,
     automaticAiDailyCap,
+    generationByProvider,
+    chatResponseTimeoutMs,
     setSettings,
   } = useSettingsStore()
   const [confirmingWipe, setConfirmingWipe] = useState(false)
@@ -169,6 +171,15 @@ export function SettingsPage() {
       model: modelDraft.trim(),
       utilityModel: utilityModelDraft.trim(),
     })
+  }
+
+  const generationProfile = generationByProvider?.[providerDraft] ?? {}
+  function patchGenerationProfile(patch: Partial<GenerationProfile>) {
+    setSettings({ generationByProvider: { ...(generationByProvider ?? {}), [providerDraft]: { ...generationProfile, ...patch } } })
+  }
+  function parseOptionalNumber(raw: string): number | undefined {
+    const value = Number(raw)
+    return raw.trim() && Number.isFinite(value) && value > 0 ? value : undefined
   }
 
   async function handlePullModels() {
@@ -488,6 +499,68 @@ export function SettingsPage() {
             {testResult.message}
           </p>
         )}
+
+        <div className="mt-4 border-t border-gray-100 pt-3">
+          <h3 className="mb-2 text-xs font-medium text-gray-400">生成参数（按供应商分别保存，改动即时生效）</h3>
+
+          <label className="mb-1 block text-xs text-gray-500">推理强度</label>
+          <select
+            value={generationProfile.reasoningEffort ?? 'auto'}
+            onChange={(e) => patchGenerationProfile({ reasoningEffort: e.target.value as GenerationProfile['reasoningEffort'] })}
+            className="mb-3 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          >
+            <option value="auto">自动（不发送该字段，由供应商默认决定）</option>
+            <option value="off">禁用（显式关闭思考）</option>
+            <option value="low">低（low）</option>
+            <option value="medium">中（medium）</option>
+            <option value="high">高（high）</option>
+            <option value="xhigh">超高（xhigh，仅部分模型支持）</option>
+            <option value="max">最高（max，仅部分模型支持）</option>
+          </select>
+
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm text-gray-800">流式请求</p>
+              <p className="mt-0.5 text-[11px] text-gray-400">部分接口只支持流式（SSE）响应；推理模型长考时也能避免连接闲置超时</p>
+            </div>
+            <ToggleSwitch checked={generationProfile.streamEnabled === true} onChange={(checked) => patchGenerationProfile({ streamEnabled: checked })} ariaLabel="流式请求" />
+          </div>
+
+          <label className="mb-1 block text-xs text-gray-500">最大输出 token（留空默认 8096）</label>
+          <input
+            type="number" min={1}
+            value={generationProfile.maxOutputTokens ?? ''}
+            placeholder="8096"
+            onChange={(e) => patchGenerationProfile({ maxOutputTokens: parseOptionalNumber(e.target.value) })}
+            className="mb-3 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          />
+
+          <div className="mb-3 grid grid-cols-3 gap-2">
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">温度</label>
+              <input type="number" step="0.1" value={generationProfile.temperature ?? ''} placeholder="默认" onChange={(e) => patchGenerationProfile({ temperature: parseOptionalNumber(e.target.value) })} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">top_p</label>
+              <input type="number" step="0.05" value={generationProfile.topP ?? ''} placeholder="不发送" onChange={(e) => patchGenerationProfile({ topP: parseOptionalNumber(e.target.value) })} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">top_k</label>
+              <input type="number" value={generationProfile.topK ?? ''} placeholder="不发送" onChange={(e) => patchGenerationProfile({ topK: parseOptionalNumber(e.target.value) })} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          <label className="mb-1 block text-xs text-gray-500">回复超时（分钟，0 为不超时；推理模型建议 5 分钟以上）</label>
+          <input
+            type="number" min={0} step={1}
+            value={Math.round((chatResponseTimeoutMs ?? 300000) / 60000)}
+            onChange={(e) => {
+              const minutes = Number(e.target.value)
+              if (e.target.value.trim() && Number.isFinite(minutes) && minutes >= 0) setSettings({ chatResponseTimeoutMs: Math.round(minutes * 60000) })
+            }}
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          />
+        </div>
       </section>
 
       <section className="mt-3 bg-white">

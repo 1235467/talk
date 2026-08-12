@@ -276,10 +276,8 @@ issues 要用简短中文列出具体错误。` },
 候选输出：${raw}` },
       ],
       jsonMode: true,
-      thinking: 'disabled',
       purpose: 'persona',
       temperature: 0,
-      maxTokens: 500,
     })
     const review = parseNuwaReview(reviewRaw)
     const issues = Array.from(new Set([...localIssues, ...(review?.issues ?? [])]))
@@ -288,7 +286,7 @@ issues 要用简短中文列出具体错误。` },
     return { valid: !!parsed && localIssues.length === 0 && review?.valid === true, issues, result: parsed }
   }
 
-  async function generateReviewedNuwaPolish(prompt: string, temperature: number, maxTokens: number) {
+  async function generateReviewedNuwaPolish(prompt: string, temperature: number) {
     let rejection = ''
     let lastIssues: string[] = []
     for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -304,10 +302,8 @@ issues 要用简短中文列出具体错误。` },
           { role: 'user', content: '请只补全空字段，并返回包含全部字段的完整表单 JSON。' },
         ],
         jsonMode: true,
-        thinking: 'disabled',
         purpose: 'persona',
         temperature,
-        maxTokens,
       })
       const review = await reviewNuwaFormResponse(raw)
       if (review.valid && review.result) return review.result
@@ -401,7 +397,7 @@ issues 要用简短中文列出具体错误。` },
       if (!editablePrompt) throw new Error('女娲创建提示词模块已屏蔽')
       const worldbookText = await creationWorldbookContext([direction, existing, currentInterpersonalSetting()].filter(Boolean).join('\n'))
       const prompt = [editablePrompt, worldbookText ? `【创建角色时必须遵守的世界书】\n${worldbookText}\n世界书是正史硬约束。补全的身份、经历、职业、关系、能力边界和生活方式都必须与其一致，不得只在其他设定里提到一嘴。` : ''].filter(Boolean).join('\n\n')
-      const result = await generateReviewedNuwaPolish(prompt, 0.65, 1800)
+      const result = await generateReviewedNuwaPolish(prompt, 0.65)
       if (result && Object.values(result).some(Boolean)) {
         const fillEmpty = (current: string, completion: string) => current.trim() ? current : completion
         setCustomRealName((current) => fillEmpty(current, result.realName))

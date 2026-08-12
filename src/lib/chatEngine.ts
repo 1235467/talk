@@ -68,8 +68,15 @@ interface ConversationRuntimeState {
 // infinite-loop detection and crashes the page.
 export const DEFAULT_RUNTIME_STATE: ConversationRuntimeState = { aiTyping: false, error: '', typingLabel: undefined, timedOut: false }
 
-const REPLY_TIMEOUT_MS = 360_000
-export const REPLY_TIMEOUT_MESSAGE = '这轮回复等待超过 6 分钟，已自动停止。你可以重新生成这一轮。'
+/** Reply watchdog: user-configurable (chatResponseTimeoutMs), 0 disables. Reasoning models think for minutes, hence the 5-minute default. */
+export function chatReplyTimeoutMs(settings: AppSettings): number {
+  return Math.max(0, Math.min(10 * 60 * 1000, Math.round(settings.chatResponseTimeoutMs ?? 5 * 60 * 1000)))
+}
+
+export function replyTimeoutMessage(timeoutMs: number): string {
+  const text = timeoutMs >= 120_000 ? `${Math.round(timeoutMs / 60000)} 分钟` : `${Math.max(1, Math.round(timeoutMs / 1000))} 秒`
+  return `这轮回复等待超过 ${text}，已自动停止。你可以重新生成这一轮。`
+}
 
 /** Message ordering relies on timestamps, so they must be monotonic per conversation. */
 export async function nextMessageTimestamp(conversationId: string, requested = Date.now()): Promise<number> {
@@ -354,15 +361,18 @@ async function runAiTurn(
   engine.patch(conversationId, { aiTyping: true, error: '', typingLabel: displayName(contact), timedOut: false })
   console.log(`[chat] 开始生成回复 对方=${displayName(contact)} conversationId=${conversationId}`)
   let replyRevealed = false
-  const timeout = setTimeout(() => {
-    if (!turns.isCurrent(conversationId, streamId) || replyRevealed) return
-    console.warn(`[chat] 回复超时，对方=${displayName(contact)} conversationId=${conversationId}`)
-    // begin() invalidates this stream, aborts any request currently in flight,
-    // and clears unrevealed bubble timers before the retry becomes available.
-    turns.begin(conversationId, uuid())
-    engine.patch(conversationId, { aiTyping: false, typingLabel: undefined, error: REPLY_TIMEOUT_MESSAGE, timedOut: true })
-  }, REPLY_TIMEOUT_MS)
-  turns.addTimer(conversationId, timeout)
+  const timeoutMs = chatReplyTimeoutMs(settings)
+  const timeout = timeoutMs > 0
+    ? setTimeout(() => {
+        if (!turns.isCurrent(conversationId, streamId) || replyRevealed) return
+        console.warn(`[chat] 回复超时，对方=${displayName(contact)} conversationId=${conversationId}`)
+        // begin() invalidates this stream, aborts any request currently in flight,
+        // and clears unrevealed bubble timers before the retry becomes available.
+        turns.begin(conversationId, uuid())
+        engine.patch(conversationId, { aiTyping: false, typingLabel: undefined, error: replyTimeoutMessage(timeoutMs), timedOut: true })
+      }, timeoutMs)
+    : undefined
+  if (timeout !== undefined) turns.addTimer(conversationId, timeout)
   try {
     const directOutput = isModuleEnabled('directOutput')
     const history = await api.messages.list({ conversationId })
@@ -525,9 +535,7 @@ async function runAiTurn(
       signal: controller.signal,
       purpose: proactiveContext ? 'proactive' : 'chat',
       automatic: !!proactiveContext,
-      thinking: 'disabled',
       temperature: regenerationInstruction ? 0.55 : 0.9,
-      maxTokens: directOutput ? 1200 : proactiveContext ? 700 : 800,
       jsonMode: directOutput,
       trace: { turnId: streamId, stage: 'original_generation', conversationId },
     })
@@ -584,7 +592,7 @@ async function runAiTurn(
         const enrichedMessages = chatMessages.map((message, index) => index === 0
           ? { ...message, content: `${message.content}\n\n【针对陌生词汇的搜索结果】\n${knowledge.text}\n你刚才对陌生词汇自然表示了疑问。现在根据可靠搜索结果重新回答用户，语气要自然，不要写成搜索报告，也不要提审查流程。` }
           : message)
-        rawText = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, messages: enrichedMessages, signal: controller.signal, purpose: proactiveContext ? 'proactive' : 'chat', automatic: !!proactiveContext, thinking: 'disabled', temperature: regenerationInstruction ? 0.55 : 0.9, maxTokens: proactiveContext ? 700 : 800, trace: { turnId: streamId, stage: 'second_chat', conversationId } })
+        rawText = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, messages: enrichedMessages, signal: controller.signal, purpose: proactiveContext ? 'proactive' : 'chat', automatic: !!proactiveContext, temperature: regenerationInstruction ? 0.55 : 0.9, trace: { turnId: streamId, stage: 'second_chat', conversationId } })
         const enrichedTooled = await insertToolCallsIntoRawTurn({ settings, rawDraft: rawText, recentContext: formatRecentConversationForReview(recentHistory.slice(-4), contact), locationContext: locationActionContext, scene: 'private', imageGenerationEnabled: isImageProviderReady(settings), signal: controller.signal, trace: { turnId: streamId, conversationId } })
         rawText = enrichedTooled.raw
         const enrichedAudited = await auditAndRepairRawTurn({ settings, masterPrompt: chatMessages[0]?.content ?? contextSections, rawDraft: rawText, scene: 'private', regenerationInstruction, signal: controller.signal, trace: { turnId: streamId, conversationId } })

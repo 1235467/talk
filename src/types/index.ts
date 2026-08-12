@@ -782,8 +782,20 @@ export interface AlbumSavedImage {
   caption?: string
 }
 
-export interface AppSettings {
-  experienceMode: ContactGenerationExperienceMode
+/** Per-provider generation knobs. Capabilities differ per API, so each provider keeps its own tuning; switching providers never clobbers another provider's profile. */
+export interface GenerationProfile {
+  /** max_tokens cap. Defaults to 8096 when unset; per-call caps are retired. */
+  maxOutputTokens?: number
+  /** auto = send nothing (provider default — thinking models default to on). off = explicitly disable. Any other value passes through as the reasoning effort; boolean-style adapters treat non-auto/off as "on". */
+  reasoningEffort?: 'auto' | 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  /** Some APIs only support streaming responses. */
+  streamEnabled?: boolean
+  temperature?: number
+  topP?: number
+  topK?: number
+}
+
+export interface AppSettings {  experienceMode: ContactGenerationExperienceMode
   /** Talk server base URL, e.g. "https://talk.example.com" — empty means the app talks to a same-origin server. */
   serverUrl: string
   /** Bearer token for the talk server (TALK_TOKEN on the server side). */
@@ -794,6 +806,10 @@ export interface AppSettings {
   baseUrl: string
   /** Each provider carries its own endpoint — switching providers never touches another provider's stored URL. */
   baseUrls?: Partial<Record<import('../lib/aiProviders').AiProviderId, string>>
+  /** Per-provider generation knobs — capabilities differ per API (see GenerationProfile). */
+  generationByProvider?: Partial<Record<import('../lib/aiProviders').AiProviderId, GenerationProfile>>
+  /** AI reply timeout in ms; 0 disables the watchdog. Default 5 min (reasoning models think long). */
+  chatResponseTimeoutMs: number
   model: string
   utilityModel: string // model for secondary tasks: shop generation, warmth scoring / memory updates, worldview drafts, etc.
   globalSystemPrompt: string

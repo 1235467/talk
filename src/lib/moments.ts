@@ -244,9 +244,7 @@ async function reviewMomentPayload(settings: AppSettings, raw: string, expectedS
       baseUrl: settings.baseUrl,
       model: settings.utilityModel || settings.model,
       jsonMode: true,
-      thinking: 'disabled',
       temperature: 0,
-      maxTokens: 220,
       purpose: 'quality',
       automatic: true,
       messages: [
@@ -272,9 +270,7 @@ async function reviewMomentPayload(settings: AppSettings, raw: string, expectedS
       baseUrl: settings.baseUrl,
       model: settings.utilityModel || settings.model,
       jsonMode: true,
-      thinking: 'disabled',
       temperature: 0.15,
-      maxTokens: 900,
       purpose: 'quality',
       automatic: true,
       messages: [
@@ -924,7 +920,7 @@ export async function generateMomentDiscussion(
 直接被回复者id：${directId && directId !== 'user' ? directId : 'none'}`
     const editable = getPromptTemplate(settings, 'moments', 'discussion', { worldbookPrompt: discussionWorldbookPrompt, discussionContext }) ?? ''
     const prompt = `${editable}\n\n固定输出协议：只输出JSON {"comments":[{"authorId":"candidate id","replyToCommentId":"optional existing comment id","content":"..."}]}`
-    const raw = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, jsonMode: true, maxTokens: 500, purpose: 'moments', messages: [{ role: 'system', content: prompt }, { role: 'user', content: 'Generate the discussion.' }] })
+    const raw = await chatCompletion({ apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model, jsonMode: true, purpose: 'moments', messages: [{ role: 'system', content: prompt }, { role: 'user', content: 'Generate the discussion.' }] })
     const parsed = JSON.parse(raw) as { comments?: Array<{ authorId?: unknown; replyToCommentId?: unknown; content?: unknown }> }
     const allowedReplyIds = new Set(comments.map((comment) => comment.id))
     const output = (parsed.comments ?? []).flatMap((item) => {

@@ -151,11 +151,9 @@ ${worldbook ? `【所属世界正史与创建参考资料】\n${worldbook.slice(
     model: settings.utilityModel || settings.model,
     messages: [{ role: 'system', content: prompt }, { role: 'user', content: '补全这段时间，并只返回指定JSON。' }],
     jsonMode: true,
-    thinking: 'disabled',
     purpose: 'lifeSimulation',
     automatic: true,
     temperature: 0.35,
-    maxTokens: 1400,
   })
   const parsed = parseJsonLoose<{ experiences?: GeneratedExperience[] }>(raw)
   const allowedIds = new Set((await api.contactRelations.list()).filter((row) => row.fromContactId === contact.id || row.toContactId === contact.id).flatMap((row) => [row.fromContactId, row.toContactId]).filter((id) => id !== contact.id))

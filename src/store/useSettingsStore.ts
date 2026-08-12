@@ -151,6 +151,7 @@ export const useSettingsStore = create<SettingsState>()(
       animationsEnabled: true,
       customCurrencyEmoji: '💎',
       moodExpiryMs: 30 * 60 * 1000,
+      chatResponseTimeoutMs: 5 * 60 * 1000,
       adminModeEnabled: false,
       enabledModules: ['worldview', 'knowledgeBase', 'relationship', 'personalityTraits', 'intent', 'storyOutline', 'location'],
       setSettings: (patch) => {

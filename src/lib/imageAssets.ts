@@ -45,9 +45,7 @@ async function generateIdentity(label: string, context: string, settings: AppSet
       provider: settings.aiProvider,
       purpose: 'other',
       automatic: true,
-      thinking: 'disabled',
       temperature: 0.4,
-      maxTokens: 220,
       messages: [
         { role: 'system', content: 'Write one concise English visual identity for consistent image generation. Include apparent adult age, face shape, eyes, nose, lips, skin tone, hairstyle, build, and distinctive permanent features. Never include clothes, pose, scene, lighting, camera, mood, ethnicity not established by the input, or art style. Output only the description.' },
         { role: 'user', content: `${label}\n${context.slice(0, 1800)}` },

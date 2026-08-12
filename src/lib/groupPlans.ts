@@ -58,7 +58,7 @@ async function generatePlanAftermath(plan: GroupPlan, group: Group, settings: Ap
       participants: JSON.stringify(contacts.map((contact) => ({ id: contact.id, name: contact.name, persona: contact.systemPrompt }))),
     }) ?? ''
     const raw = await chatCompletion({
-      apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.utilityModel, jsonMode: true, maxTokens: 600, purpose: 'moments',
+      apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.utilityModel, jsonMode: true, purpose: 'moments',
       messages: [{ role: 'system', content: `${editable}\n\n固定输出协议：只输出JSON {"groupMessage":"...","moments":[{"contactId":"participant id","content":"public moment"}]}` }, { role: 'user', content: 'Generate aftermath.' }],
     })
     const parsed = JSON.parse(raw) as { groupMessage?: unknown; moments?: Array<{ contactId?: unknown; content?: unknown }> }

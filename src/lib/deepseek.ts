@@ -161,9 +161,7 @@ export interface ChatCompletionOptions {
   jsonMode?: boolean
   purpose?: AiUsagePurpose
   automatic?: boolean
-  maxTokens?: number
   temperature?: number
-  thinking?: 'enabled' | 'disabled'
   trace?: { turnId: string; stage: AdminAiTraceStage; conversationId?: string }
   /** Never issue an empty-response retry. Reserved for explicit diagnostics. */
   singleRequest?: boolean
@@ -267,46 +265,37 @@ function completionStatusMessage(result: ChatCompletionResult): string {
   return '模型没有返回有效正文'
 }
 
-/**
- * Kimi K3 (model id contains "k3", e.g. "kimi-k3" or relay-prefixed variants)
- * always thinks — there is no "off" — and takes a top-level reasoning_effort
- * of low/high/max (default max). Force "high" so it never receives a
- * disabled-style effort, and drop any provider-specific thinking switches
- * that would conflict. Temperature is left untouched (the server pins it to
- * 1.0 anyway).
- */
-function isK3Model(model: string): boolean {
-  return /k3/i.test(model)
-}
-
 function requestBody(opts: ChatCompletionOptions, messages: ChatMessage[], provider: AiProviderId, overrides: { disableJson?: boolean; alternateToken?: boolean; emptyRetry?: boolean } = {}): Record<string, unknown> {
   const adapter = AI_PROVIDERS[provider]
+  const profile = useSettingsStore.getState().generationByProvider?.[provider]
   const tokenParameter = overrides.alternateToken
     ? adapter.tokenParameter === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens'
     : adapter.tokenParameter
   const body: Record<string, unknown> = { model: opts.model, messages }
   if (opts.jsonMode && !overrides.disableJson && adapter.responseFormat !== 'ignored') body.response_format = { type: 'json_object' }
-  const temperature = clampProviderTemperature(provider, opts.temperature ?? 1.1)
+  const temperature = clampProviderTemperature(provider, profile?.temperature ?? opts.temperature ?? 1)
   if (temperature !== undefined) body.temperature = temperature
-  if (opts.maxTokens) body[tokenParameter] = overrides.emptyRetry ? Math.ceil(opts.maxTokens * 1.35) : opts.maxTokens
-  const thinking = overrides.emptyRetry ? 'disabled' : (opts.thinking ?? 'disabled')
-  if (adapter.thinking === 'deepseek') body.thinking = { type: thinking }
-  else if (adapter.thinking === 'reasoning_effort') body.reasoning_effort = thinking === 'enabled' ? 'medium' : 'none'
-  else if (adapter.thinking === 'enable_thinking') body.enable_thinking = thinking === 'enabled'
-  else if (adapter.thinking === 'anthropic' && thinking === 'enabled') body.thinking = { type: 'enabled', budget_tokens: 1024 }
-  if (isK3Model(opts.model)) {
-    delete body.thinking
-    delete body.enable_thinking
-    // The server pins temperature to 1.0 and rejects any other explicit
-    // value ("only 1 is allowed for this model"), so omit it entirely.
-    delete body.temperature
-    // K3 thinking burns through the app's small per-call caps (chat uses
-    // 700-800) before any visible text is emitted, surfacing as
-    // finish_reason=length with empty content. The server-side default
-    // (131072) is generous and billing is per actual output, so omit the cap.
-    delete body.max_tokens
-    delete body.max_completion_tokens
-    body.reasoning_effort = 'high'
+  if (profile?.topP !== undefined) body.top_p = profile.topP
+  if (profile?.topK !== undefined) body.top_k = profile.topK
+  // The per-provider profile is the single output-cap source (default 8096);
+  // per-call caps are retired — reasoning models burn small caps before
+  // emitting visible text, and billing is per actual output anyway.
+  const cap = profile?.maxOutputTokens ?? 8096
+  body[tokenParameter] = overrides.emptyRetry ? Math.ceil(cap * 1.35) : cap
+  // auto = send nothing at all (provider default; thinking models default to
+  // on). off = explicitly disable. Boolean-style adapters treat any actual
+  // effort level as "on".
+  const effort = overrides.emptyRetry ? 'auto' : (profile?.reasoningEffort ?? 'auto')
+  if (effort === 'off') {
+    if (adapter.thinking === 'reasoning_effort') body.reasoning_effort = 'none'
+    else if (adapter.thinking === 'deepseek') body.thinking = { type: 'disabled' }
+    else if (adapter.thinking === 'enable_thinking') body.enable_thinking = false
+    // anthropic defaults to no thinking; nothing to send.
+  } else if (effort !== 'auto') {
+    if (adapter.thinking === 'reasoning_effort') body.reasoning_effort = effort
+    else if (adapter.thinking === 'deepseek') body.thinking = { type: 'enabled' }
+    else if (adapter.thinking === 'enable_thinking') body.enable_thinking = true
+    else if (adapter.thinking === 'anthropic') body.thinking = { type: 'enabled', budget_tokens: 1024 }
   }
   return body
 }
@@ -395,9 +384,9 @@ export async function chatCompletion(opts: ChatCompletionOptions): Promise<ChatC
   let result: ChatCompletionResult | undefined
   let retryMode: { disableJson?: boolean; alternateToken?: boolean; emptyRetry?: boolean } = {}
   const maxAttempts = opts.singleRequest ? 1 : EMPTY_COMPLETION_MAX_ATTEMPTS
-  // K3 thinks for minutes; a streaming request keeps the connection alive
-  // instead of holding one silent HTTP response open the whole time.
-  let streamDisabled = !isK3Model(opts.model)
+  // Streaming is an explicit per-provider choice (some APIs only speak SSE);
+  // it also keeps long reasoning turns from holding one silent response open.
+  let streamDisabled = !useSettingsStore.getState().generationByProvider?.[provider]?.streamEnabled
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const body = requestBody(opts, messages, provider, retryMode)
     if (!streamDisabled) body.stream = true

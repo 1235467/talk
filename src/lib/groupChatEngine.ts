@@ -18,7 +18,7 @@ import { isModuleEnabled } from '../features'
 import { describeCurrentTime } from './time'
 import { displayName } from './contact'
 import { previewForMessage } from './messagePreview'
-import { buildUserProfileText, nextMessageTimestamp, REPLY_TIMEOUT_MESSAGE, useChatEngineStore } from './chatEngine'
+import { buildUserProfileText, chatReplyTimeoutMs, nextMessageTimestamp, replyTimeoutMessage, useChatEngineStore } from './chatEngine'
 import { buildDirectGroupOutputInstruction, parseDirectOutputReview } from './directOutput'
 import { trackRemoteStickerSend } from './remoteMedia'
 import { resolveBubbleMedia } from './bubbleMedia'
@@ -64,7 +64,6 @@ async function loadSpeakerMemories(speakers: Contact[]): Promise<Map<string, str
  * updated per speaker, via maybeUpdateGroupMemory — see memory.ts.
  */
 const turns = createTurnController()
-const REPLY_TIMEOUT_MS = 360_000
 
 function scheduleGroupAiTurn(
   conversationId: string,
@@ -366,13 +365,16 @@ async function runGroupAiTurn(
   engine.patch(conversationId, { aiTyping: true, error: '', typingLabel: '群成员', timedOut: false })
   console.log(`[group] 开始生成回复 群=${group.name} conversationId=${conversationId}`)
   let replyRevealed = false
-  const timeout = setTimeout(() => {
-    if (!turns.isCurrent(conversationId, streamId) || replyRevealed) return
-    console.warn(`[group] 回复超时，群=${group.name} conversationId=${conversationId}`)
-    turns.begin(conversationId, uuid())
-    engine.patch(conversationId, { aiTyping: false, typingLabel: undefined, error: REPLY_TIMEOUT_MESSAGE, timedOut: true })
-  }, REPLY_TIMEOUT_MS)
-  turns.addTimer(conversationId, timeout)
+  const timeoutMs = chatReplyTimeoutMs(settings)
+  const timeout = timeoutMs > 0
+    ? setTimeout(() => {
+        if (!turns.isCurrent(conversationId, streamId) || replyRevealed) return
+        console.warn(`[group] 回复超时，群=${group.name} conversationId=${conversationId}`)
+        turns.begin(conversationId, uuid())
+        engine.patch(conversationId, { aiTyping: false, typingLabel: undefined, error: replyTimeoutMessage(timeoutMs), timedOut: true })
+      }, timeoutMs)
+    : undefined
+  if (timeout !== undefined) turns.addTimer(conversationId, timeout)
   try {
     let locationParticipants: LocationParticipants | undefined
     if (group.kind === 'location' && group.locationId) {
@@ -482,9 +484,7 @@ async function runGroupAiTurn(
       messages: chatMessages,
       signal: controller.signal,
       purpose: 'chat',
-      thinking: 'disabled',
       temperature: regenerationInstruction ? 0.55 : 0.9,
-      maxTokens: directOutput ? 1400 : 1000,
       jsonMode: directOutput,
       trace: { turnId: streamId, stage: 'original_generation', conversationId },
     })
@@ -526,7 +526,7 @@ async function runGroupAiTurn(
     if (!directOutput && featureActive(settings, 'knowledgeBase') && knowledgeQueries.length > 0) {
       const knowledge = await resolveKnowledgeQueries(knowledgeQueries, settings)
       if (knowledge.text) {
-        rawText = await chatCompletion({ apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.model,messages:[...chatMessages,{role:'user',content:`刚才出现了你们不了解的词。搜索结果如下：\n${knowledge.text}\n请基于结果重新生成群聊草稿，保持原群聊格式，像刚查明白后自然接话，不要写成报告。${regenerationUserMessage ? `\n\n再次确认：仍必须严格执行前述“最高优先级剧情要求”。` : ''}`}],signal:controller.signal, thinking:'disabled',temperature:regenerationInstruction ? 0.55 : 0.9,maxTokens:1800,trace:{turnId:streamId,stage:'second_chat',conversationId} })
+        rawText = await chatCompletion({ apiKey:settings.apiKey,baseUrl:settings.baseUrl,model:settings.model,messages:[...chatMessages,{role:'user',content:`刚才出现了你们不了解的词。搜索结果如下：\n${knowledge.text}\n请基于结果重新生成群聊草稿，保持原群聊格式，像刚查明白后自然接话，不要写成报告。${regenerationUserMessage ? `\n\n再次确认：仍必须严格执行前述“最高优先级剧情要求”。` : ''}`}],signal:controller.signal,temperature:regenerationInstruction ? 0.55 : 0.9,trace:{turnId:streamId,stage:'second_chat',conversationId} })
         const enrichedTooled = await insertToolCallsIntoRawTurn({ settings, rawDraft: rawText, recentContext: recentHistory.slice(-4).map((message) => formatGroupHistoryMessage(message, contactById, messageById, settings.userNickname).content).join('\n'), scene: 'group', imageGenerationEnabled, signal: controller.signal, trace: { turnId: streamId, conversationId } })
         rawText = enrichedTooled.raw
         const enrichedAudited = await auditAndRepairRawTurn({ settings, masterPrompt: chatMessages[0]?.content ?? systemPrompt, rawDraft: rawText, scene: 'group', regenerationInstruction, signal: controller.signal, trace: { turnId: streamId, conversationId } })
